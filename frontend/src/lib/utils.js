@@ -1,6 +1,80 @@
 import { clsx } from "clsx";
-import { twMerge } from "tailwind-merge"
+import { twMerge } from "tailwind-merge";
 
 export function cn(...inputs) {
   return twMerge(clsx(inputs));
+}
+
+// Format number as SAR currency
+export function formatCurrency(value, showSymbol = true) {
+  if (value === null || value === undefined || isNaN(value)) return showSymbol ? 'SAR 0.00' : '0.00';
+  const formatted = new Intl.NumberFormat('en-SA', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+  return showSymbol ? `SAR ${formatted}` : formatted;
+}
+
+// Format percentage
+export function formatPercent(value, decimals = 1) {
+  if (value === null || value === undefined || isNaN(value)) return '0%';
+  return `${value.toFixed(decimals)}%`;
+}
+
+// Format number with commas
+export function formatNumber(value, decimals = 0) {
+  if (value === null || value === undefined || isNaN(value)) return '0';
+  return new Intl.NumberFormat('en-SA', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  }).format(value);
+}
+
+// Generate unique ID
+export function generateId() {
+  return Math.random().toString(36).substring(2) + Date.now().toString(36);
+}
+
+// Get deal status color class
+export function getDealStatusClass(status) {
+  switch (status?.toLowerCase()) {
+    case 'healthy':
+      return 'deal-healthy';
+    case 'risk':
+      return 'deal-risk';
+    case 'underpriced':
+      return 'deal-underpriced';
+    default:
+      return 'deal-healthy';
+  }
+}
+
+// Get margin color class
+export function getMarginColorClass(marginPercent) {
+  if (marginPercent >= 30) return 'text-emerald-600';
+  if (marginPercent >= 20) return 'text-amber-600';
+  return 'text-red-600';
+}
+
+// Calculate working hours from utilization
+export function hoursFromUtilization(utilizationPercent, monthlyHours = 176) {
+  return (utilizationPercent / 100) * monthlyHours;
+}
+
+// Deep clone object
+export function deepClone(obj) {
+  return JSON.parse(JSON.stringify(obj));
+}
+
+// Debounce function
+export function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
 }
