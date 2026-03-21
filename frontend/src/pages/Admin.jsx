@@ -482,37 +482,159 @@ function ScopeTemplatesManager() {
 
 function VendorServicesManager() {
   const [services, setServices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [editingService, setEditingService] = useState(null);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [formData, setFormData] = useState({ name: '', category: '', default_markup_percent: 15 });
 
   useEffect(() => {
-    getVendorServices().then(setServices).catch(() => toast.error('Failed to load'));
+    loadServices();
   }, []);
+
+  const loadServices = async () => {
+    try {
+      const data = await getVendorServices();
+      setServices(data);
+    } catch (error) {
+      toast.error('Failed to load vendor services');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSave = async () => {
+    try {
+      if (editingService) {
+        await updateVendorService(editingService.id, formData);
+        toast.success('Vendor service updated');
+      } else {
+        await createVendorService(formData);
+        toast.success('Vendor service created');
+      }
+      setIsDialogOpen(false);
+      setEditingService(null);
+      setFormData({ name: '', category: '', default_markup_percent: 15 });
+      loadServices();
+    } catch (error) {
+      toast.error('Failed to save vendor service');
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (window.confirm('Are you sure you want to delete this vendor service?')) {
+      try {
+        await deleteVendorService(id);
+        toast.success('Vendor service deleted');
+        loadServices();
+      } catch (error) {
+        toast.error('Failed to delete vendor service');
+      }
+    }
+  };
+
+  const openEdit = (service) => {
+    setEditingService(service);
+    setFormData({ 
+      name: service.name, 
+      category: service.category || '', 
+      default_markup_percent: service.default_markup_percent 
+    });
+    setIsDialogOpen(true);
+  };
+
+  const openCreate = () => {
+    setEditingService(null);
+    setFormData({ name: '', category: '', default_markup_percent: 15 });
+    setIsDialogOpen(true);
+  };
 
   return (
     <div data-testid="vendor-services-manager">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900 font-['Manrope']">Vendor Services</h1>
-        <p className="text-slate-600">External services with default markups</p>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 font-['Manrope']">Vendor Services</h1>
+          <p className="text-slate-600">External services with default markups</p>
+        </div>
+        <Button onClick={openCreate} className="gap-2" data-testid="add-vendor-service-btn">
+          <Plus className="w-4 h-4" />
+          Add Vendor Service
+        </Button>
       </div>
+
       <Card>
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Service</TableHead>
+              <TableHead>Service Name</TableHead>
               <TableHead>Category</TableHead>
               <TableHead>Default Markup %</TableHead>
+              <TableHead className="w-24">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {services.map(s => (
-              <TableRow key={s.id}>
-                <TableCell className="font-medium">{s.name}</TableCell>
-                <TableCell>{s.category || '-'}</TableCell>
-                <TableCell className="font-mono">{s.default_markup_percent}%</TableCell>
+            {services.map(service => (
+              <TableRow key={service.id} data-testid={`vendor-service-row-${service.id}`}>
+                <TableCell className="font-medium">{service.name}</TableCell>
+                <TableCell>{service.category || '-'}</TableCell>
+                <TableCell className="font-mono">{service.default_markup_percent}%</TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-1">
+                    <Button variant="ghost" size="sm" onClick={() => openEdit(service)} data-testid={`edit-vendor-service-${service.id}`}>
+                      <Pencil className="w-4 h-4" />
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleDelete(service.id)} className="text-red-500 hover:text-red-700" data-testid={`delete-vendor-service-${service.id}`}>
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       </Card>
+
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <DialogContent data-testid="vendor-service-dialog">
+          <DialogHeader>
+            <DialogTitle>{editingService ? 'Edit Vendor Service' : 'Add New Vendor Service'}</DialogTitle>
+            <DialogDescription>Enter vendor service details below</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Service Name</Label>
+              <Input
+                value={formData.name}
+                onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                placeholder="e.g., Production House"
+                data-testid="vendor-service-name-input"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Category</Label>
+              <Input
+                value={formData.category}
+                onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))}
+                placeholder="e.g., Production, Media, Technology"
+                data-testid="vendor-service-category-input"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Default Markup %</Label>
+              <Input
+                type="number"
+                value={formData.default_markup_percent}
+                onChange={(e) => setFormData(prev => ({ ...prev, default_markup_percent: parseFloat(e.target.value) || 0 }))}
+                data-testid="vendor-service-markup-input"
+              />
+              <p className="text-xs text-slate-500">This markup will be applied by default when adding this service to quotes</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleSave} data-testid="save-vendor-service-btn">Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
