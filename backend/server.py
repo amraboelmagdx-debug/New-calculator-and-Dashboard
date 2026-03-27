@@ -298,14 +298,53 @@ async def calculate_simple(data: SimpleCalculationInput):
     overhead_rate = await get_overhead_rate()
     sales_incentive_percent = await get_sales_incentive_percent()
     
+    # Get HR config for benefit calculations
+    hr_config = await db.hr_config.find_one({}, {"_id": 0})
+    if not hr_config:
+        hr_config = {"social_insurance_percent": 12, "medical_insurance_percent": 3, "end_of_service_divisor": 2}
+    
     # Internal labor cost
     internal_labor_cost = 0
     total_hours = 0
+    
     for member in data.team_members:
-        hours = member.hours if member.hours > 0 else (member.utilization_percent / 100) * 176  # 176 = avg monthly hours
-        cost = hours * member.hourly_rate
-        internal_labor_cost += cost
-        total_hours += hours
+        member_cost = 0
+        member_hours = 0
+        
+        if member.employee_type == 'seconded':
+            # Seconded employee: (custom_salary + allowance) * (1 + admin_fee%) * utilization * duration
+            base_cost = (member.custom_salary or 0) + (member.custom_allowance or 0)
+            with_admin_fee = base_cost * (1 + (member.admin_fee_percent or 10) / 100)
+            utilization = (member.utilization_percent or 100) / 100
+            duration = member.duration_months or 1
+            member_cost = with_admin_fee * utilization * duration
+            # Estimate hours for overhead calculation
+            member_hours = 176 * utilization * duration
+        elif member.calc_mode == 'utilization':
+            # Utilization mode: monthly_cost * utilization% * duration
+            # Get role's total monthly cost (with benefits)
+            role = await db.roles.find_one({"id": member.role_id}, {"_id": 0})
+            if role:
+                salary = role.get('monthly_salary', 0)
+                social_ins = salary * hr_config['social_insurance_percent'] / 100
+                medical_ins = salary * hr_config['medical_insurance_percent'] / 100
+                eos = salary / hr_config['end_of_service_divisor'] if hr_config['end_of_service_divisor'] > 0 else 0
+                monthly_cost = salary + social_ins + medical_ins + eos
+            else:
+                monthly_cost = member.monthly_salary or 0
+            
+            utilization = (member.utilization_percent or 0) / 100
+            duration = member.duration_months or 1
+            member_cost = monthly_cost * utilization * duration
+            # Estimate hours for overhead
+            member_hours = 176 * utilization * duration
+        else:
+            # Hours mode: hours * hourly_rate
+            member_hours = member.hours if member.hours > 0 else 0
+            member_cost = member_hours * (member.hourly_rate or 0)
+        
+        internal_labor_cost += member_cost
+        total_hours += member_hours
     
     # Vendor costs
     vendor_cost = sum(v.cost for v in data.vendors)
@@ -323,9 +362,9 @@ async def calculate_simple(data: SimpleCalculationInput):
     sales_percent = sales_incentive_percent / 100
     
     if (1 - margin_percent - sales_percent) > 0:
-        internal_selling_price = internal_labor_cost / (1 - margin_percent - sales_percent)
+        internal_selling_price = (internal_labor_cost + overhead_cost) / (1 - margin_percent - sales_percent)
     else:
-        internal_selling_price = internal_labor_cost * 2
+        internal_selling_price = (internal_labor_cost + overhead_cost) * 2
     
     total_selling_price = internal_selling_price + vendor_revenue
     
