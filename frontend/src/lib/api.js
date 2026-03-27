@@ -214,6 +214,38 @@ export const importGoogleSheet = async (url) => {
   return response.data;
 };
 
+// ==================== PRICING GUIDELINES ====================
+export const getPricingGuidelines = async () => {
+  const response = await apiClient.get('/pricing-guidelines');
+  return response.data;
+};
+
+export const createPricingGuideline = async (guideline) => {
+  const response = await apiClient.post('/pricing-guidelines', guideline, adminConfig());
+  return response.data;
+};
+
+export const updatePricingGuideline = async (id, guideline) => {
+  const response = await apiClient.put(`/pricing-guidelines/${id}`, guideline, adminConfig());
+  return response.data;
+};
+
+export const deletePricingGuideline = async (id) => {
+  const response = await apiClient.delete(`/pricing-guidelines/${id}`, adminConfig());
+  return response.data;
+};
+
+// ==================== RISK CONFIGURATION ====================
+export const getRiskConfig = async () => {
+  const response = await apiClient.get('/risk-config');
+  return response.data;
+};
+
+export const updateRiskConfig = async (config) => {
+  const response = await apiClient.put('/risk-config', config, adminConfig());
+  return response.data;
+};
+
 // ==================== CALCULATIONS ====================
 export const calculateSimple = async (data) => {
   const response = await apiClient.post('/calculate/simple', data);

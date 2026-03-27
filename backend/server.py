@@ -65,6 +65,89 @@ class HRConfigUpdate(BaseModel):
     google_sheets_enabled: bool = False
     google_sheets_url: str = ""
 
+# ==================== PRICING GUIDELINES MODELS ====================
+
+class PricingGuidelineModel(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    category: str = "general"  # general, branding, campaign, digital, consulting, staffing
+    deal_size: str = "standard"  # tiny, standard, big, mega
+    deal_size_min: float = 0
+    deal_size_max: float = 0
+    min_margin: float = 15
+    target_margin: float = 30
+    premium_margin: float = 45
+    min_internal_margin: float = 25
+    min_vendor_margin: float = 10
+    description: str = ""
+    is_active: bool = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class PricingGuidelineCreate(BaseModel):
+    name: str
+    category: str = "general"
+    deal_size: str = "standard"
+    deal_size_min: float = 0
+    deal_size_max: float = 0
+    min_margin: float = 15
+    target_margin: float = 30
+    premium_margin: float = 45
+    min_internal_margin: float = 25
+    min_vendor_margin: float = 10
+    description: str = ""
+    is_active: bool = True
+
+# ==================== RISK CONFIGURATION MODELS ====================
+
+class RiskLevelConfig(BaseModel):
+    level: str  # none, low, medium, high
+    multiplier: float = 1.0
+    description: str = ""
+
+class RiskConfigModel(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = "risk_config"
+    # Risk level multipliers
+    levels: Dict[str, float] = {
+        "none": 1.0,
+        "low": 1.05,
+        "medium": 1.15,
+        "high": 1.30
+    }
+    # Weights for risk factors
+    complexity_weight: float = 0.4
+    rush_weight: float = 0.35
+    execution_weight: float = 0.25
+    # Risk impact mode: "cost", "margin", "buffer"
+    impact_mode: str = "buffer"
+    # How risk affects pricing
+    apply_to_internal: bool = True
+    apply_to_vendor: bool = True
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class RiskConfigUpdate(BaseModel):
+    levels: Dict[str, float] = {
+        "none": 1.0,
+        "low": 1.05,
+        "medium": 1.15,
+        "high": 1.30
+    }
+    complexity_weight: float = 0.4
+    rush_weight: float = 0.35
+    execution_weight: float = 0.25
+    impact_mode: str = "buffer"
+    apply_to_internal: bool = True
+    apply_to_vendor: bool = True
+
+# ==================== RISK INPUT MODELS ====================
+
+class RiskFactorsInput(BaseModel):
+    complexity: str = "none"  # none, low, medium, high
+    rush: str = "none"
+    execution: str = "none"
+    custom_multiplier: float = 0  # If > 0, overrides calculated risk
+
 class ProductTemplateModel(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -235,6 +318,12 @@ class SimpleCalculationInput(BaseModel):
     team_members: List[TeamMemberInput] = []
     vendors: List[VendorInput] = []
     target_margin_percent: float = 30
+    internal_margin_percent: float = 30
+    vendor_margin_percent: float = 15
+    use_split_margins: bool = False
+    # Risk factors
+    internal_risk: RiskFactorsInput = RiskFactorsInput()
+    vendor_risk: RiskFactorsInput = RiskFactorsInput()
 
 class ThemeSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -291,17 +380,89 @@ async def get_sales_incentive_percent():
     incentive = await db.sales_incentives.find_one({}, {"_id": 0})
     return incentive.get('percent', 5) if incentive else 5
 
+async def get_risk_config():
+    """Get risk configuration"""
+    config = await db.risk_config.find_one({}, {"_id": 0})
+    if not config:
+        config = RiskConfigModel().model_dump()
+    return config
+
+async def calculate_risk_multiplier(risk_input: RiskFactorsInput):
+    """Calculate risk multiplier from risk factors"""
+    if risk_input.custom_multiplier > 0:
+        return risk_input.custom_multiplier
+    
+    config = await get_risk_config()
+    levels = config.get('levels', {"none": 1.0, "low": 1.05, "medium": 1.15, "high": 1.30})
+    
+    # Get multipliers for each factor
+    complexity_mult = levels.get(risk_input.complexity, 1.0)
+    rush_mult = levels.get(risk_input.rush, 1.0)
+    execution_mult = levels.get(risk_input.execution, 1.0)
+    
+    # Weighted combination
+    w_complexity = config.get('complexity_weight', 0.4)
+    w_rush = config.get('rush_weight', 0.35)
+    w_execution = config.get('execution_weight', 0.25)
+    
+    # Calculate weighted risk multiplier
+    weighted_risk = (
+        (complexity_mult - 1) * w_complexity +
+        (rush_mult - 1) * w_rush +
+        (execution_mult - 1) * w_execution
+    )
+    
+    return 1 + weighted_risk
+
+def get_risk_level(multiplier: float) -> str:
+    """Convert risk multiplier to level"""
+    if multiplier <= 1.0:
+        return "None"
+    elif multiplier <= 1.08:
+        return "Low"
+    elif multiplier <= 1.20:
+        return "Medium"
+    else:
+        return "High"
+
+async def get_pricing_guidelines():
+    """Get all pricing guidelines"""
+    guidelines = await db.pricing_guidelines.find({}, {"_id": 0}).to_list(100)
+    return guidelines
+
+async def get_applicable_guideline(category: str, deal_size: float):
+    """Get the most applicable pricing guideline"""
+    guidelines = await db.pricing_guidelines.find(
+        {"is_active": True},
+        {"_id": 0}
+    ).to_list(100)
+    
+    # Find best match
+    best_match = None
+    for g in guidelines:
+        if g.get('category') == category or g.get('category') == 'general':
+            if g.get('deal_size_min', 0) <= deal_size <= g.get('deal_size_max', float('inf')):
+                if best_match is None or g.get('category') == category:
+                    best_match = g
+    
+    return best_match
+
 # ==================== CALCULATION ENGINE ====================
 
 async def calculate_simple(data: SimpleCalculationInput):
-    """Calculate pricing for simple mode"""
+    """Calculate pricing for simple mode with split margins and risk factors"""
     overhead_rate = await get_overhead_rate()
     sales_incentive_percent = await get_sales_incentive_percent()
+    risk_config = await get_risk_config()
     
     # Get HR config for benefit calculations
     hr_config = await db.hr_config.find_one({}, {"_id": 0})
     if not hr_config:
         hr_config = {"social_insurance_percent": 12, "medical_insurance_percent": 3, "end_of_service_divisor": 2}
+    
+    # Calculate risk multipliers
+    internal_risk_mult = await calculate_risk_multiplier(data.internal_risk)
+    vendor_risk_mult = await calculate_risk_multiplier(data.vendor_risk)
     
     # Internal labor cost
     internal_labor_cost = 0
@@ -312,17 +473,13 @@ async def calculate_simple(data: SimpleCalculationInput):
         member_hours = 0
         
         if member.employee_type == 'seconded':
-            # Seconded employee: (custom_salary + allowance) * (1 + admin_fee%) * utilization * duration
             base_cost = (member.custom_salary or 0) + (member.custom_allowance or 0)
             with_admin_fee = base_cost * (1 + (member.admin_fee_percent or 10) / 100)
             utilization = (member.utilization_percent or 100) / 100
             duration = member.duration_months or 1
             member_cost = with_admin_fee * utilization * duration
-            # Estimate hours for overhead calculation
             member_hours = 176 * utilization * duration
         elif member.calc_mode == 'utilization':
-            # Utilization mode: monthly_cost * utilization% * duration
-            # Get role's total monthly cost (with benefits)
             role = await db.roles.find_one({"id": member.role_id}, {"_id": 0})
             if role:
                 salary = role.get('monthly_salary', 0)
@@ -336,10 +493,8 @@ async def calculate_simple(data: SimpleCalculationInput):
             utilization = (member.utilization_percent or 0) / 100
             duration = member.duration_months or 1
             member_cost = monthly_cost * utilization * duration
-            # Estimate hours for overhead
             member_hours = 176 * utilization * duration
         else:
-            # Hours mode: hours * hourly_rate
             member_hours = member.hours if member.hours > 0 else 0
             member_cost = member_hours * (member.hourly_rate or 0)
         
@@ -354,29 +509,110 @@ async def calculate_simple(data: SimpleCalculationInput):
     # Overhead
     overhead_cost = total_hours * overhead_rate
     
+    # Apply risk based on config mode
+    internal_base_cost = internal_labor_cost + overhead_cost
+    risk_impact_mode = risk_config.get('impact_mode', 'buffer')
+    
+    if risk_impact_mode == 'cost':
+        # Risk increases the base cost
+        if risk_config.get('apply_to_internal', True):
+            internal_base_cost *= internal_risk_mult
+        if risk_config.get('apply_to_vendor', True):
+            vendor_cost *= vendor_risk_mult
+    
     # Total COGS
     cogs = internal_labor_cost + vendor_cost + overhead_cost
     
-    # Calculate selling price using margin formula
-    margin_percent = data.target_margin_percent / 100
+    # Calculate selling price
     sales_percent = sales_incentive_percent / 100
     
-    if (1 - margin_percent - sales_percent) > 0:
-        internal_selling_price = (internal_labor_cost + overhead_cost) / (1 - margin_percent - sales_percent)
+    if data.use_split_margins:
+        # SPLIT MARGIN LOGIC
+        internal_margin = data.internal_margin_percent / 100
+        vendor_margin = data.vendor_margin_percent / 100
+        
+        # Apply risk as margin buffer
+        if risk_impact_mode == 'margin':
+            internal_margin *= internal_risk_mult
+            vendor_margin *= vendor_risk_mult
+        
+        # Internal selling price
+        if (1 - internal_margin - sales_percent) > 0:
+            internal_selling = internal_base_cost / (1 - internal_margin - sales_percent)
+        else:
+            internal_selling = internal_base_cost * 2
+        
+        # Vendor selling price (if no markup applied, use vendor margin)
+        has_markup = any(v.markup_percent > 0 for v in data.vendors)
+        if has_markup:
+            vendor_selling = vendor_revenue
+        else:
+            if (1 - vendor_margin) > 0:
+                vendor_selling = vendor_cost / (1 - vendor_margin)
+            else:
+                vendor_selling = vendor_cost * 1.5
+        
+        # Apply risk buffer to price
+        if risk_impact_mode == 'buffer':
+            internal_selling *= internal_risk_mult
+            vendor_selling *= vendor_risk_mult
+        
+        total_selling_price = internal_selling + vendor_selling
+        
+        # Calculate actual margins achieved
+        internal_margin_achieved = ((internal_selling - internal_base_cost) / internal_selling * 100) if internal_selling > 0 else 0
+        vendor_margin_achieved = ((vendor_selling - vendor_cost) / vendor_selling * 100) if vendor_selling > 0 else 0
     else:
-        internal_selling_price = (internal_labor_cost + overhead_cost) * 2
-    
-    total_selling_price = internal_selling_price + vendor_revenue
+        # UNIFIED MARGIN LOGIC
+        margin_percent = data.target_margin_percent / 100
+        
+        if risk_impact_mode == 'margin':
+            margin_percent *= max(internal_risk_mult, vendor_risk_mult)
+        
+        if (1 - margin_percent - sales_percent) > 0:
+            internal_selling = internal_base_cost / (1 - margin_percent - sales_percent)
+        else:
+            internal_selling = internal_base_cost * 2
+        
+        total_selling_price = internal_selling + vendor_revenue
+        
+        if risk_impact_mode == 'buffer':
+            avg_risk = (internal_risk_mult + vendor_risk_mult) / 2
+            total_selling_price *= avg_risk
+        
+        internal_margin_achieved = data.target_margin_percent
+        vendor_margin_achieved = (vendor_markup_revenue / vendor_revenue * 100) if vendor_revenue > 0 else 0
     
     # Sales incentive
     sales_incentive = total_selling_price * sales_percent
     
-    # Contribution margin
+    # Contribution margin (weighted)
     contribution_margin = total_selling_price - cogs - sales_incentive
     contribution_margin_percent = (contribution_margin / total_selling_price * 100) if total_selling_price > 0 else 0
     
-    # Total profit
-    total_profit = contribution_margin
+    # Blended margin
+    total_cost = internal_base_cost + vendor_cost
+    blended_margin = ((total_selling_price - total_cost) / total_selling_price * 100) if total_selling_price > 0 else 0
+    
+    # Combined risk score
+    total_risk_mult = (internal_risk_mult + vendor_risk_mult) / 2
+    risk_level = get_risk_level(total_risk_mult)
+    risk_impact_percent = (total_risk_mult - 1) * 100
+    
+    # Get warnings
+    warnings = []
+    guidelines = await db.pricing_guidelines.find_one({"category": "general", "is_active": True}, {"_id": 0})
+    if guidelines:
+        if contribution_margin_percent < guidelines.get('min_margin', 15):
+            warnings.append({"type": "margin_low", "message": f"Margin {contribution_margin_percent:.1f}% is below minimum {guidelines.get('min_margin', 15)}%", "severity": "error"})
+        elif contribution_margin_percent < guidelines.get('target_margin', 30):
+            warnings.append({"type": "margin_below_target", "message": f"Margin {contribution_margin_percent:.1f}% is below target {guidelines.get('target_margin', 30)}%", "severity": "warning"})
+    
+    if total_risk_mult > 1.20:
+        warnings.append({"type": "risk_high", "message": f"Project risk is high ({risk_level})", "severity": "warning"})
+    
+    if vendor_margin_achieved < 10 and vendor_cost > 0:
+        warnings.append({"type": "vendor_margin_low", "message": f"Vendor margin {vendor_margin_achieved:.1f}% is low", "severity": "warning"})
     
     return {
         "internal_labor_cost": round(internal_labor_cost, 2),
@@ -390,9 +626,21 @@ async def calculate_simple(data: SimpleCalculationInput):
         "sales_incentive": round(sales_incentive, 2),
         "contribution_margin": round(contribution_margin, 2),
         "contribution_margin_percent": round(contribution_margin_percent, 2),
-        "total_profit": round(total_profit, 2),
+        "total_profit": round(contribution_margin, 2),
         "overhead_rate": round(overhead_rate, 2),
-        "sales_incentive_percent": sales_incentive_percent
+        "sales_incentive_percent": sales_incentive_percent,
+        # Split margins
+        "internal_margin_percent": round(internal_margin_achieved, 2),
+        "vendor_margin_percent": round(vendor_margin_achieved, 2),
+        "blended_margin_percent": round(blended_margin, 2),
+        # Risk metrics
+        "internal_risk_multiplier": round(internal_risk_mult, 3),
+        "vendor_risk_multiplier": round(vendor_risk_mult, 3),
+        "total_risk_multiplier": round(total_risk_mult, 3),
+        "risk_level": risk_level,
+        "risk_impact_percent": round(risk_impact_percent, 2),
+        # Warnings
+        "warnings": warnings
     }
 
 async def calculate_opportunity(data: OpportunityInput):
@@ -997,6 +1245,57 @@ async def import_google_sheet(url: str, _: bool = Depends(verify_admin)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
 
+# ---------- PRICING GUIDELINES ----------
+@api_router.get("/pricing-guidelines", response_model=List[Dict])
+async def get_all_pricing_guidelines():
+    guidelines = await db.pricing_guidelines.find({}, {"_id": 0}).to_list(100)
+    return guidelines
+
+@api_router.post("/pricing-guidelines", response_model=Dict)
+async def create_pricing_guideline(guideline: PricingGuidelineCreate, _: bool = Depends(verify_admin)):
+    guideline_obj = PricingGuidelineModel(**guideline.model_dump())
+    doc = guideline_obj.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
+    await db.pricing_guidelines.insert_one(doc)
+    return serialize_doc(doc)
+
+@api_router.put("/pricing-guidelines/{guideline_id}", response_model=Dict)
+async def update_pricing_guideline(guideline_id: str, guideline: PricingGuidelineCreate, _: bool = Depends(verify_admin)):
+    update_data = guideline.model_dump()
+    result = await db.pricing_guidelines.update_one({"id": guideline_id}, {"$set": update_data})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Guideline not found")
+    updated = await db.pricing_guidelines.find_one({"id": guideline_id}, {"_id": 0})
+    return updated
+
+@api_router.delete("/pricing-guidelines/{guideline_id}")
+async def delete_pricing_guideline(guideline_id: str, _: bool = Depends(verify_admin)):
+    result = await db.pricing_guidelines.delete_one({"id": guideline_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Guideline not found")
+    return {"status": "deleted"}
+
+# ---------- RISK CONFIGURATION ----------
+@api_router.get("/risk-config", response_model=Dict)
+async def get_risk_configuration():
+    config = await db.risk_config.find_one({}, {"_id": 0})
+    if not config:
+        default = RiskConfigModel()
+        doc = default.model_dump()
+        doc['updated_at'] = doc['updated_at'].isoformat()
+        await db.risk_config.insert_one(doc)
+        return serialize_doc(doc)
+    return config
+
+@api_router.put("/risk-config", response_model=Dict)
+async def update_risk_configuration(data: RiskConfigUpdate, _: bool = Depends(verify_admin)):
+    update_data = {
+        **data.model_dump(),
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.risk_config.update_one({}, {"$set": update_data}, upsert=True)
+    return await db.risk_config.find_one({}, {"_id": 0})
+
 # ---------- CALCULATIONS ----------
 @api_router.post("/calculate/simple", response_model=Dict)
 async def calculate_simple_pricing(data: SimpleCalculationInput):
@@ -1182,6 +1481,36 @@ async def seed_database(_: bool = Depends(verify_admin)):
         "updated_at": datetime.now(timezone.utc).isoformat()
     }
     await db.sales_incentives.insert_one(incentive)
+    
+    # Pricing Guidelines
+    await db.pricing_guidelines.delete_many({})
+    pricing_guidelines = [
+        {"id": "pg-1", "name": "Tiny Projects", "category": "general", "deal_size": "tiny", "deal_size_min": 0, "deal_size_max": 50000, "min_margin": 35, "target_margin": 45, "premium_margin": 55, "min_internal_margin": 40, "min_vendor_margin": 15, "description": "Small projects under 50K SAR", "is_active": True},
+        {"id": "pg-2", "name": "Standard Projects", "category": "general", "deal_size": "standard", "deal_size_min": 50000, "deal_size_max": 200000, "min_margin": 28, "target_margin": 35, "premium_margin": 45, "min_internal_margin": 32, "min_vendor_margin": 12, "description": "Standard projects 50K-200K SAR", "is_active": True},
+        {"id": "pg-3", "name": "Big Projects", "category": "general", "deal_size": "big", "deal_size_min": 200000, "deal_size_max": 500000, "min_margin": 22, "target_margin": 30, "premium_margin": 40, "min_internal_margin": 28, "min_vendor_margin": 10, "description": "Large projects 200K-500K SAR", "is_active": True},
+        {"id": "pg-4", "name": "Mega Projects", "category": "general", "deal_size": "mega", "deal_size_min": 500000, "deal_size_max": 99999999, "min_margin": 18, "target_margin": 25, "premium_margin": 35, "min_internal_margin": 22, "min_vendor_margin": 8, "description": "Enterprise projects 500K+ SAR", "is_active": True},
+        {"id": "pg-5", "name": "Branding Services", "category": "branding", "deal_size": "standard", "deal_size_min": 0, "deal_size_max": 99999999, "min_margin": 30, "target_margin": 40, "premium_margin": 50, "min_internal_margin": 35, "min_vendor_margin": 12, "description": "Branding and identity work", "is_active": True},
+        {"id": "pg-6", "name": "Campaign Services", "category": "campaign", "deal_size": "standard", "deal_size_min": 0, "deal_size_max": 99999999, "min_margin": 25, "target_margin": 32, "premium_margin": 42, "min_internal_margin": 28, "min_vendor_margin": 15, "description": "Campaigns with high vendor spend", "is_active": True},
+        {"id": "pg-7", "name": "Staffing Services", "category": "staffing", "deal_size": "standard", "deal_size_min": 0, "deal_size_max": 99999999, "min_margin": 15, "target_margin": 22, "premium_margin": 30, "min_internal_margin": 20, "min_vendor_margin": 0, "description": "Resource secondment", "is_active": True},
+    ]
+    for pg in pricing_guidelines:
+        pg['created_at'] = datetime.now(timezone.utc).isoformat()
+    await db.pricing_guidelines.insert_many(pricing_guidelines)
+    
+    # Risk Configuration
+    await db.risk_config.delete_many({})
+    risk_config = {
+        "id": "risk_config",
+        "levels": {"none": 1.0, "low": 1.05, "medium": 1.15, "high": 1.30},
+        "complexity_weight": 0.4,
+        "rush_weight": 0.35,
+        "execution_weight": 0.25,
+        "impact_mode": "buffer",
+        "apply_to_internal": True,
+        "apply_to_vendor": True,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.risk_config.insert_one(risk_config)
     
     return {"status": "success", "message": "Database seeded with sample data"}
 

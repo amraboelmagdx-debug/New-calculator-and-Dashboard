@@ -1,5 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { TrendingUp, TrendingDown, DollarSign, Users, Truck, Clock, Percent, AlertCircle } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Users, Truck, Clock, Percent, AlertCircle, Shield, AlertTriangle } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { formatCurrency, formatPercent, getMarginColorClass } from '@/lib/utils';
 
 export default function ProfitabilityPanel({ results, mode, calculating }) {
@@ -257,6 +258,48 @@ export default function ProfitabilityPanel({ results, mode, calculating }) {
           <p>Overhead Rate: {formatCurrency(results.overhead_rate, false)}/hr</p>
           <p>Total Hours: {results.total_hours?.toFixed(1) || 0} hrs</p>
         </div>
+        
+        {/* Risk Summary (for simple mode with risk data) */}
+        {isSimple && results.risk_level && results.total_risk_multiplier > 1 && (
+          <div className="pt-3 border-t border-slate-100" data-testid="risk-summary">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <Shield className="w-4 h-4 text-slate-400" />
+                <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">Risk Assessment</span>
+              </div>
+              <Badge className={`text-xs ${
+                results.risk_level === 'High' ? 'bg-red-100 text-red-700 border-red-200' :
+                results.risk_level === 'Medium' ? 'bg-amber-100 text-amber-700 border-amber-200' :
+                results.risk_level === 'Low' ? 'bg-green-100 text-green-700 border-green-200' :
+                'bg-slate-100 text-slate-700 border-slate-200'
+              } border`}>
+                {results.risk_level}
+              </Badge>
+            </div>
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-500">Risk Multiplier</span>
+                <span className="font-mono font-medium text-slate-700">×{results.total_risk_multiplier?.toFixed(3)}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-500">Price Impact</span>
+                <span className="font-mono font-medium text-amber-600">+{results.risk_impact_percent?.toFixed(1)}%</span>
+              </div>
+              {results.internal_risk_multiplier !== results.vendor_risk_multiplier && (
+                <>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-500 pl-2">↳ Internal Risk</span>
+                    <span className="font-mono text-slate-600">×{results.internal_risk_multiplier?.toFixed(3)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-500 pl-2">↳ Vendor Risk</span>
+                    <span className="font-mono text-slate-600">×{results.vendor_risk_multiplier?.toFixed(3)}</span>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

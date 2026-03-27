@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Calculator as CalcIcon, Briefcase, Plus, Trash2, ChevronDown, ChevronRight, FileText, Settings } from 'lucide-react';
+import { Calculator as CalcIcon, Briefcase, Plus, Trash2, ChevronDown, ChevronRight, FileText, Settings, SplitSquareHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
 import { 
@@ -27,6 +28,8 @@ import ScopeEditor from '@/components/ScopeEditor';
 import ExportPDF from '@/components/ExportPDF';
 import TeamMemberRow from '@/components/TeamMemberRow';
 import VendorRow from '@/components/VendorRow';
+import PricingGuidelinesPanel from '@/components/PricingGuidelinesPanel';
+import RiskFactorsInput from '@/components/RiskFactorsInput';
 
 export default function Calculator() {
   const [mode, setMode] = useState('simple');
@@ -43,7 +46,12 @@ export default function Calculator() {
   const [simpleData, setSimpleData] = useState({
     team_members: [],
     vendors: [],
-    target_margin_percent: 30
+    target_margin_percent: 30,
+    internal_margin_percent: 30,
+    vendor_margin_percent: 15,
+    use_split_margins: false,
+    internal_risk: { complexity: 'none', rush: 'none', execution: 'none', custom_multiplier: 0 },
+    vendor_risk: { complexity: 'none', rush: 'none', execution: 'none', custom_multiplier: 0 }
   });
   const [simpleResults, setSimpleResults] = useState(null);
 
@@ -431,10 +439,21 @@ function SimpleCalculator({
   addVendor, updateVendor, removeVendor, calculating,
   refreshRoles, refreshVendorServices 
 }) {
+  // Calculate risk multipliers for display
+  const internalRiskMult = results?.internal_risk_multiplier || 1.0;
+  const vendorRiskMult = results?.vendor_risk_multiplier || 1.0;
+  
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8" data-testid="simple-calculator">
       {/* Left: Input Section */}
       <div className="lg:col-span-2 space-y-6">
+        {/* Pricing Guidelines Panel */}
+        <PricingGuidelinesPanel 
+          currentMargin={results?.contribution_margin_percent || 0}
+          dealSize={results?.selling_price || 0}
+          category="general"
+        />
+        
         {/* Team Members */}
         <Card data-testid="team-section">
           <CardHeader className="pb-4">
@@ -472,6 +491,17 @@ function SimpleCalculator({
             )}
           </CardContent>
         </Card>
+        
+        {/* Internal Team Risk Factors */}
+        {data.team_members.length > 0 && (
+          <RiskFactorsInput
+            title="Internal Team Risk Factors"
+            riskFactors={data.internal_risk}
+            onChange={(risk) => setData(prev => ({ ...prev, internal_risk: risk }))}
+            riskMultiplier={internalRiskMult}
+            showResult={true}
+          />
+        )}
 
         {/* Vendors */}
         <Card data-testid="vendor-section">
@@ -514,30 +544,132 @@ function SimpleCalculator({
             )}
           </CardContent>
         </Card>
+        
+        {/* Vendor Risk Factors */}
+        {data.vendors.length > 0 && (
+          <RiskFactorsInput
+            title="Vendor Risk Factors"
+            riskFactors={data.vendor_risk}
+            onChange={(risk) => setData(prev => ({ ...prev, vendor_risk: risk }))}
+            riskMultiplier={vendorRiskMult}
+            showResult={true}
+          />
+        )}
 
-        {/* Target Margin */}
+        {/* Pricing Settings with Split Margins */}
         <Card data-testid="margin-section">
           <CardHeader className="pb-4">
-            <CardTitle className="text-lg font-semibold text-slate-800">Pricing Settings</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-4">
-              <div className="flex-1">
-                <Label className="text-sm font-medium text-slate-700">Target Margin %</Label>
-                <Input
-                  type="number"
-                  value={data.target_margin_percent}
-                  onChange={(e) => setData(prev => ({ ...prev, target_margin_percent: parseFloat(e.target.value) || 0 }))}
-                  className="mt-1.5"
-                  data-testid="target-margin-input"
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg font-semibold text-slate-800">Pricing Settings</CardTitle>
+              <div className="flex items-center gap-2">
+                <Label htmlFor="split-margins" className="text-sm text-slate-600">Split Margins</Label>
+                <Switch
+                  id="split-margins"
+                  checked={data.use_split_margins}
+                  onCheckedChange={(checked) => setData(prev => ({ ...prev, use_split_margins: checked }))}
+                  data-testid="split-margins-toggle"
                 />
               </div>
-              <div className="text-xs text-slate-500 max-w-xs">
-                <p>Selling Price = COGS ÷ (1 − Margin% − Sales%)</p>
-              </div>
             </div>
+          </CardHeader>
+          <CardContent>
+            {data.use_split_margins ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-sm font-medium text-slate-700 flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-indigo-500"></div>
+                      Internal Margin %
+                    </Label>
+                    <Input
+                      type="number"
+                      value={data.internal_margin_percent}
+                      onChange={(e) => setData(prev => ({ ...prev, internal_margin_percent: parseFloat(e.target.value) || 0 }))}
+                      className="mt-1.5"
+                      data-testid="internal-margin-input"
+                    />
+                    <p className="text-xs text-slate-400 mt-1">Applied to internal labor + overhead</p>
+                  </div>
+                  <div>
+                    <Label className="text-sm font-medium text-slate-700 flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-amber-500"></div>
+                      Vendor Margin %
+                    </Label>
+                    <Input
+                      type="number"
+                      value={data.vendor_margin_percent}
+                      onChange={(e) => setData(prev => ({ ...prev, vendor_margin_percent: parseFloat(e.target.value) || 0 }))}
+                      className="mt-1.5"
+                      data-testid="vendor-margin-input"
+                    />
+                    <p className="text-xs text-slate-400 mt-1">Applied to vendor costs (or uses markup)</p>
+                  </div>
+                </div>
+                {results && (
+                  <div className="mt-4 p-3 bg-slate-50 rounded-lg border">
+                    <div className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">Achieved Margins</div>
+                    <div className="grid grid-cols-3 gap-3 text-sm">
+                      <div>
+                        <span className="text-slate-500">Internal:</span>
+                        <span className={`ml-2 font-semibold ${results.internal_margin_percent >= data.internal_margin_percent ? 'text-green-600' : 'text-amber-600'}`}>
+                          {results.internal_margin_percent?.toFixed(1)}%
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Vendor:</span>
+                        <span className={`ml-2 font-semibold ${results.vendor_margin_percent >= data.vendor_margin_percent ? 'text-green-600' : 'text-amber-600'}`}>
+                          {results.vendor_margin_percent?.toFixed(1)}%
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Blended:</span>
+                        <span className="ml-2 font-bold text-indigo-600">
+                          {results.blended_margin_percent?.toFixed(1)}%
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-4">
+                <div className="flex-1">
+                  <Label className="text-sm font-medium text-slate-700">Target Margin %</Label>
+                  <Input
+                    type="number"
+                    value={data.target_margin_percent}
+                    onChange={(e) => setData(prev => ({ ...prev, target_margin_percent: parseFloat(e.target.value) || 0 }))}
+                    className="mt-1.5"
+                    data-testid="target-margin-input"
+                  />
+                </div>
+                <div className="text-xs text-slate-500 max-w-xs">
+                  <p>Selling Price = COGS ÷ (1 − Margin% − Sales%)</p>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
+        
+        {/* Warnings from calculation */}
+        {results?.warnings && results.warnings.length > 0 && (
+          <div className="space-y-2" data-testid="warnings-section">
+            {results.warnings.map((warning, idx) => (
+              <div 
+                key={idx}
+                className={`p-3 rounded-lg border flex items-start gap-2 ${
+                  warning.severity === 'error' 
+                    ? 'bg-red-50 border-red-200 text-red-700' 
+                    : 'bg-amber-50 border-amber-200 text-amber-700'
+                }`}
+                data-testid={`warning-${warning.type}`}
+              >
+                <SplitSquareHorizontal className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                <span className="text-sm">{warning.message}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Right: Results Panel */}
