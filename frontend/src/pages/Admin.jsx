@@ -3,7 +3,8 @@ import { Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom'
 import { 
   Users, Package, Layers, Truck, CreditCard, Gauge, Percent, 
   AlertTriangle, Palette, Database, LogOut, ChevronRight, Save,
-  Plus, Pencil, Trash2, Check, X, Settings2, FileSpreadsheet, RefreshCw
+  Plus, Pencil, Trash2, Check, X, Settings2, FileSpreadsheet, RefreshCw,
+  Target, ShieldAlert
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,7 +12,9 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import {
   getRoles, createRole, updateRole, deleteRole,
@@ -24,6 +27,8 @@ import {
   getRiskMultipliers, createRiskMultiplier, updateRiskMultiplier, deleteRiskMultiplier,
   getThemeSettings, updateThemeSettings,
   getHRConfig, updateHRConfig, importGoogleSheet,
+  getPricingGuidelines, createPricingGuideline, updatePricingGuideline, deletePricingGuideline,
+  getRiskConfig, updateRiskConfig,
   seedDatabase,
   setAdminPassword, getAdminPassword
 } from '@/lib/api';
@@ -101,6 +106,8 @@ export default function Admin() {
   const navItems = [
     { path: '/admin/roles', label: 'Roles', icon: Users },
     { path: '/admin/hr-config', label: 'HR Cost Config', icon: Settings2 },
+    { path: '/admin/pricing-guidelines', label: 'Pricing Guidelines', icon: Target },
+    { path: '/admin/risk-config', label: 'Risk Configuration', icon: ShieldAlert },
     { path: '/admin/product-templates', label: 'Product Templates', icon: Package },
     { path: '/admin/scope-templates', label: 'Scope Templates', icon: Layers },
     { path: '/admin/vendor-services', label: 'Vendor Services', icon: Truck },
@@ -170,6 +177,8 @@ export default function Admin() {
           <Route path="/" element={<AdminWelcome />} />
           <Route path="/roles" element={<RolesManager />} />
           <Route path="/hr-config" element={<HRConfigManager />} />
+          <Route path="/pricing-guidelines" element={<PricingGuidelinesManager />} />
+          <Route path="/risk-config" element={<RiskConfigManager />} />
           <Route path="/product-templates" element={<ProductTemplatesManager />} />
           <Route path="/scope-templates" element={<ScopeTemplatesManager />} />
           <Route path="/vendor-services" element={<VendorServicesManager />} />
@@ -1210,6 +1219,626 @@ function HRConfigManager() {
             )}
           </CardContent>
         </Card>
+      </div>
+    </div>
+  );
+}
+
+// Pricing Guidelines Manager
+function PricingGuidelinesManager() {
+  const [guidelines, setGuidelines] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [editingGuideline, setEditingGuideline] = useState(null);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [formData, setFormData] = useState({
+    name: '',
+    category: 'general',
+    deal_size: 'standard',
+    deal_size_min: 0,
+    deal_size_max: 0,
+    min_margin: 15,
+    target_margin: 30,
+    premium_margin: 45,
+    min_internal_margin: 25,
+    min_vendor_margin: 10,
+    description: '',
+    is_active: true
+  });
+
+  useEffect(() => {
+    loadGuidelines();
+  }, []);
+
+  const loadGuidelines = async () => {
+    try {
+      const data = await getPricingGuidelines();
+      setGuidelines(data);
+    } catch (error) {
+      toast.error('Failed to load pricing guidelines');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSave = async () => {
+    try {
+      if (editingGuideline) {
+        await updatePricingGuideline(editingGuideline.id, formData);
+        toast.success('Pricing guideline updated');
+      } else {
+        await createPricingGuideline(formData);
+        toast.success('Pricing guideline created');
+      }
+      setIsDialogOpen(false);
+      setEditingGuideline(null);
+      resetForm();
+      loadGuidelines();
+    } catch (error) {
+      toast.error('Failed to save pricing guideline');
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (window.confirm('Are you sure you want to delete this guideline?')) {
+      try {
+        await deletePricingGuideline(id);
+        toast.success('Pricing guideline deleted');
+        loadGuidelines();
+      } catch (error) {
+        toast.error('Failed to delete guideline');
+      }
+    }
+  };
+
+  const resetForm = () => {
+    setFormData({
+      name: '',
+      category: 'general',
+      deal_size: 'standard',
+      deal_size_min: 0,
+      deal_size_max: 0,
+      min_margin: 15,
+      target_margin: 30,
+      premium_margin: 45,
+      min_internal_margin: 25,
+      min_vendor_margin: 10,
+      description: '',
+      is_active: true
+    });
+  };
+
+  const openEdit = (guideline) => {
+    setEditingGuideline(guideline);
+    setFormData({
+      name: guideline.name,
+      category: guideline.category || 'general',
+      deal_size: guideline.deal_size || 'standard',
+      deal_size_min: guideline.deal_size_min || 0,
+      deal_size_max: guideline.deal_size_max || 0,
+      min_margin: guideline.min_margin,
+      target_margin: guideline.target_margin,
+      premium_margin: guideline.premium_margin,
+      min_internal_margin: guideline.min_internal_margin || 25,
+      min_vendor_margin: guideline.min_vendor_margin || 10,
+      description: guideline.description || '',
+      is_active: guideline.is_active !== false
+    });
+    setIsDialogOpen(true);
+  };
+
+  const openCreate = () => {
+    setEditingGuideline(null);
+    resetForm();
+    setIsDialogOpen(true);
+  };
+
+  const categories = [
+    { value: 'general', label: 'General (By Deal Size)' },
+    { value: 'branding', label: 'Branding Services' },
+    { value: 'campaign', label: 'Campaign Services' },
+    { value: 'digital', label: 'Digital Services' },
+    { value: 'consulting', label: 'Consulting' },
+    { value: 'staffing', label: 'Staffing / Secondment' }
+  ];
+
+  const dealSizes = [
+    { value: 'tiny', label: 'Tiny (<50K)' },
+    { value: 'standard', label: 'Standard (50K-200K)' },
+    { value: 'big', label: 'Big (200K-500K)' },
+    { value: 'mega', label: 'Mega (500K+)' }
+  ];
+
+  return (
+    <div data-testid="pricing-guidelines-manager">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 font-['Manrope']">Pricing Guidelines</h1>
+          <p className="text-slate-600">Configure margin thresholds by deal size and service type</p>
+        </div>
+        <Button onClick={openCreate} className="gap-2" data-testid="add-guideline-btn">
+          <Plus className="w-4 h-4" />
+          Add Guideline
+        </Button>
+      </div>
+
+      <Card>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead>Category</TableHead>
+              <TableHead>Deal Size Range (SAR)</TableHead>
+              <TableHead className="text-center text-red-600">Min %</TableHead>
+              <TableHead className="text-center text-amber-600">Target %</TableHead>
+              <TableHead className="text-center text-emerald-600">Premium %</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="w-24">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {guidelines.map(g => (
+              <TableRow key={g.id} data-testid={`guideline-row-${g.id}`}>
+                <TableCell className="font-medium">{g.name}</TableCell>
+                <TableCell className="capitalize">{g.category || 'general'}</TableCell>
+                <TableCell className="font-mono text-sm text-slate-500">
+                  {g.deal_size_min?.toLocaleString()} - {g.deal_size_max?.toLocaleString()}
+                </TableCell>
+                <TableCell className="text-center font-mono font-semibold text-red-600">{g.min_margin}%</TableCell>
+                <TableCell className="text-center font-mono font-semibold text-amber-600">{g.target_margin}%</TableCell>
+                <TableCell className="text-center font-mono font-semibold text-emerald-600">{g.premium_margin}%</TableCell>
+                <TableCell>
+                  <Badge className={g.is_active !== false ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}>
+                    {g.is_active !== false ? 'Active' : 'Inactive'}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-1">
+                    <Button variant="ghost" size="sm" onClick={() => openEdit(g)} data-testid={`edit-guideline-${g.id}`}>
+                      <Pencil className="w-4 h-4" />
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleDelete(g.id)} className="text-red-500 hover:text-red-700" data-testid={`delete-guideline-${g.id}`}>
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Card>
+
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <DialogContent className="max-w-2xl" data-testid="guideline-dialog">
+          <DialogHeader>
+            <DialogTitle>{editingGuideline ? 'Edit Pricing Guideline' : 'Add New Pricing Guideline'}</DialogTitle>
+            <DialogDescription>Define margin thresholds for this guideline</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Guideline Name</Label>
+                <Input
+                  value={formData.name}
+                  onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="e.g., Standard Projects"
+                  data-testid="guideline-name-input"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Category</Label>
+                <Select value={formData.category} onValueChange={(v) => setFormData(prev => ({ ...prev, category: v }))}>
+                  <SelectTrigger data-testid="guideline-category-select">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categories.map(c => (
+                      <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>Deal Size Label</Label>
+                <Select value={formData.deal_size} onValueChange={(v) => setFormData(prev => ({ ...prev, deal_size: v }))}>
+                  <SelectTrigger data-testid="guideline-dealsize-select">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {dealSizes.map(d => (
+                      <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Min Deal Size (SAR)</Label>
+                <Input
+                  type="number"
+                  value={formData.deal_size_min}
+                  onChange={(e) => setFormData(prev => ({ ...prev, deal_size_min: parseFloat(e.target.value) || 0 }))}
+                  data-testid="guideline-min-size-input"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Max Deal Size (SAR)</Label>
+                <Input
+                  type="number"
+                  value={formData.deal_size_max}
+                  onChange={(e) => setFormData(prev => ({ ...prev, deal_size_max: parseFloat(e.target.value) || 0 }))}
+                  data-testid="guideline-max-size-input"
+                />
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50 rounded-lg">
+              <h4 className="text-sm font-semibold text-slate-700 mb-3">Margin Thresholds</h4>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-red-600">Minimum Margin %</Label>
+                  <Input
+                    type="number"
+                    value={formData.min_margin}
+                    onChange={(e) => setFormData(prev => ({ ...prev, min_margin: parseFloat(e.target.value) || 0 }))}
+                    className="border-red-200 focus:border-red-400"
+                    data-testid="guideline-min-margin-input"
+                  />
+                  <p className="text-xs text-slate-400">Below this = Warning</p>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-amber-600">Target Margin %</Label>
+                  <Input
+                    type="number"
+                    value={formData.target_margin}
+                    onChange={(e) => setFormData(prev => ({ ...prev, target_margin: parseFloat(e.target.value) || 0 }))}
+                    className="border-amber-200 focus:border-amber-400"
+                    data-testid="guideline-target-margin-input"
+                  />
+                  <p className="text-xs text-slate-400">Acceptable range</p>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-emerald-600">Premium Margin %</Label>
+                  <Input
+                    type="number"
+                    value={formData.premium_margin}
+                    onChange={(e) => setFormData(prev => ({ ...prev, premium_margin: parseFloat(e.target.value) || 0 }))}
+                    className="border-emerald-200 focus:border-emerald-400"
+                    data-testid="guideline-premium-margin-input"
+                  />
+                  <p className="text-xs text-slate-400">Excellent margin</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Min Internal Margin %</Label>
+                <Input
+                  type="number"
+                  value={formData.min_internal_margin}
+                  onChange={(e) => setFormData(prev => ({ ...prev, min_internal_margin: parseFloat(e.target.value) || 0 }))}
+                  data-testid="guideline-min-internal-input"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Min Vendor Margin %</Label>
+                <Input
+                  type="number"
+                  value={formData.min_vendor_margin}
+                  onChange={(e) => setFormData(prev => ({ ...prev, min_vendor_margin: parseFloat(e.target.value) || 0 }))}
+                  data-testid="guideline-min-vendor-input"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Description</Label>
+              <Input
+                value={formData.description}
+                onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                placeholder="Optional description"
+                data-testid="guideline-desc-input"
+              />
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Switch
+                checked={formData.is_active}
+                onCheckedChange={(checked) => setFormData(prev => ({ ...prev, is_active: checked }))}
+                data-testid="guideline-active-toggle"
+              />
+              <Label>Active</Label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleSave} data-testid="save-guideline-btn">Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// Risk Configuration Manager
+function RiskConfigManager() {
+  const [config, setConfig] = useState(null);
+  const [formData, setFormData] = useState({
+    levels: {
+      none: 1.0,
+      low: 1.05,
+      medium: 1.15,
+      high: 1.30
+    },
+    complexity_weight: 0.4,
+    rush_weight: 0.35,
+    execution_weight: 0.25,
+    impact_mode: 'buffer',
+    apply_to_internal: true,
+    apply_to_vendor: true
+  });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    loadConfig();
+  }, []);
+
+  const loadConfig = async () => {
+    try {
+      const data = await getRiskConfig();
+      setConfig(data);
+      setFormData({
+        levels: data.levels || { none: 1.0, low: 1.05, medium: 1.15, high: 1.30 },
+        complexity_weight: data.complexity_weight || 0.4,
+        rush_weight: data.rush_weight || 0.35,
+        execution_weight: data.execution_weight || 0.25,
+        impact_mode: data.impact_mode || 'buffer',
+        apply_to_internal: data.apply_to_internal !== false,
+        apply_to_vendor: data.apply_to_vendor !== false
+      });
+    } catch (error) {
+      toast.error('Failed to load risk configuration');
+    }
+  };
+
+  const handleSave = async () => {
+    // Validate weights sum to 1
+    const totalWeight = formData.complexity_weight + formData.rush_weight + formData.execution_weight;
+    if (Math.abs(totalWeight - 1.0) > 0.01) {
+      toast.error(`Weights must sum to 1.0 (currently ${totalWeight.toFixed(2)})`);
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await updateRiskConfig(formData);
+      toast.success('Risk configuration updated');
+    } catch (error) {
+      toast.error('Failed to update risk configuration');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updateLevel = (level, value) => {
+    setFormData(prev => ({
+      ...prev,
+      levels: { ...prev.levels, [level]: parseFloat(value) || 1.0 }
+    }));
+  };
+
+  const impactModes = [
+    { value: 'buffer', label: 'Price Buffer', description: 'Increases selling price by risk multiplier' },
+    { value: 'cost', label: 'Cost Increase', description: 'Increases COGS by risk multiplier' },
+    { value: 'margin', label: 'Margin Buffer', description: 'Increases target margin by risk factor' }
+  ];
+
+  const totalWeight = formData.complexity_weight + formData.rush_weight + formData.execution_weight;
+  const isWeightValid = Math.abs(totalWeight - 1.0) <= 0.01;
+
+  return (
+    <div data-testid="risk-config-manager">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-slate-900 font-['Manrope']">Risk Configuration</h1>
+        <p className="text-slate-600">Configure how risk factors affect pricing calculations</p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Risk Level Multipliers */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ShieldAlert className="w-5 h-5" />
+              Risk Level Multipliers
+            </CardTitle>
+            <CardDescription>Define multipliers for each risk level</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {[
+              { key: 'none', label: 'None', color: 'slate' },
+              { key: 'low', label: 'Low', color: 'green' },
+              { key: 'medium', label: 'Medium', color: 'amber' },
+              { key: 'high', label: 'High', color: 'red' }
+            ].map(({ key, label, color }) => (
+              <div key={key} className="flex items-center gap-4">
+                <div className={`w-3 h-3 rounded-full bg-${color}-500`}></div>
+                <div className="flex-1">
+                  <Label className="text-sm">{label}</Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-400">×</span>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={formData.levels[key]}
+                    onChange={(e) => updateLevel(key, e.target.value)}
+                    className="w-24 text-center font-mono"
+                    data-testid={`risk-level-${key}-input`}
+                  />
+                </div>
+              </div>
+            ))}
+            <div className="mt-4 p-3 bg-slate-50 rounded-lg">
+              <p className="text-xs text-slate-500">
+                Example: A "High" risk with 1.30x multiplier adds 30% buffer to pricing
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Risk Factor Weights */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Risk Factor Weights</CardTitle>
+            <CardDescription>How much each factor contributes to total risk (must sum to 1.0)</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label>Client Complexity</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    step="0.05"
+                    min="0"
+                    max="1"
+                    value={formData.complexity_weight}
+                    onChange={(e) => setFormData(prev => ({ ...prev, complexity_weight: parseFloat(e.target.value) || 0 }))}
+                    className="w-20 text-center font-mono"
+                    data-testid="complexity-weight-input"
+                  />
+                  <span className="text-slate-400 text-sm w-10">{(formData.complexity_weight * 100).toFixed(0)}%</span>
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <Label>Rush / SLA Pressure</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    step="0.05"
+                    min="0"
+                    max="1"
+                    value={formData.rush_weight}
+                    onChange={(e) => setFormData(prev => ({ ...prev, rush_weight: parseFloat(e.target.value) || 0 }))}
+                    className="w-20 text-center font-mono"
+                    data-testid="rush-weight-input"
+                  />
+                  <span className="text-slate-400 text-sm w-10">{(formData.rush_weight * 100).toFixed(0)}%</span>
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <Label>Execution Risk</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    step="0.05"
+                    min="0"
+                    max="1"
+                    value={formData.execution_weight}
+                    onChange={(e) => setFormData(prev => ({ ...prev, execution_weight: parseFloat(e.target.value) || 0 }))}
+                    className="w-20 text-center font-mono"
+                    data-testid="execution-weight-input"
+                  />
+                  <span className="text-slate-400 text-sm w-10">{(formData.execution_weight * 100).toFixed(0)}%</span>
+                </div>
+              </div>
+            </div>
+
+            <div className={`p-3 rounded-lg ${isWeightValid ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+              <div className="flex items-center justify-between">
+                <span className={`text-sm font-medium ${isWeightValid ? 'text-green-700' : 'text-red-700'}`}>
+                  Total Weight
+                </span>
+                <span className={`font-mono font-bold ${isWeightValid ? 'text-green-700' : 'text-red-700'}`}>
+                  {totalWeight.toFixed(2)}
+                </span>
+              </div>
+              {!isWeightValid && (
+                <p className="text-xs text-red-600 mt-1">Weights must sum to 1.0</p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Risk Impact Mode */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Risk Impact Mode</CardTitle>
+            <CardDescription>How risk affects the final price calculation</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-3">
+              {impactModes.map(mode => (
+                <div
+                  key={mode.value}
+                  className={`p-3 rounded-lg border cursor-pointer transition-colors ${
+                    formData.impact_mode === mode.value 
+                      ? 'border-indigo-300 bg-indigo-50' 
+                      : 'border-slate-200 hover:border-slate-300'
+                  }`}
+                  onClick={() => setFormData(prev => ({ ...prev, impact_mode: mode.value }))}
+                  data-testid={`impact-mode-${mode.value}`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`w-4 h-4 rounded-full border-2 ${
+                      formData.impact_mode === mode.value 
+                        ? 'border-indigo-600 bg-indigo-600' 
+                        : 'border-slate-300'
+                    }`}>
+                      {formData.impact_mode === mode.value && (
+                        <Check className="w-3 h-3 text-white" />
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-slate-700">{mode.label}</p>
+                      <p className="text-xs text-slate-500">{mode.description}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Application Scope */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Application Scope</CardTitle>
+            <CardDescription>Where risk multipliers are applied</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+              <div>
+                <Label className="text-sm font-medium">Apply to Internal Costs</Label>
+                <p className="text-xs text-slate-500">Risk affects internal labor pricing</p>
+              </div>
+              <Switch
+                checked={formData.apply_to_internal}
+                onCheckedChange={(checked) => setFormData(prev => ({ ...prev, apply_to_internal: checked }))}
+                data-testid="apply-internal-toggle"
+              />
+            </div>
+            <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+              <div>
+                <Label className="text-sm font-medium">Apply to Vendor Costs</Label>
+                <p className="text-xs text-slate-500">Risk affects vendor pricing</p>
+              </div>
+              <Switch
+                checked={formData.apply_to_vendor}
+                onCheckedChange={(checked) => setFormData(prev => ({ ...prev, apply_to_vendor: checked }))}
+                data-testid="apply-vendor-toggle"
+              />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="mt-6">
+        <Button onClick={handleSave} disabled={saving || !isWeightValid} className="gap-2" data-testid="save-risk-config-btn">
+          {saving ? 'Saving...' : 'Save Risk Configuration'}
+        </Button>
       </div>
     </div>
   );
