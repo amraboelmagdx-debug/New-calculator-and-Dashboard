@@ -4,7 +4,7 @@ import {
   Users, Package, Layers, Truck, CreditCard, Gauge, Percent, 
   AlertTriangle, Palette, Database, LogOut, ChevronRight, Save,
   Plus, Pencil, Trash2, Check, X, Settings2, FileSpreadsheet, RefreshCw,
-  Target, ShieldAlert
+  Target, ShieldAlert, DollarSign
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,6 +29,8 @@ import {
   getHRConfig, updateHRConfig, importGoogleSheet,
   getPricingGuidelines, createPricingGuideline, updatePricingGuideline, deletePricingGuideline,
   getRiskConfig, updateRiskConfig,
+  getIncentiveRules, createIncentiveRule, updateIncentiveRule, deleteIncentiveRule, bulkUpdateIncentiveRules,
+  getIncentiveMultipliers, updateIncentiveMultipliers,
   seedDatabase,
   setAdminPassword, getAdminPassword
 } from '@/lib/api';
@@ -108,12 +110,13 @@ export default function Admin() {
     { path: '/admin/hr-config', label: 'HR Cost Config', icon: Settings2 },
     { path: '/admin/pricing-guidelines', label: 'Pricing Guidelines', icon: Target },
     { path: '/admin/risk-config', label: 'Risk Configuration', icon: ShieldAlert },
+    { path: '/admin/incentive-rules', label: 'Incentive Rules', icon: DollarSign },
     { path: '/admin/product-templates', label: 'Product Templates', icon: Package },
     { path: '/admin/scope-templates', label: 'Scope Templates', icon: Layers },
     { path: '/admin/vendor-services', label: 'Vendor Services', icon: Truck },
     { path: '/admin/payment-terms', label: 'Payment Terms', icon: CreditCard },
     { path: '/admin/overhead-rates', label: 'Overhead Rates', icon: Gauge },
-    { path: '/admin/sales-incentives', label: 'Sales Incentives', icon: Percent },
+    { path: '/admin/sales-incentives', label: 'Sales Incentives (Legacy)', icon: Percent },
     { path: '/admin/risk-multipliers', label: 'Risk Multipliers', icon: AlertTriangle },
     { path: '/admin/theme', label: 'Theme Settings', icon: Palette },
     { path: '/admin/data', label: 'Seed Data', icon: Database },
@@ -179,6 +182,7 @@ export default function Admin() {
           <Route path="/hr-config" element={<HRConfigManager />} />
           <Route path="/pricing-guidelines" element={<PricingGuidelinesManager />} />
           <Route path="/risk-config" element={<RiskConfigManager />} />
+          <Route path="/incentive-rules" element={<IncentiveRulesManager />} />
           <Route path="/product-templates" element={<ProductTemplatesManager />} />
           <Route path="/scope-templates" element={<ScopeTemplatesManager />} />
           <Route path="/vendor-services" element={<VendorServicesManager />} />
@@ -1840,6 +1844,368 @@ function RiskConfigManager() {
           {saving ? 'Saving...' : 'Save Risk Configuration'}
         </Button>
       </div>
+    </div>
+  );
+}
+
+// Incentive Rules Manager
+function IncentiveRulesManager() {
+  const [rules, setRules] = useState([]);
+  const [multipliers, setMultipliers] = useState({
+    existing_customer_multiplier: 0.9,
+    referral_multiplier: 0.5
+  });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [editingRule, setEditingRule] = useState(null);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [formData, setFormData] = useState({
+    deal_size: 'standard',
+    role: 'sales_rep',
+    base_percent: 3,
+    max_cap: 0,
+    is_active: true
+  });
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      const [rulesData, multipliersData] = await Promise.all([
+        getIncentiveRules(),
+        getIncentiveMultipliers()
+      ]);
+      setRules(rulesData);
+      setMultipliers(multipliersData);
+    } catch (error) {
+      toast.error('Failed to load incentive configuration');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveRule = async () => {
+    try {
+      if (editingRule) {
+        await updateIncentiveRule(editingRule.id, formData);
+        toast.success('Rule updated');
+      } else {
+        await createIncentiveRule(formData);
+        toast.success('Rule created');
+      }
+      setIsDialogOpen(false);
+      setEditingRule(null);
+      resetForm();
+      loadData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to save rule');
+    }
+  };
+
+  const handleDeleteRule = async (id) => {
+    if (window.confirm('Are you sure you want to delete this rule?')) {
+      try {
+        await deleteIncentiveRule(id);
+        toast.success('Rule deleted');
+        loadData();
+      } catch (error) {
+        toast.error('Failed to delete rule');
+      }
+    }
+  };
+
+  const handleSaveMultipliers = async () => {
+    setSaving(true);
+    try {
+      await updateIncentiveMultipliers(multipliers);
+      toast.success('Multipliers updated');
+    } catch (error) {
+      toast.error('Failed to update multipliers');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const resetForm = () => {
+    setFormData({
+      deal_size: 'standard',
+      role: 'sales_rep',
+      base_percent: 3,
+      max_cap: 0,
+      is_active: true
+    });
+  };
+
+  const openEdit = (rule) => {
+    setEditingRule(rule);
+    setFormData({
+      deal_size: rule.deal_size,
+      role: rule.role,
+      base_percent: rule.base_percent,
+      max_cap: rule.max_cap || 0,
+      is_active: rule.is_active
+    });
+    setIsDialogOpen(true);
+  };
+
+  const openCreate = () => {
+    setEditingRule(null);
+    resetForm();
+    setIsDialogOpen(true);
+  };
+
+  const dealSizes = [
+    { value: 'tiny', label: 'Tiny (<200K SAR)' },
+    { value: 'standard', label: 'Standard (200K-500K SAR)' },
+    { value: 'big', label: 'Big (500K-2M SAR)' },
+    { value: 'mega', label: 'Mega (2M+ SAR)' }
+  ];
+
+  const roles = [
+    { value: 'sales_rep', label: 'Sales Representative' },
+    { value: 'sales_manager', label: 'Sales Manager' }
+  ];
+
+  // Group rules by deal size
+  const groupedRules = dealSizes.map(ds => ({
+    ...ds,
+    rules: rules.filter(r => r.deal_size === ds.value)
+  }));
+
+  return (
+    <div data-testid="incentive-rules-manager">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 font-['Manrope']">Incentive Rules</h1>
+          <p className="text-slate-600">Configure sales incentive percentages and caps by deal size</p>
+        </div>
+        <Button onClick={openCreate} className="gap-2" data-testid="add-rule-btn">
+          <Plus className="w-4 h-4" />
+          Add Rule
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Rules by Deal Size */}
+        <div className="lg:col-span-2 space-y-6">
+          {groupedRules.map(group => (
+            <Card key={group.value} data-testid={`deal-size-${group.value}`}>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-lg">{group.label}</CardTitle>
+                  <Badge className={`text-xs ${
+                    group.value === 'tiny' ? 'bg-blue-100 text-blue-700' :
+                    group.value === 'standard' ? 'bg-green-100 text-green-700' :
+                    group.value === 'big' ? 'bg-amber-100 text-amber-700' :
+                    'bg-purple-100 text-purple-700'
+                  }`}>
+                    {group.value.toUpperCase()}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {group.rules.length === 0 ? (
+                  <p className="text-sm text-slate-500 text-center py-4">No rules defined for this deal size</p>
+                ) : (
+                  <div className="space-y-3">
+                    {group.rules.map(rule => (
+                      <div key={rule.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-2 h-2 rounded-full ${rule.role === 'sales_rep' ? 'bg-blue-500' : 'bg-purple-500'}`}></div>
+                          <div>
+                            <p className="text-sm font-medium text-slate-700">
+                              {rule.role === 'sales_rep' ? 'Sales Rep' : 'Sales Manager'}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              Base: {rule.base_percent}%
+                              {rule.max_cap > 0 && ` • Cap: SAR ${rule.max_cap.toLocaleString()}`}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge className={rule.is_active ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}>
+                            {rule.is_active ? 'Active' : 'Inactive'}
+                          </Badge>
+                          <Button variant="ghost" size="sm" onClick={() => openEdit(rule)}>
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => handleDeleteRule(rule.id)} className="text-red-500 hover:text-red-700">
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        {/* Multipliers Configuration */}
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Percent className="w-5 h-5" />
+                Multipliers
+              </CardTitle>
+              <CardDescription>Adjustments for client type and lead source</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Existing Customer Multiplier</Label>
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-500">×</span>
+                  <Input
+                    type="number"
+                    step="0.05"
+                    min="0"
+                    max="1"
+                    value={multipliers.existing_customer_multiplier}
+                    onChange={(e) => setMultipliers(prev => ({ ...prev, existing_customer_multiplier: parseFloat(e.target.value) || 0 }))}
+                    className="w-24 text-center font-mono"
+                    data-testid="existing-multiplier-input"
+                  />
+                </div>
+                <p className="text-xs text-slate-500">
+                  0.9 = خصم 10% لعملاء حاليين
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Referral Multiplier</Label>
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-500">×</span>
+                  <Input
+                    type="number"
+                    step="0.05"
+                    min="0"
+                    max="1"
+                    value={multipliers.referral_multiplier}
+                    onChange={(e) => setMultipliers(prev => ({ ...prev, referral_multiplier: parseFloat(e.target.value) || 0 }))}
+                    className="w-24 text-center font-mono"
+                    data-testid="referral-multiplier-input"
+                  />
+                </div>
+                <p className="text-xs text-slate-500">
+                  0.5 = خصم 50% للإحالات
+                </p>
+              </div>
+
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <p className="text-xs text-amber-700">
+                  <strong>مثال:</strong> عميل حالي عن طريق إحالة<br />
+                  الحافز = Base% × {multipliers.existing_customer_multiplier} × {multipliers.referral_multiplier} = Base% × {(multipliers.existing_customer_multiplier * multipliers.referral_multiplier).toFixed(2)}
+                </p>
+              </div>
+
+              <Button onClick={handleSaveMultipliers} disabled={saving} className="w-full" data-testid="save-multipliers-btn">
+                {saving ? 'Saving...' : 'Save Multipliers'}
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Formula Explanation */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">آلية الحساب</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-xs text-slate-600 space-y-2" dir="rtl">
+                <ol className="list-decimal list-inside space-y-1.5 pr-2">
+                  <li>تحديد حجم الصفقة تلقائياً</li>
+                  <li>جلب النسبة الأساسية لكل دور</li>
+                  <li>تطبيق معامل نوع العميل ومصدر Lead</li>
+                  <li>حساب قيمة الحافز = السعر × النسبة المعدلة</li>
+                  <li>تطبيق Cap إن وجد</li>
+                  <li>جمع حوافز جميع الأدوار</li>
+                </ol>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      {/* Add/Edit Rule Dialog */}
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <DialogContent data-testid="rule-dialog">
+          <DialogHeader>
+            <DialogTitle>{editingRule ? 'Edit Incentive Rule' : 'Add Incentive Rule'}</DialogTitle>
+            <DialogDescription>Define incentive percentage for a specific deal size and role</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Deal Size</Label>
+                <Select value={formData.deal_size} onValueChange={(v) => setFormData(prev => ({ ...prev, deal_size: v }))}>
+                  <SelectTrigger data-testid="rule-dealsize-select">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {dealSizes.map(d => (
+                      <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Role</Label>
+                <Select value={formData.role} onValueChange={(v) => setFormData(prev => ({ ...prev, role: v }))}>
+                  <SelectTrigger data-testid="rule-role-select">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {roles.map(r => (
+                      <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Base Incentive %</Label>
+                <Input
+                  type="number"
+                  step="0.5"
+                  value={formData.base_percent}
+                  onChange={(e) => setFormData(prev => ({ ...prev, base_percent: parseFloat(e.target.value) || 0 }))}
+                  data-testid="rule-percent-input"
+                />
+                <p className="text-xs text-slate-500">New Customer, Direct sale</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Max Cap (SAR)</Label>
+                <Input
+                  type="number"
+                  value={formData.max_cap}
+                  onChange={(e) => setFormData(prev => ({ ...prev, max_cap: parseFloat(e.target.value) || 0 }))}
+                  placeholder="0 = no cap"
+                  data-testid="rule-cap-input"
+                />
+                <p className="text-xs text-slate-500">0 = بدون حد أقصى</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Switch
+                checked={formData.is_active}
+                onCheckedChange={(checked) => setFormData(prev => ({ ...prev, is_active: checked }))}
+                data-testid="rule-active-toggle"
+              />
+              <Label>Active</Label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleSaveRule} data-testid="save-rule-btn">Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

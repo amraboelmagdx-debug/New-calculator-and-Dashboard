@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { TrendingUp, TrendingDown, DollarSign, Users, Truck, Clock, Percent, AlertCircle, Shield, AlertTriangle } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Users, Truck, Clock, Percent, AlertCircle, Shield, AlertTriangle, ChevronDown } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { formatCurrency, formatPercent, getMarginColorClass } from '@/lib/utils';
 
 export default function ProfitabilityPanel({ results, mode, calculating }) {
@@ -196,15 +197,51 @@ export default function ProfitabilityPanel({ results, mode, calculating }) {
           <h4 className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Deductions</h4>
           
           <div className="space-y-2">
-            <div className="flex items-center justify-between py-2 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <Percent className="w-4 h-4 text-slate-400" />
-                <span className="text-sm text-slate-600">Sales Incentive ({results.sales_incentive_percent}%)</span>
+            {/* Sales Incentive with breakdown for simple mode */}
+            {isSimple && results.incentive_breakdown ? (
+              <>
+                <div className="flex items-center justify-between py-2 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <Percent className="w-4 h-4 text-blue-400" />
+                    <span className="text-sm text-slate-600">Sales Rep</span>
+                    {results.incentive_breakdown.sales_rep.cap_applied && (
+                      <Badge className="text-[10px] px-1 py-0 bg-amber-100 text-amber-700 border-amber-200">CAP</Badge>
+                    )}
+                  </div>
+                  <span className="text-sm font-medium font-mono text-red-600">
+                    -{formatCurrency(results.incentive_breakdown.sales_rep.capped_value, false)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between py-2 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <Percent className="w-4 h-4 text-purple-400" />
+                    <span className="text-sm text-slate-600">Sales Manager</span>
+                    {results.incentive_breakdown.sales_manager.cap_applied && (
+                      <Badge className="text-[10px] px-1 py-0 bg-amber-100 text-amber-700 border-amber-200">CAP</Badge>
+                    )}
+                  </div>
+                  <span className="text-sm font-medium font-mono text-red-600">
+                    -{formatCurrency(results.incentive_breakdown.sales_manager.capped_value, false)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between py-2 bg-red-50 rounded-lg px-2 -mx-2">
+                  <span className="text-sm font-semibold text-slate-700">Total Incentive ({results.sales_incentive_percent}%)</span>
+                  <span className="text-sm font-bold font-mono text-red-600" data-testid="sales-incentive">
+                    -{formatCurrency(results.sales_incentive, false)}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <div className="flex items-center justify-between py-2 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <Percent className="w-4 h-4 text-slate-400" />
+                  <span className="text-sm text-slate-600">Sales Incentive ({results.sales_incentive_percent}%)</span>
+                </div>
+                <span className="text-sm font-medium font-mono text-red-600" data-testid="sales-incentive">
+                  -{formatCurrency(results.sales_incentive, false)}
+                </span>
               </div>
-              <span className="text-sm font-medium font-mono text-red-600" data-testid="sales-incentive">
-                -{formatCurrency(results.sales_incentive, false)}
-              </span>
-            </div>
+            )}
 
             {!isSimple && results.financing_cost > 0 && (
               <div className="flex items-center justify-between py-2 border-b border-slate-100">
@@ -299,6 +336,48 @@ export default function ProfitabilityPanel({ results, mode, calculating }) {
               )}
             </div>
           </div>
+        )}
+        
+        {/* Calculation Methodology - Arabic Explanation */}
+        {isSimple && (
+          <Collapsible className="pt-3 border-t border-slate-100">
+            <CollapsibleTrigger className="flex items-center justify-between w-full text-xs text-slate-500 hover:text-slate-700">
+              <span className="font-medium">آلية الحساب</span>
+              <ChevronDown className="w-3 h-3" />
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="mt-3 p-3 bg-slate-50 rounded-lg text-xs text-slate-600 space-y-2 text-right" dir="rtl">
+                <p className="font-semibold text-slate-700">معادلة التسعير:</p>
+                <ol className="list-decimal list-inside space-y-1.5 pr-2">
+                  <li>
+                    <span className="font-medium">حساب نسبة الحوافز الإجمالية:</span>
+                    <br />
+                    <code className="text-indigo-600 bg-indigo-50 px-1 rounded">Total_Incentive_% = Sales_Rep_% + Sales_Manager_%</code>
+                  </li>
+                  <li>
+                    <span className="font-medium">حساب السعر النهائي:</span>
+                    <br />
+                    <code className="text-indigo-600 bg-indigo-50 px-1 rounded">Selling_Price = COGS ÷ (1 - Margin% - Incentive%)</code>
+                  </li>
+                  <li>
+                    <span className="font-medium">حساب الحوافز بالقيمة:</span>
+                    <br />
+                    <code className="text-indigo-600 bg-indigo-50 px-1 rounded">Incentive = Selling_Price × Incentive%</code>
+                  </li>
+                  <li>
+                    <span className="font-medium">هامش الربح:</span>
+                    <br />
+                    <code className="text-indigo-600 bg-indigo-50 px-1 rounded">Contribution_Margin = Selling_Price - COGS - Total_Incentive</code>
+                  </li>
+                </ol>
+                <div className="pt-2 border-t border-slate-200 mt-2">
+                  <p className="text-slate-500">
+                    <strong>ملاحظة:</strong> عند تطبيق Cap على الحوافز، يبقى السعر ثابتاً ويزيد هامش الربح.
+                  </p>
+                </div>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         )}
       </CardContent>
     </Card>

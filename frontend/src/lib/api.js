@@ -283,6 +283,49 @@ export const deleteOpportunity = async (id) => {
   return response.data;
 };
 
+// ==================== INCENTIVE RULES ====================
+export const getIncentiveRules = async () => {
+  const response = await apiClient.get('/incentive-rules');
+  return response.data;
+};
+
+export const createIncentiveRule = async (rule) => {
+  const response = await apiClient.post('/incentive-rules', rule, adminConfig());
+  return response.data;
+};
+
+export const updateIncentiveRule = async (id, rule) => {
+  const response = await apiClient.put(`/incentive-rules/${id}`, rule, adminConfig());
+  return response.data;
+};
+
+export const deleteIncentiveRule = async (id) => {
+  const response = await apiClient.delete(`/incentive-rules/${id}`, adminConfig());
+  return response.data;
+};
+
+export const bulkUpdateIncentiveRules = async (rules) => {
+  const response = await apiClient.post('/incentive-rules/bulk', rules, adminConfig());
+  return response.data;
+};
+
+// ==================== INCENTIVE MULTIPLIERS ====================
+export const getIncentiveMultipliers = async () => {
+  const response = await apiClient.get('/incentive-multipliers');
+  return response.data;
+};
+
+export const updateIncentiveMultipliers = async (data) => {
+  const response = await apiClient.put('/incentive-multipliers', data, adminConfig());
+  return response.data;
+};
+
+// ==================== DEAL SIZE RANGES ====================
+export const getDealSizeRanges = async () => {
+  const response = await apiClient.get('/deal-size-ranges');
+  return response.data;
+};
+
 // ==================== SEED DATA ====================
 export const seedDatabase = async () => {
   const response = await apiClient.post('/seed-data', {}, adminConfig());

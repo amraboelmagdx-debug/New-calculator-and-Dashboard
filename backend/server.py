@@ -229,6 +229,56 @@ class SalesIncentiveModel(BaseModel):
     percent: float = 5
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+# ==================== INCENTIVE RULES MODELS ====================
+
+class IncentiveRuleModel(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    deal_size: str  # tiny, standard, big, mega
+    role: str  # sales_rep, sales_manager
+    base_percent: float  # Base incentive percentage
+    max_cap: float = 0  # Maximum cap in SAR (0 = no cap)
+    is_active: bool = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class IncentiveRuleCreate(BaseModel):
+    deal_size: str
+    role: str
+    base_percent: float
+    max_cap: float = 0
+    is_active: bool = True
+
+class IncentiveRuleUpdate(BaseModel):
+    deal_size: str = ""
+    role: str = ""
+    base_percent: float = 0
+    max_cap: float = 0
+    is_active: bool = True
+
+class IncentiveMultipliersModel(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = "incentive_multipliers"
+    existing_customer_multiplier: float = 0.9  # 10% discount for existing customers
+    referral_multiplier: float = 0.5  # 50% discount for referrals
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class IncentiveMultipliersUpdate(BaseModel):
+    existing_customer_multiplier: float = 0.9
+    referral_multiplier: float = 0.5
+
+class DealSizeRangeModel(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = "deal_size_ranges"
+    tiny_min: float = 0
+    tiny_max: float = 200000
+    standard_min: float = 200000
+    standard_max: float = 500000
+    big_min: float = 500000
+    big_max: float = 2000000
+    mega_min: float = 2000000
+    mega_max: float = 999999999
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
 class RiskMultiplierModel(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -324,6 +374,9 @@ class SimpleCalculationInput(BaseModel):
     # Risk factors
     internal_risk: RiskFactorsInput = RiskFactorsInput()
     vendor_risk: RiskFactorsInput = RiskFactorsInput()
+    # Incentive inputs
+    client_type: str = "new"  # "new" or "existing"
+    lead_source: str = "direct"  # "direct" or "referral"
 
 class ThemeSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -447,12 +500,122 @@ async def get_applicable_guideline(category: str, deal_size: float):
     
     return best_match
 
+async def get_deal_size_category(selling_price: float) -> str:
+    """Determine deal size category based on selling price"""
+    ranges = await db.deal_size_ranges.find_one({}, {"_id": 0})
+    if not ranges:
+        # Default ranges
+        ranges = {
+            "tiny_min": 0, "tiny_max": 200000,
+            "standard_min": 200000, "standard_max": 500000,
+            "big_min": 500000, "big_max": 2000000,
+            "mega_min": 2000000, "mega_max": 999999999
+        }
+    
+    if selling_price < ranges.get('tiny_max', 200000):
+        return "tiny"
+    elif selling_price < ranges.get('standard_max', 500000):
+        return "standard"
+    elif selling_price < ranges.get('big_max', 2000000):
+        return "big"
+    else:
+        return "mega"
+
+async def get_incentive_rules():
+    """Get all active incentive rules"""
+    rules = await db.incentive_rules.find({"is_active": True}, {"_id": 0}).to_list(100)
+    return rules
+
+async def get_incentive_multipliers():
+    """Get incentive multipliers configuration"""
+    multipliers = await db.incentive_multipliers.find_one({}, {"_id": 0})
+    if not multipliers:
+        multipliers = {
+            "existing_customer_multiplier": 0.9,
+            "referral_multiplier": 0.5
+        }
+    return multipliers
+
+async def calculate_incentives(selling_price: float, deal_size: str, client_type: str, lead_source: str):
+    """
+    Calculate incentives per role based on rules.
+    Returns a dict with:
+    - sales_rep: {base_percent, adjusted_percent, value, capped_value, cap}
+    - sales_manager: {base_percent, adjusted_percent, value, capped_value, cap}
+    - total_incentive: sum of capped values
+    - total_percent: effective total percentage
+    """
+    rules = await get_incentive_rules()
+    multipliers = await get_incentive_multipliers()
+    
+    # Get multiplier based on client type and lead source
+    client_multiplier = 1.0
+    if client_type == "existing":
+        client_multiplier *= multipliers.get('existing_customer_multiplier', 0.9)
+    if lead_source == "referral":
+        client_multiplier *= multipliers.get('referral_multiplier', 0.5)
+    
+    result = {
+        "sales_rep": None,
+        "sales_manager": None,
+        "total_incentive": 0,
+        "total_percent": 0,
+        "client_multiplier": client_multiplier,
+        "client_type": client_type,
+        "lead_source": lead_source,
+        "deal_size": deal_size
+    }
+    
+    for role in ["sales_rep", "sales_manager"]:
+        # Find matching rule
+        rule = None
+        for r in rules:
+            if r.get('deal_size') == deal_size and r.get('role') == role:
+                rule = r
+                break
+        
+        if rule:
+            base_percent = rule.get('base_percent', 0)
+            adjusted_percent = base_percent * client_multiplier
+            value = selling_price * (adjusted_percent / 100)
+            cap = rule.get('max_cap', 0)
+            
+            # Apply cap if defined
+            if cap > 0 and value > cap:
+                capped_value = cap
+            else:
+                capped_value = value
+            
+            result[role] = {
+                "base_percent": base_percent,
+                "adjusted_percent": round(adjusted_percent, 4),
+                "value": round(value, 2),
+                "capped_value": round(capped_value, 2),
+                "cap": cap,
+                "cap_applied": cap > 0 and value > cap
+            }
+            result["total_incentive"] += capped_value
+        else:
+            # No rule found, use 0
+            result[role] = {
+                "base_percent": 0,
+                "adjusted_percent": 0,
+                "value": 0,
+                "capped_value": 0,
+                "cap": 0,
+                "cap_applied": False
+            }
+    
+    result["total_incentive"] = round(result["total_incentive"], 2)
+    result["total_percent"] = round((result["total_incentive"] / selling_price * 100) if selling_price > 0 else 0, 4)
+    
+    return result
+
 # ==================== CALCULATION ENGINE ====================
 
 async def calculate_simple(data: SimpleCalculationInput):
-    """Calculate pricing for simple mode with split margins and risk factors"""
+    """Calculate pricing for simple mode with split margins, risk factors, and dynamic incentives"""
     overhead_rate = await get_overhead_rate()
-    sales_incentive_percent = await get_sales_incentive_percent()
     risk_config = await get_risk_config()
     
     # Get HR config for benefit calculations
@@ -523,8 +686,49 @@ async def calculate_simple(data: SimpleCalculationInput):
     # Total COGS
     cogs = internal_labor_cost + vendor_cost + overhead_cost
     
-    # Calculate selling price
-    sales_percent = sales_incentive_percent / 100
+    # ==================== NEW INCENTIVE CALCULATION ====================
+    # Step 1: Estimate initial selling price to determine deal size
+    margin_percent = data.target_margin_percent / 100
+    
+    # Estimate selling price (without incentive for deal size detection)
+    estimated_price = cogs / (1 - margin_percent) if (1 - margin_percent) > 0 else cogs * 2
+    
+    # Step 2: Get deal size category
+    deal_size = await get_deal_size_category(estimated_price)
+    
+    # Step 3: Get incentive rules for this deal size
+    incentive_rules = await get_incentive_rules()
+    multipliers = await get_incentive_multipliers()
+    
+    # Calculate client/lead multiplier
+    client_multiplier = 1.0
+    if data.client_type == "existing":
+        client_multiplier *= multipliers.get('existing_customer_multiplier', 0.9)
+    if data.lead_source == "referral":
+        client_multiplier *= multipliers.get('referral_multiplier', 0.5)
+    
+    # Get base percentages for each role
+    sales_rep_base = 0
+    sales_rep_cap = 0
+    sales_manager_base = 0
+    sales_manager_cap = 0
+    
+    for rule in incentive_rules:
+        if rule.get('deal_size') == deal_size:
+            if rule.get('role') == 'sales_rep':
+                sales_rep_base = rule.get('base_percent', 0)
+                sales_rep_cap = rule.get('max_cap', 0)
+            elif rule.get('role') == 'sales_manager':
+                sales_manager_base = rule.get('base_percent', 0)
+                sales_manager_cap = rule.get('max_cap', 0)
+    
+    # Apply multiplier to get adjusted percentages
+    sales_rep_adjusted = sales_rep_base * client_multiplier
+    sales_manager_adjusted = sales_manager_base * client_multiplier
+    total_incentive_percent = (sales_rep_adjusted + sales_manager_adjusted) / 100
+    
+    # ==================== SELLING PRICE CALCULATION ====================
+    # Formula: Selling_Price_Final = COGS / (1 - Target_Margin% - Total_Incentive_%)
     
     if data.use_split_margins:
         # SPLIT MARGIN LOGIC
@@ -536,9 +740,10 @@ async def calculate_simple(data: SimpleCalculationInput):
             internal_margin *= internal_risk_mult
             vendor_margin *= vendor_risk_mult
         
-        # Internal selling price
-        if (1 - internal_margin - sales_percent) > 0:
-            internal_selling = internal_base_cost / (1 - internal_margin - sales_percent)
+        # Internal selling price (includes incentive in divisor)
+        divisor = 1 - internal_margin - total_incentive_percent
+        if divisor > 0:
+            internal_selling = internal_base_cost / divisor
         else:
             internal_selling = internal_base_cost * 2
         
@@ -564,13 +769,13 @@ async def calculate_simple(data: SimpleCalculationInput):
         vendor_margin_achieved = ((vendor_selling - vendor_cost) / vendor_selling * 100) if vendor_selling > 0 else 0
     else:
         # UNIFIED MARGIN LOGIC
-        margin_percent = data.target_margin_percent / 100
-        
         if risk_impact_mode == 'margin':
             margin_percent *= max(internal_risk_mult, vendor_risk_mult)
         
-        if (1 - margin_percent - sales_percent) > 0:
-            internal_selling = internal_base_cost / (1 - margin_percent - sales_percent)
+        # Calculate selling price with incentive in divisor
+        divisor = 1 - margin_percent - total_incentive_percent
+        if divisor > 0:
+            internal_selling = internal_base_cost / divisor
         else:
             internal_selling = internal_base_cost * 2
         
@@ -583,11 +788,21 @@ async def calculate_simple(data: SimpleCalculationInput):
         internal_margin_achieved = data.target_margin_percent
         vendor_margin_achieved = (vendor_markup_revenue / vendor_revenue * 100) if vendor_revenue > 0 else 0
     
-    # Sales incentive
-    sales_incentive = total_selling_price * sales_percent
+    # ==================== CALCULATE ACTUAL INCENTIVE VALUES ====================
+    # Step 3: Calculate incentive values from final selling price
+    sales_rep_value = total_selling_price * (sales_rep_adjusted / 100)
+    sales_manager_value = total_selling_price * (sales_manager_adjusted / 100)
     
-    # Contribution margin (weighted)
-    contribution_margin = total_selling_price - cogs - sales_incentive
+    # Step 4: Apply caps
+    sales_rep_capped = min(sales_rep_value, sales_rep_cap) if sales_rep_cap > 0 else sales_rep_value
+    sales_manager_capped = min(sales_manager_value, sales_manager_cap) if sales_manager_cap > 0 else sales_manager_value
+    
+    total_incentive = sales_rep_capped + sales_manager_capped
+    effective_incentive_percent = (total_incentive / total_selling_price * 100) if total_selling_price > 0 else 0
+    
+    # ==================== CONTRIBUTION MARGIN ====================
+    # Step 4: Contribution_Margin = Selling_Price_Final - COGS - Total_Incentive
+    contribution_margin = total_selling_price - cogs - total_incentive
     contribution_margin_percent = (contribution_margin / total_selling_price * 100) if total_selling_price > 0 else 0
     
     # Blended margin
@@ -599,20 +814,47 @@ async def calculate_simple(data: SimpleCalculationInput):
     risk_level = get_risk_level(total_risk_mult)
     risk_impact_percent = (total_risk_mult - 1) * 100
     
-    # Get warnings
+    # ==================== WARNINGS ====================
     warnings = []
+    
+    # Margin warnings
     guidelines = await db.pricing_guidelines.find_one({"category": "general", "is_active": True}, {"_id": 0})
     if guidelines:
         if contribution_margin_percent < guidelines.get('min_margin', 15):
-            warnings.append({"type": "margin_low", "message": f"Margin {contribution_margin_percent:.1f}% is below minimum {guidelines.get('min_margin', 15)}%", "severity": "error"})
+            warnings.append({
+                "type": "margin_low", 
+                "message": f"هامش الربح {contribution_margin_percent:.1f}% أقل من الحد الأدنى {guidelines.get('min_margin', 15)}%", 
+                "severity": "error"
+            })
         elif contribution_margin_percent < guidelines.get('target_margin', 30):
-            warnings.append({"type": "margin_below_target", "message": f"Margin {contribution_margin_percent:.1f}% is below target {guidelines.get('target_margin', 30)}%", "severity": "warning"})
+            warnings.append({
+                "type": "margin_below_target", 
+                "message": f"هامش الربح {contribution_margin_percent:.1f}% أقل من الهدف {guidelines.get('target_margin', 30)}%", 
+                "severity": "warning"
+            })
     
+    # Contribution margin negative warning
+    if contribution_margin < 0:
+        warnings.append({
+            "type": "negative_margin",
+            "message": "⚠️ هامش الربح سلبي! السعر منخفض جداً",
+            "severity": "error"
+        })
+    
+    # Risk warnings
     if total_risk_mult > 1.20:
-        warnings.append({"type": "risk_high", "message": f"Project risk is high ({risk_level})", "severity": "warning"})
+        warnings.append({"type": "risk_high", "message": f"مخاطر المشروع عالية ({risk_level})", "severity": "warning"})
     
     if vendor_margin_achieved < 10 and vendor_cost > 0:
-        warnings.append({"type": "vendor_margin_low", "message": f"Vendor margin {vendor_margin_achieved:.1f}% is low", "severity": "warning"})
+        warnings.append({"type": "vendor_margin_low", "message": f"هامش المورد {vendor_margin_achieved:.1f}% منخفض", "severity": "warning"})
+    
+    # No matching rule warning
+    if sales_rep_base == 0 and sales_manager_base == 0:
+        warnings.append({
+            "type": "no_incentive_rule",
+            "message": f"لا توجد قاعدة حوافز لحجم الصفقة '{deal_size}'",
+            "severity": "warning"
+        })
     
     return {
         "internal_labor_cost": round(internal_labor_cost, 2),
@@ -623,12 +865,37 @@ async def calculate_simple(data: SimpleCalculationInput):
         "total_hours": round(total_hours, 2),
         "cogs": round(cogs, 2),
         "selling_price": round(total_selling_price, 2),
-        "sales_incentive": round(sales_incentive, 2),
+        # Incentive breakdown
+        "incentive_breakdown": {
+            "deal_size": deal_size,
+            "client_type": data.client_type,
+            "lead_source": data.lead_source,
+            "client_multiplier": round(client_multiplier, 2),
+            "sales_rep": {
+                "base_percent": sales_rep_base,
+                "adjusted_percent": round(sales_rep_adjusted, 2),
+                "value": round(sales_rep_value, 2),
+                "capped_value": round(sales_rep_capped, 2),
+                "cap": sales_rep_cap,
+                "cap_applied": sales_rep_cap > 0 and sales_rep_value > sales_rep_cap
+            },
+            "sales_manager": {
+                "base_percent": sales_manager_base,
+                "adjusted_percent": round(sales_manager_adjusted, 2),
+                "value": round(sales_manager_value, 2),
+                "capped_value": round(sales_manager_capped, 2),
+                "cap": sales_manager_cap,
+                "cap_applied": sales_manager_cap > 0 and sales_manager_value > sales_manager_cap
+            },
+            "total_incentive": round(total_incentive, 2),
+            "effective_percent": round(effective_incentive_percent, 2)
+        },
+        "sales_incentive": round(total_incentive, 2),
+        "sales_incentive_percent": round(effective_incentive_percent, 2),
         "contribution_margin": round(contribution_margin, 2),
         "contribution_margin_percent": round(contribution_margin_percent, 2),
         "total_profit": round(contribution_margin, 2),
         "overhead_rate": round(overhead_rate, 2),
-        "sales_incentive_percent": sales_incentive_percent,
         # Split margins
         "internal_margin_percent": round(internal_margin_achieved, 2),
         "vendor_margin_percent": round(vendor_margin_achieved, 2),
@@ -1215,7 +1482,7 @@ async def import_google_sheet(url: str, _: bool = Depends(verify_admin)):
             try:
                 salary_clean = ''.join(c for c in str(salary) if c.isdigit() or c == '.')
                 salary_float = float(salary_clean) if salary_clean else 0
-            except:
+            except (ValueError, TypeError):
                 salary_float = 0
             
             # Calculate hourly rate (assuming 176 hours/month)
@@ -1295,6 +1562,104 @@ async def update_risk_configuration(data: RiskConfigUpdate, _: bool = Depends(ve
     }
     await db.risk_config.update_one({}, {"$set": update_data}, upsert=True)
     return await db.risk_config.find_one({}, {"_id": 0})
+
+# ---------- INCENTIVE RULES ----------
+@api_router.get("/incentive-rules", response_model=List[Dict])
+async def get_all_incentive_rules():
+    rules = await db.incentive_rules.find({}, {"_id": 0}).to_list(100)
+    return rules
+
+@api_router.post("/incentive-rules", response_model=Dict)
+async def create_incentive_rule(rule: IncentiveRuleCreate, _: bool = Depends(verify_admin)):
+    # Check for duplicate
+    existing = await db.incentive_rules.find_one({
+        "deal_size": rule.deal_size, 
+        "role": rule.role
+    }, {"_id": 0})
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Rule for {rule.deal_size}/{rule.role} already exists")
+    
+    rule_obj = IncentiveRuleModel(**rule.model_dump())
+    doc = rule_obj.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
+    await db.incentive_rules.insert_one(doc)
+    return serialize_doc(doc)
+
+@api_router.put("/incentive-rules/{rule_id}", response_model=Dict)
+async def update_incentive_rule(rule_id: str, rule: IncentiveRuleUpdate, _: bool = Depends(verify_admin)):
+    update_data = {k: v for k, v in rule.model_dump().items() if v}
+    result = await db.incentive_rules.update_one({"id": rule_id}, {"$set": update_data})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    updated = await db.incentive_rules.find_one({"id": rule_id}, {"_id": 0})
+    return updated
+
+@api_router.delete("/incentive-rules/{rule_id}")
+async def delete_incentive_rule(rule_id: str, _: bool = Depends(verify_admin)):
+    result = await db.incentive_rules.delete_one({"id": rule_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    return {"status": "deleted"}
+
+@api_router.post("/incentive-rules/bulk", response_model=Dict)
+async def bulk_update_incentive_rules(rules: List[IncentiveRuleCreate], _: bool = Depends(verify_admin)):
+    """Bulk update/create incentive rules"""
+    updated = 0
+    created = 0
+    
+    for rule in rules:
+        existing = await db.incentive_rules.find_one({
+            "deal_size": rule.deal_size, 
+            "role": rule.role
+        })
+        
+        if existing:
+            await db.incentive_rules.update_one(
+                {"deal_size": rule.deal_size, "role": rule.role},
+                {"$set": rule.model_dump()}
+            )
+            updated += 1
+        else:
+            rule_obj = IncentiveRuleModel(**rule.model_dump())
+            doc = rule_obj.model_dump()
+            doc['created_at'] = doc['created_at'].isoformat()
+            await db.incentive_rules.insert_one(doc)
+            created += 1
+    
+    return {"status": "success", "created": created, "updated": updated}
+
+# ---------- INCENTIVE MULTIPLIERS ----------
+@api_router.get("/incentive-multipliers", response_model=Dict)
+async def get_incentive_multipliers_config():
+    config = await db.incentive_multipliers.find_one({}, {"_id": 0})
+    if not config:
+        default = IncentiveMultipliersModel()
+        doc = default.model_dump()
+        doc['updated_at'] = doc['updated_at'].isoformat()
+        await db.incentive_multipliers.insert_one(doc)
+        return serialize_doc(doc)
+    return config
+
+@api_router.put("/incentive-multipliers", response_model=Dict)
+async def update_incentive_multipliers_config(data: IncentiveMultipliersUpdate, _: bool = Depends(verify_admin)):
+    update_data = {
+        **data.model_dump(),
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.incentive_multipliers.update_one({}, {"$set": update_data}, upsert=True)
+    return await db.incentive_multipliers.find_one({}, {"_id": 0})
+
+# ---------- DEAL SIZE RANGES ----------
+@api_router.get("/deal-size-ranges", response_model=Dict)
+async def get_deal_size_ranges():
+    ranges = await db.deal_size_ranges.find_one({}, {"_id": 0})
+    if not ranges:
+        default = DealSizeRangeModel()
+        doc = default.model_dump()
+        doc['updated_at'] = doc['updated_at'].isoformat()
+        await db.deal_size_ranges.insert_one(doc)
+        return serialize_doc(doc)
+    return ranges
 
 # ---------- CALCULATIONS ----------
 @api_router.post("/calculate/simple", response_model=Dict)
@@ -1511,6 +1876,52 @@ async def seed_database(_: bool = Depends(verify_admin)):
         "updated_at": datetime.now(timezone.utc).isoformat()
     }
     await db.risk_config.insert_one(risk_config)
+    
+    # Incentive Rules (New)
+    await db.incentive_rules.delete_many({})
+    incentive_rules = [
+        # Tiny deals
+        {"id": "ir-1", "deal_size": "tiny", "role": "sales_rep", "base_percent": 5, "max_cap": 5000, "is_active": True},
+        {"id": "ir-2", "deal_size": "tiny", "role": "sales_manager", "base_percent": 2, "max_cap": 2000, "is_active": True},
+        # Standard deals
+        {"id": "ir-3", "deal_size": "standard", "role": "sales_rep", "base_percent": 4, "max_cap": 15000, "is_active": True},
+        {"id": "ir-4", "deal_size": "standard", "role": "sales_manager", "base_percent": 2, "max_cap": 7500, "is_active": True},
+        # Big deals
+        {"id": "ir-5", "deal_size": "big", "role": "sales_rep", "base_percent": 3, "max_cap": 30000, "is_active": True},
+        {"id": "ir-6", "deal_size": "big", "role": "sales_manager", "base_percent": 1.5, "max_cap": 15000, "is_active": True},
+        # Mega deals
+        {"id": "ir-7", "deal_size": "mega", "role": "sales_rep", "base_percent": 2, "max_cap": 50000, "is_active": True},
+        {"id": "ir-8", "deal_size": "mega", "role": "sales_manager", "base_percent": 1, "max_cap": 25000, "is_active": True},
+    ]
+    for ir in incentive_rules:
+        ir['created_at'] = datetime.now(timezone.utc).isoformat()
+    await db.incentive_rules.insert_many(incentive_rules)
+    
+    # Incentive Multipliers
+    await db.incentive_multipliers.delete_many({})
+    incentive_multipliers = {
+        "id": "incentive_multipliers",
+        "existing_customer_multiplier": 0.9,
+        "referral_multiplier": 0.5,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.incentive_multipliers.insert_one(incentive_multipliers)
+    
+    # Deal Size Ranges
+    await db.deal_size_ranges.delete_many({})
+    deal_size_ranges = {
+        "id": "deal_size_ranges",
+        "tiny_min": 0,
+        "tiny_max": 200000,
+        "standard_min": 200000,
+        "standard_max": 500000,
+        "big_min": 500000,
+        "big_max": 2000000,
+        "mega_min": 2000000,
+        "mega_max": 999999999,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.deal_size_ranges.insert_one(deal_size_ranges)
     
     return {"status": "success", "message": "Database seeded with sample data"}
 
