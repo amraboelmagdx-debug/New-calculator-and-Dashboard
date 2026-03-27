@@ -600,9 +600,6 @@ function SimpleCalculator({
                     <SelectItem value="existing">عميل حالي (Existing Customer)</SelectItem>
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-slate-400 mt-1">
-                  {data.client_type === 'existing' ? 'خصم 10% على الحوافز' : 'النسبة الأساسية كاملة'}
-                </p>
               </div>
               <div>
                 <Label className="text-sm font-medium text-slate-700">Lead Source</Label>
@@ -618,9 +615,6 @@ function SimpleCalculator({
                     <SelectItem value="referral">إحالة (Referral)</SelectItem>
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-slate-400 mt-1">
-                  {data.lead_source === 'referral' ? 'خصم 50% على الحوافز' : 'النسبة الأساسية كاملة'}
-                </p>
               </div>
             </div>
             
