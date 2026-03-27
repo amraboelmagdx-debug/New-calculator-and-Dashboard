@@ -1,0 +1,363 @@
+import { useState } from 'react';
+import { Plus, Trash2, Clock, Calendar, User, UserPlus } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
+import { toast } from 'sonner';
+import { formatCurrency, generateId } from '@/lib/utils';
+import { quickCreateRole } from '@/lib/api';
+
+export default function TeamMemberRow({ 
+  member, 
+  index, 
+  roles, 
+  onUpdate, 
+  onRemove,
+  onRolesRefresh 
+}) {
+  const [showAddRole, setShowAddRole] = useState(false);
+  const [newRole, setNewRole] = useState({ name: '', hourly_rate: 0, monthly_salary: 0 });
+  const [saving, setSaving] = useState(false);
+
+  // Calculate cost based on mode
+  const calculateCost = () => {
+    if (member.employee_type === 'seconded') {
+      // Seconded: (custom_salary + allowance) * (1 + admin_fee%) * utilization * duration
+      const baseCost = (member.custom_salary || 0) + (member.custom_allowance || 0);
+      const withAdminFee = baseCost * (1 + (member.admin_fee_percent || 10) / 100);
+      const utilization = (member.utilization_percent || 100) / 100;
+      const duration = member.duration_months || 1;
+      return withAdminFee * utilization * duration;
+    } else {
+      // Internal employee
+      if (member.calc_mode === 'utilization') {
+        // Monthly cost * utilization * duration
+        const role = roles.find(r => r.id === member.role_id);
+        const monthlyCost = role?.total_monthly_cost || role?.monthly_salary || 0;
+        const utilization = (member.utilization_percent || 0) / 100;
+        const duration = member.duration_months || 1;
+        return monthlyCost * utilization * duration;
+      } else {
+        // Hours mode: hours * hourly_rate
+        return (member.hours || 0) * (member.hourly_rate || 0);
+      }
+    }
+  };
+
+  const handleAddRole = async () => {
+    if (!newRole.name) {
+      toast.error('Please enter a role name');
+      return;
+    }
+    
+    setSaving(true);
+    try {
+      const created = await quickCreateRole(newRole);
+      toast.success(`Role "${created.name}" created`);
+      setShowAddRole(false);
+      setNewRole({ name: '', hourly_rate: 0, monthly_salary: 0 });
+      
+      // Refresh roles and select the new one
+      if (onRolesRefresh) {
+        await onRolesRefresh();
+      }
+      onUpdate('role_id', created.id);
+      onUpdate('role_name', created.name);
+      onUpdate('hourly_rate', created.hourly_rate);
+      onUpdate('monthly_salary', created.monthly_salary);
+    } catch (error) {
+      toast.error('Failed to create role');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRoleChange = (roleId) => {
+    if (roleId === '__add_new__') {
+      setShowAddRole(true);
+      return;
+    }
+    
+    const role = roles.find(r => r.id === roleId);
+    if (role) {
+      onUpdate('role_id', roleId);
+      onUpdate('role_name', role.name);
+      onUpdate('hourly_rate', role.hourly_rate);
+      onUpdate('monthly_salary', role.monthly_salary || 0);
+    }
+  };
+
+  const isUtilizationMode = member.calc_mode === 'utilization';
+  const isSeconded = member.employee_type === 'seconded';
+  const cost = calculateCost();
+
+  return (
+    <>
+      <div className="p-4 rounded-lg bg-slate-50 border border-slate-100 space-y-3" data-testid={`team-member-${index}`}>
+        {/* Row 1: Role, Employee Type, Calc Mode Toggle */}
+        <div className="flex items-center gap-3">
+          {/* Role Select */}
+          <div className="flex-1">
+            <Select value={member.role_id || ''} onValueChange={handleRoleChange}>
+              <SelectTrigger data-testid={`role-select-${index}`}>
+                <SelectValue placeholder="Select role" />
+              </SelectTrigger>
+              <SelectContent>
+                {roles.map(role => (
+                  <SelectItem key={role.id} value={role.id}>
+                    {role.name}
+                  </SelectItem>
+                ))}
+                <SelectItem value="__add_new__" className="text-indigo-600 font-medium">
+                  <div className="flex items-center gap-2">
+                    <Plus className="w-4 h-4" />
+                    Add new role...
+                  </div>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Employee Type */}
+          <div className="w-44">
+            <Select value={member.employee_type || 'internal'} onValueChange={(v) => onUpdate('employee_type', v)}>
+              <SelectTrigger data-testid={`employee-type-${index}`}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="internal">
+                  <div className="flex items-center gap-2">
+                    <User className="w-4 h-4" />
+                    Internal Employee
+                  </div>
+                </SelectItem>
+                <SelectItem value="seconded">
+                  <div className="flex items-center gap-2">
+                    <UserPlus className="w-4 h-4" />
+                    Seconded / Project
+                  </div>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Calc Mode Toggle (only for internal employees) */}
+          {!isSeconded && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-white rounded-md border">
+              <Clock className={`w-4 h-4 ${!isUtilizationMode ? 'text-indigo-600' : 'text-slate-400'}`} />
+              <Switch
+                checked={isUtilizationMode}
+                onCheckedChange={(checked) => onUpdate('calc_mode', checked ? 'utilization' : 'hours')}
+                data-testid={`calc-mode-${index}`}
+              />
+              <Calendar className={`w-4 h-4 ${isUtilizationMode ? 'text-indigo-600' : 'text-slate-400'}`} />
+            </div>
+          )}
+
+          {/* Remove Button */}
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={onRemove}
+            className="text-slate-400 hover:text-red-500"
+            data-testid={`remove-team-${index}`}
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
+        </div>
+
+        {/* Row 2: Input fields based on mode */}
+        <div className="grid grid-cols-12 gap-3 items-end">
+          {isSeconded ? (
+            // Seconded employee fields
+            <>
+              <div className="col-span-2">
+                <Label className="text-xs text-slate-500">Monthly Salary</Label>
+                <Input
+                  type="number"
+                  value={member.custom_salary || ''}
+                  onChange={(e) => onUpdate('custom_salary', parseFloat(e.target.value) || 0)}
+                  placeholder="Salary"
+                  className="mt-1"
+                />
+              </div>
+              <div className="col-span-2">
+                <Label className="text-xs text-slate-500">Allowance</Label>
+                <Input
+                  type="number"
+                  value={member.custom_allowance || ''}
+                  onChange={(e) => onUpdate('custom_allowance', parseFloat(e.target.value) || 0)}
+                  placeholder="Allowance"
+                  className="mt-1"
+                />
+              </div>
+              <div className="col-span-2">
+                <Label className="text-xs text-slate-500">Admin Fee %</Label>
+                <Input
+                  type="number"
+                  value={member.admin_fee_percent || ''}
+                  onChange={(e) => onUpdate('admin_fee_percent', parseFloat(e.target.value) || 0)}
+                  placeholder="%"
+                  className="mt-1"
+                />
+              </div>
+              <div className="col-span-2">
+                <Label className="text-xs text-slate-500">Utilization %</Label>
+                <Input
+                  type="number"
+                  value={member.utilization_percent || ''}
+                  onChange={(e) => onUpdate('utilization_percent', parseFloat(e.target.value) || 0)}
+                  placeholder="%"
+                  className="mt-1"
+                />
+              </div>
+              <div className="col-span-2">
+                <Label className="text-xs text-slate-500">Duration (months)</Label>
+                <Input
+                  type="number"
+                  value={member.duration_months || ''}
+                  onChange={(e) => onUpdate('duration_months', parseInt(e.target.value) || 1)}
+                  placeholder="Months"
+                  className="mt-1"
+                />
+              </div>
+              <div className="col-span-2">
+                <Label className="text-xs text-slate-500">Total Cost</Label>
+                <div className="text-lg font-bold font-mono text-slate-900 mt-1">
+                  {formatCurrency(cost, false)}
+                </div>
+              </div>
+            </>
+          ) : isUtilizationMode ? (
+            // Utilization mode for internal employee
+            <>
+              <div className="col-span-3">
+                <Label className="text-xs text-slate-500">Monthly Cost (incl. benefits)</Label>
+                <div className="text-sm font-mono text-slate-600 px-3 py-2 bg-white rounded-md border mt-1">
+                  {formatCurrency(roles.find(r => r.id === member.role_id)?.total_monthly_cost || roles.find(r => r.id === member.role_id)?.monthly_salary || 0, false)}
+                </div>
+              </div>
+              <div className="col-span-2">
+                <Label className="text-xs text-slate-500">Utilization %</Label>
+                <Input
+                  type="number"
+                  value={member.utilization_percent || ''}
+                  onChange={(e) => onUpdate('utilization_percent', parseFloat(e.target.value) || 0)}
+                  placeholder="e.g., 50"
+                  className="mt-1"
+                  data-testid={`util-input-${index}`}
+                />
+              </div>
+              <div className="col-span-2">
+                <Label className="text-xs text-slate-500">Duration (months)</Label>
+                <Input
+                  type="number"
+                  value={member.duration_months || ''}
+                  onChange={(e) => onUpdate('duration_months', parseInt(e.target.value) || 1)}
+                  placeholder="Months"
+                  className="mt-1"
+                  data-testid={`duration-input-${index}`}
+                />
+              </div>
+              <div className="col-span-2">
+                <Label className="text-xs text-slate-500">Calc Preview</Label>
+                <div className="text-xs text-slate-400 mt-1">
+                  {formatCurrency(roles.find(r => r.id === member.role_id)?.total_monthly_cost || 0, false)} × {member.utilization_percent || 0}% × {member.duration_months || 1}m
+                </div>
+              </div>
+              <div className="col-span-3">
+                <Label className="text-xs text-slate-500">Total Cost</Label>
+                <div className="text-lg font-bold font-mono text-slate-900 mt-1">
+                  {formatCurrency(cost, false)}
+                </div>
+              </div>
+            </>
+          ) : (
+            // Hours mode for internal employee
+            <>
+              <div className="col-span-3">
+                <Label className="text-xs text-slate-500">Hours</Label>
+                <Input
+                  type="number"
+                  value={member.hours || ''}
+                  onChange={(e) => onUpdate('hours', parseFloat(e.target.value) || 0)}
+                  placeholder="Hours"
+                  className="mt-1"
+                  data-testid={`hours-input-${index}`}
+                />
+              </div>
+              <div className="col-span-3">
+                <Label className="text-xs text-slate-500">Hourly Rate</Label>
+                <div className="text-sm font-mono text-slate-600 px-3 py-2 bg-white rounded-md border mt-1">
+                  {formatCurrency(member.hourly_rate || 0, false)} / hr
+                </div>
+              </div>
+              <div className="col-span-3">
+                <Label className="text-xs text-slate-500">Calc Preview</Label>
+                <div className="text-xs text-slate-400 mt-1">
+                  {member.hours || 0} hrs × {formatCurrency(member.hourly_rate || 0, false)}
+                </div>
+              </div>
+              <div className="col-span-3">
+                <Label className="text-xs text-slate-500">Total Cost</Label>
+                <div className="text-lg font-bold font-mono text-slate-900 mt-1">
+                  {formatCurrency(cost, false)}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Add New Role Dialog */}
+      <Dialog open={showAddRole} onOpenChange={setShowAddRole}>
+        <DialogContent data-testid="add-role-dialog">
+          <DialogHeader>
+            <DialogTitle>Add New Role</DialogTitle>
+            <DialogDescription>Create a new role to add to the list</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Role Name</Label>
+              <Input
+                value={newRole.name}
+                onChange={(e) => setNewRole(prev => ({ ...prev, name: e.target.value }))}
+                placeholder="e.g., Senior Designer"
+                data-testid="new-role-name"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Hourly Rate (SAR)</Label>
+                <Input
+                  type="number"
+                  value={newRole.hourly_rate || ''}
+                  onChange={(e) => setNewRole(prev => ({ ...prev, hourly_rate: parseFloat(e.target.value) || 0 }))}
+                  data-testid="new-role-rate"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Monthly Salary (SAR)</Label>
+                <Input
+                  type="number"
+                  value={newRole.monthly_salary || ''}
+                  onChange={(e) => setNewRole(prev => ({ ...prev, monthly_salary: parseFloat(e.target.value) || 0 }))}
+                  data-testid="new-role-salary"
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddRole(false)}>Cancel</Button>
+            <Button onClick={handleAddRole} disabled={saving} data-testid="save-new-role">
+              {saving ? 'Saving...' : 'Add Role'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}

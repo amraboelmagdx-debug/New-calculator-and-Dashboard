@@ -25,6 +25,8 @@ import { formatCurrency, formatPercent, generateId, getDealStatusClass, getMargi
 import ProfitabilityPanel from '@/components/ProfitabilityPanel';
 import ScopeEditor from '@/components/ScopeEditor';
 import ExportPDF from '@/components/ExportPDF';
+import TeamMemberRow from '@/components/TeamMemberRow';
+import VendorRow from '@/components/VendorRow';
 
 export default function Calculator() {
   const [mode, setMode] = useState('simple');
@@ -159,7 +161,14 @@ export default function Calculator() {
         role_name: '',
         hours: 0,
         utilization_percent: 0,
-        hourly_rate: 0
+        duration_months: 1,
+        hourly_rate: 0,
+        monthly_salary: 0,
+        calc_mode: 'hours',
+        employee_type: 'internal',
+        custom_salary: 0,
+        custom_allowance: 0,
+        admin_fee_percent: 10
       }]
     }));
   };
@@ -169,12 +178,13 @@ export default function Calculator() {
       const updated = [...prev.team_members];
       updated[index] = { ...updated[index], [field]: value };
       
-      // If role changed, update rate
+      // If role changed, update rate and salary
       if (field === 'role_id') {
         const role = roles.find(r => r.id === value);
         if (role) {
           updated[index].role_name = role.name;
           updated[index].hourly_rate = role.hourly_rate;
+          updated[index].monthly_salary = role.monthly_salary || 0;
         }
       }
       
@@ -187,6 +197,18 @@ export default function Calculator() {
       ...prev,
       team_members: prev.team_members.filter((_, i) => i !== index)
     }));
+  };
+
+  // Refresh roles list (used by inline add)
+  const refreshRoles = async () => {
+    const rolesData = await getRoles();
+    setRoles(rolesData);
+  };
+
+  // Refresh vendor services list (used by inline add)
+  const refreshVendorServices = async () => {
+    const vendorsData = await getVendorServices();
+    setVendorServices(vendorsData);
   };
 
   const addVendor = () => {
@@ -375,6 +397,8 @@ export default function Calculator() {
             updateVendor={updateVendor}
             removeVendor={removeVendor}
             calculating={calculating}
+            refreshRoles={refreshRoles}
+            refreshVendorServices={refreshVendorServices}
           />
         ) : (
           <StructuredCalculator
@@ -391,6 +415,8 @@ export default function Calculator() {
             paymentTerms={paymentTerms}
             riskMultipliers={riskMultipliers}
             calculating={calculating}
+            refreshRoles={refreshRoles}
+            refreshVendorServices={refreshVendorServices}
           />
         )}
       </main>
@@ -402,7 +428,8 @@ export default function Calculator() {
 function SimpleCalculator({ 
   data, setData, results, roles, vendorServices,
   addTeamMember, updateTeamMember, removeTeamMember,
-  addVendor, updateVendor, removeVendor, calculating 
+  addVendor, updateVendor, removeVendor, calculating,
+  refreshRoles, refreshVendorServices 
 }) {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8" data-testid="simple-calculator">
@@ -412,7 +439,10 @@ function SimpleCalculator({
         <Card data-testid="team-section">
           <CardHeader className="pb-4">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-lg font-semibold text-slate-800">Internal Team</CardTitle>
+              <div>
+                <CardTitle className="text-lg font-semibold text-slate-800">Internal Team</CardTitle>
+                <p className="text-xs text-slate-500 mt-1">Toggle between Hours and Monthly Utilization mode for each role</p>
+              </div>
               <Button size="sm" onClick={addTeamMember} className="gap-2" data-testid="add-team-member-btn">
                 <Plus className="w-4 h-4" />
                 Add Role
@@ -427,61 +457,16 @@ function SimpleCalculator({
               </div>
             ) : (
               <div className="space-y-3">
-                <div className="grid grid-cols-12 gap-3 text-xs font-medium text-slate-500 uppercase tracking-wider px-3">
-                  <div className="col-span-4">Role</div>
-                  <div className="col-span-2">Hours</div>
-                  <div className="col-span-2">Utilization %</div>
-                  <div className="col-span-2">Rate/hr</div>
-                  <div className="col-span-2">Cost</div>
-                </div>
                 {data.team_members.map((member, index) => (
-                  <div key={member.id} className="grid grid-cols-12 gap-3 items-center p-3 rounded-lg bg-slate-50 border border-slate-100" data-testid={`team-member-${index}`}>
-                    <div className="col-span-4">
-                      <Select value={member.role_id} onValueChange={(v) => updateTeamMember(index, 'role_id', v)}>
-                        <SelectTrigger data-testid={`role-select-${index}`}>
-                          <SelectValue placeholder="Select role" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {roles.map(role => (
-                            <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="col-span-2">
-                      <Input
-                        type="number"
-                        value={member.hours || ''}
-                        onChange={(e) => updateTeamMember(index, 'hours', parseFloat(e.target.value) || 0)}
-                        placeholder="Hours"
-                        data-testid={`hours-input-${index}`}
-                      />
-                    </div>
-                    <div className="col-span-2">
-                      <Input
-                        type="number"
-                        value={member.utilization_percent || ''}
-                        onChange={(e) => updateTeamMember(index, 'utilization_percent', parseFloat(e.target.value) || 0)}
-                        placeholder="%"
-                        data-testid={`util-input-${index}`}
-                      />
-                    </div>
-                    <div className="col-span-2">
-                      <div className="text-sm font-mono text-slate-600 px-3 py-2 bg-white rounded-md border">
-                        {formatCurrency(member.hourly_rate, false)}
-                      </div>
-                    </div>
-                    <div className="col-span-1">
-                      <div className="text-sm font-mono font-medium text-slate-900">
-                        {formatCurrency((member.hours || (member.utilization_percent / 100) * 176) * member.hourly_rate, false)}
-                      </div>
-                    </div>
-                    <div className="col-span-1 flex justify-end">
-                      <Button variant="ghost" size="sm" onClick={() => removeTeamMember(index)} className="text-slate-400 hover:text-red-500" data-testid={`remove-team-${index}`}>
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
+                  <TeamMemberRow
+                    key={member.id}
+                    member={member}
+                    index={index}
+                    roles={roles}
+                    onUpdate={(field, value) => updateTeamMember(index, field, value)}
+                    onRemove={() => removeTeamMember(index)}
+                    onRolesRefresh={refreshRoles}
+                  />
                 ))}
               </div>
             )}
@@ -515,48 +500,15 @@ function SimpleCalculator({
                   <div className="col-span-1"></div>
                 </div>
                 {data.vendors.map((vendor, index) => (
-                  <div key={vendor.id} className="grid grid-cols-12 gap-3 items-center p-3 rounded-lg bg-slate-50 border border-slate-100" data-testid={`vendor-${index}`}>
-                    <div className="col-span-4">
-                      <Select value={vendor.service_id} onValueChange={(v) => updateVendor(index, 'service_id', v)}>
-                        <SelectTrigger data-testid={`vendor-select-${index}`}>
-                          <SelectValue placeholder="Select service" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {vendorServices.map(service => (
-                            <SelectItem key={service.id} value={service.id}>{service.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="col-span-3">
-                      <Input
-                        type="number"
-                        value={vendor.cost || ''}
-                        onChange={(e) => updateVendor(index, 'cost', parseFloat(e.target.value) || 0)}
-                        placeholder="Cost"
-                        data-testid={`vendor-cost-${index}`}
-                      />
-                    </div>
-                    <div className="col-span-2">
-                      <Input
-                        type="number"
-                        value={vendor.markup_percent || ''}
-                        onChange={(e) => updateVendor(index, 'markup_percent', parseFloat(e.target.value) || 0)}
-                        placeholder="%"
-                        data-testid={`vendor-markup-${index}`}
-                      />
-                    </div>
-                    <div className="col-span-2">
-                      <div className="text-sm font-mono font-medium text-slate-900">
-                        {formatCurrency(vendor.cost * (1 + vendor.markup_percent / 100), false)}
-                      </div>
-                    </div>
-                    <div className="col-span-1 flex justify-end">
-                      <Button variant="ghost" size="sm" onClick={() => removeVendor(index)} className="text-slate-400 hover:text-red-500" data-testid={`remove-vendor-${index}`}>
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
+                  <VendorRow
+                    key={vendor.id}
+                    vendor={vendor}
+                    index={index}
+                    vendorServices={vendorServices}
+                    onUpdate={(field, value) => updateVendor(index, field, value)}
+                    onRemove={() => removeVendor(index)}
+                    onServicesRefresh={refreshVendorServices}
+                  />
                 ))}
               </div>
             )}

@@ -3,7 +3,7 @@ import { Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom'
 import { 
   Users, Package, Layers, Truck, CreditCard, Gauge, Percent, 
   AlertTriangle, Palette, Database, LogOut, ChevronRight, Save,
-  Plus, Pencil, Trash2, Check, X
+  Plus, Pencil, Trash2, Check, X, Settings2, FileSpreadsheet, RefreshCw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 import {
   getRoles, createRole, updateRole, deleteRole,
@@ -22,6 +23,7 @@ import {
   getSalesIncentives, updateSalesIncentives,
   getRiskMultipliers, createRiskMultiplier, updateRiskMultiplier, deleteRiskMultiplier,
   getThemeSettings, updateThemeSettings,
+  getHRConfig, updateHRConfig, importGoogleSheet,
   seedDatabase,
   setAdminPassword, getAdminPassword
 } from '@/lib/api';
@@ -98,6 +100,7 @@ export default function Admin() {
 
   const navItems = [
     { path: '/admin/roles', label: 'Roles', icon: Users },
+    { path: '/admin/hr-config', label: 'HR Cost Config', icon: Settings2 },
     { path: '/admin/product-templates', label: 'Product Templates', icon: Package },
     { path: '/admin/scope-templates', label: 'Scope Templates', icon: Layers },
     { path: '/admin/vendor-services', label: 'Vendor Services', icon: Truck },
@@ -166,6 +169,7 @@ export default function Admin() {
         <Routes>
           <Route path="/" element={<AdminWelcome />} />
           <Route path="/roles" element={<RolesManager />} />
+          <Route path="/hr-config" element={<HRConfigManager />} />
           <Route path="/product-templates" element={<ProductTemplatesManager />} />
           <Route path="/scope-templates" element={<ScopeTemplatesManager />} />
           <Route path="/vendor-services" element={<VendorServicesManager />} />
@@ -291,7 +295,7 @@ function RolesManager() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 font-['Manrope']">Roles</h1>
-          <p className="text-slate-600">Manage team roles and hourly rates</p>
+          <p className="text-slate-600">Manage team roles, salaries, and HR benefits</p>
         </div>
         <Button onClick={openCreate} className="gap-2" data-testid="add-role-btn">
           <Plus className="w-4 h-4" />
@@ -304,9 +308,12 @@ function RolesManager() {
           <TableHeader>
             <TableRow>
               <TableHead>Role Name</TableHead>
-              <TableHead>Hourly Rate (SAR)</TableHead>
-              <TableHead>Monthly Salary (SAR)</TableHead>
-              <TableHead>Description</TableHead>
+              <TableHead>Hourly Rate</TableHead>
+              <TableHead>Monthly Salary</TableHead>
+              <TableHead>Social Insurance</TableHead>
+              <TableHead>Medical Ins.</TableHead>
+              <TableHead>End of Service</TableHead>
+              <TableHead>Total Monthly</TableHead>
               <TableHead className="w-24">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -314,9 +321,12 @@ function RolesManager() {
             {roles.map(role => (
               <TableRow key={role.id} data-testid={`role-row-${role.id}`}>
                 <TableCell className="font-medium">{role.name}</TableCell>
-                <TableCell className="font-mono">{formatCurrency(role.hourly_rate, false)}</TableCell>
-                <TableCell className="font-mono">{formatCurrency(role.monthly_salary, false)}</TableCell>
-                <TableCell className="text-slate-500">{role.description || '-'}</TableCell>
+                <TableCell className="font-mono text-sm">{formatCurrency(role.hourly_rate, false)}</TableCell>
+                <TableCell className="font-mono text-sm">{formatCurrency(role.monthly_salary, false)}</TableCell>
+                <TableCell className="font-mono text-sm text-slate-500">{formatCurrency(role.social_insurance || 0, false)}</TableCell>
+                <TableCell className="font-mono text-sm text-slate-500">{formatCurrency(role.medical_insurance || 0, false)}</TableCell>
+                <TableCell className="font-mono text-sm text-slate-500">{formatCurrency(role.end_of_service || 0, false)}</TableCell>
+                <TableCell className="font-mono text-sm font-semibold text-indigo-600">{formatCurrency(role.total_monthly_cost || role.monthly_salary, false)}</TableCell>
                 <TableCell>
                   <div className="flex items-center gap-1">
                     <Button variant="ghost" size="sm" onClick={() => openEdit(role)} data-testid={`edit-role-${role.id}`}>
@@ -986,6 +996,221 @@ function DataManager() {
           </Button>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+// HR Config Manager with Google Sheets Integration
+function HRConfigManager() {
+  const [config, setConfig] = useState(null);
+  const [formData, setFormData] = useState({
+    social_insurance_percent: 12,
+    medical_insurance_percent: 3,
+    end_of_service_divisor: 2,
+    google_sheets_enabled: false,
+    google_sheets_url: ''
+  });
+  const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
+
+  useEffect(() => {
+    loadConfig();
+  }, []);
+
+  const loadConfig = async () => {
+    try {
+      const data = await getHRConfig();
+      setConfig(data);
+      setFormData({
+        social_insurance_percent: data.social_insurance_percent || 12,
+        medical_insurance_percent: data.medical_insurance_percent || 3,
+        end_of_service_divisor: data.end_of_service_divisor || 2,
+        google_sheets_enabled: data.google_sheets_enabled || false,
+        google_sheets_url: data.google_sheets_url || ''
+      });
+    } catch (error) {
+      toast.error('Failed to load HR config');
+    }
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await updateHRConfig(formData);
+      toast.success('HR configuration updated');
+    } catch (error) {
+      toast.error('Failed to update');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleImportFromSheet = async () => {
+    if (!formData.google_sheets_url) {
+      toast.error('Please enter a Google Sheets URL');
+      return;
+    }
+    
+    setImporting(true);
+    try {
+      const result = await importGoogleSheet(formData.google_sheets_url);
+      toast.success(`Successfully imported ${result.imported} roles from Google Sheets`);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to import from Google Sheets');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  return (
+    <div data-testid="hr-config-manager">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-slate-900 font-['Manrope']">HR Cost Configuration</h1>
+        <p className="text-slate-600">Configure benefits percentages and Google Sheets integration</p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Benefits Configuration */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Settings2 className="w-5 h-5" />
+              Benefits Percentages
+            </CardTitle>
+            <CardDescription>Configure how benefits are calculated from base salary</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-2">
+              <Label>Social Insurance %</Label>
+              <div className="flex items-center gap-3">
+                <Input
+                  type="number"
+                  value={formData.social_insurance_percent}
+                  onChange={(e) => setFormData(prev => ({ ...prev, social_insurance_percent: parseFloat(e.target.value) || 0 }))}
+                  className="max-w-32"
+                  data-testid="social-insurance-input"
+                />
+                <span className="text-slate-500">% of monthly salary</span>
+              </div>
+              <p className="text-xs text-slate-400">Default: 12%</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Medical Insurance %</Label>
+              <div className="flex items-center gap-3">
+                <Input
+                  type="number"
+                  value={formData.medical_insurance_percent}
+                  onChange={(e) => setFormData(prev => ({ ...prev, medical_insurance_percent: parseFloat(e.target.value) || 0 }))}
+                  className="max-w-32"
+                  data-testid="medical-insurance-input"
+                />
+                <span className="text-slate-500">% of monthly salary</span>
+              </div>
+              <p className="text-xs text-slate-400">Default: 3%</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>End of Service Divisor</Label>
+              <div className="flex items-center gap-3">
+                <span className="text-slate-500">Salary ÷</span>
+                <Input
+                  type="number"
+                  value={formData.end_of_service_divisor}
+                  onChange={(e) => setFormData(prev => ({ ...prev, end_of_service_divisor: parseFloat(e.target.value) || 2 }))}
+                  className="max-w-32"
+                  data-testid="eos-divisor-input"
+                />
+              </div>
+              <p className="text-xs text-slate-400">Default: 2 (means salary/2 per month)</p>
+            </div>
+
+            <div className="p-4 bg-indigo-50 rounded-lg">
+              <h4 className="text-sm font-semibold text-indigo-900 mb-2">Example Calculation</h4>
+              <p className="text-xs text-indigo-700">
+                For SAR 20,000 salary:<br />
+                • Social Insurance: SAR {(20000 * formData.social_insurance_percent / 100).toLocaleString()}<br />
+                • Medical Insurance: SAR {(20000 * formData.medical_insurance_percent / 100).toLocaleString()}<br />
+                • End of Service: SAR {formData.end_of_service_divisor > 0 ? (20000 / formData.end_of_service_divisor).toLocaleString() : 0}<br />
+                <strong>Total Monthly Cost: SAR {(20000 + 20000 * formData.social_insurance_percent / 100 + 20000 * formData.medical_insurance_percent / 100 + (formData.end_of_service_divisor > 0 ? 20000 / formData.end_of_service_divisor : 0)).toLocaleString()}</strong>
+              </p>
+            </div>
+
+            <Button onClick={handleSave} disabled={saving} className="w-full" data-testid="save-hr-config-btn">
+              {saving ? 'Saving...' : 'Save Configuration'}
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Google Sheets Integration */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="w-5 h-5" />
+              Google Sheets Integration
+            </CardTitle>
+            <CardDescription>Import roles and salaries from a Google Sheet</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+              <div>
+                <Label className="text-sm font-medium">Enable Google Sheets</Label>
+                <p className="text-xs text-slate-500">Sync roles from external spreadsheet</p>
+              </div>
+              <Switch
+                checked={formData.google_sheets_enabled}
+                onCheckedChange={(checked) => setFormData(prev => ({ ...prev, google_sheets_enabled: checked }))}
+                data-testid="google-sheets-toggle"
+              />
+            </div>
+
+            {formData.google_sheets_enabled && (
+              <div className="space-y-4 animate-fade-in">
+                <div className="space-y-2">
+                  <Label>Google Sheets URL</Label>
+                  <Input
+                    value={formData.google_sheets_url}
+                    onChange={(e) => setFormData(prev => ({ ...prev, google_sheets_url: e.target.value }))}
+                    placeholder="https://docs.google.com/spreadsheets/d/..."
+                    data-testid="google-sheets-url-input"
+                  />
+                  <p className="text-xs text-slate-400">
+                    Make sure the sheet is publicly accessible (Anyone with link can view)
+                  </p>
+                </div>
+
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                  <h4 className="text-sm font-semibold text-amber-900 mb-2">Required Columns</h4>
+                  <ul className="text-xs text-amber-800 space-y-1">
+                    <li>• <strong>Role Name</strong> or <strong>الدور</strong></li>
+                    <li>• <strong>Average Salary</strong> or <strong>متوسط الراتب</strong></li>
+                  </ul>
+                </div>
+
+                <Button 
+                  onClick={handleImportFromSheet} 
+                  disabled={importing || !formData.google_sheets_url}
+                  variant="outline"
+                  className="w-full gap-2"
+                  data-testid="import-sheets-btn"
+                >
+                  {importing ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      Importing...
+                    </>
+                  ) : (
+                    <>
+                      <FileSpreadsheet className="w-4 h-4" />
+                      Import from Google Sheets
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

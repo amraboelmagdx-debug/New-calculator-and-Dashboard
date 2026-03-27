@@ -186,6 +186,34 @@ export const updateThemeSettings = async (settings) => {
   return response.data;
 };
 
+// ==================== HR CONFIG ====================
+export const getHRConfig = async () => {
+  const response = await apiClient.get('/hr-config');
+  return response.data;
+};
+
+export const updateHRConfig = async (config) => {
+  const response = await apiClient.put('/hr-config', config, adminConfig());
+  return response.data;
+};
+
+// ==================== QUICK CREATE (no admin auth) ====================
+export const quickCreateRole = async (role) => {
+  const response = await apiClient.post('/roles/quick', role);
+  return response.data;
+};
+
+export const quickCreateVendorService = async (service) => {
+  const response = await apiClient.post('/vendor-services/quick', service);
+  return response.data;
+};
+
+// ==================== GOOGLE SHEETS IMPORT ====================
+export const importGoogleSheet = async (url) => {
+  const response = await apiClient.post(`/import-google-sheet?url=${encodeURIComponent(url)}`, {}, adminConfig());
+  return response.data;
+};
+
 // ==================== CALCULATIONS ====================
 export const calculateSimple = async (data) => {
   const response = await apiClient.post('/calculate/simple', data);

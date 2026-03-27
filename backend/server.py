@@ -35,6 +35,10 @@ class RoleModel(BaseModel):
     name: str
     hourly_rate: float
     monthly_salary: float = 0
+    social_insurance: float = 0  # Calculated from salary
+    end_of_service: float = 0    # Calculated from salary
+    medical_insurance: float = 0  # Calculated from salary
+    total_monthly_cost: float = 0  # Salary + benefits
     description: str = ""
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -43,6 +47,23 @@ class RoleCreate(BaseModel):
     hourly_rate: float
     monthly_salary: float = 0
     description: str = ""
+
+class HRConfigModel(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = "hr_config"
+    social_insurance_percent: float = 12
+    medical_insurance_percent: float = 3
+    end_of_service_divisor: float = 2  # salary / divisor
+    google_sheets_enabled: bool = False
+    google_sheets_url: str = ""
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class HRConfigUpdate(BaseModel):
+    social_insurance_percent: float = 12
+    medical_insurance_percent: float = 3
+    end_of_service_divisor: float = 2
+    google_sheets_enabled: bool = False
+    google_sheets_url: str = ""
 
 class ProductTemplateModel(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -143,7 +164,15 @@ class TeamMemberInput(BaseModel):
     role_name: str = ""
     hours: float = 0
     utilization_percent: float = 0
+    duration_months: int = 1
     hourly_rate: float = 0
+    monthly_salary: float = 0
+    calc_mode: str = "hours"  # "hours" or "utilization"
+    employee_type: str = "internal"  # "internal" or "seconded"
+    # Seconded employee fields
+    custom_salary: float = 0
+    custom_allowance: float = 0
+    admin_fee_percent: float = 10
 
 class VendorInput(BaseModel):
     service_id: str = ""
@@ -546,11 +575,39 @@ async def root():
 # ---------- ROLES ----------
 @api_router.get("/roles", response_model=List[Dict])
 async def get_roles():
+    # Get HR config for benefit calculations
+    hr_config = await db.hr_config.find_one({}, {"_id": 0})
+    if not hr_config:
+        hr_config = {"social_insurance_percent": 12, "medical_insurance_percent": 3, "end_of_service_divisor": 2}
+    
     roles = await db.roles.find({}, {"_id": 0}).to_list(1000)
+    
+    # Calculate benefits for each role
+    for role in roles:
+        salary = role.get('monthly_salary', 0)
+        role['social_insurance'] = round(salary * hr_config['social_insurance_percent'] / 100, 2)
+        role['medical_insurance'] = round(salary * hr_config['medical_insurance_percent'] / 100, 2)
+        role['end_of_service'] = round(salary / hr_config['end_of_service_divisor'], 2) if hr_config['end_of_service_divisor'] > 0 else 0
+        role['total_monthly_cost'] = round(salary + role['social_insurance'] + role['medical_insurance'] + role['end_of_service'], 2)
+    
     return roles
 
 @api_router.post("/roles", response_model=Dict)
 async def create_role(role: RoleCreate, _: bool = Depends(verify_admin)):
+    role_obj = RoleModel(**role.model_dump())
+    doc = role_obj.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
+    await db.roles.insert_one(doc)
+    return serialize_doc(doc)
+
+# Quick create role (no admin auth required for inline creation)
+class QuickRoleCreate(BaseModel):
+    name: str
+    hourly_rate: float = 0
+    monthly_salary: float = 0
+
+@api_router.post("/roles/quick", response_model=Dict)
+async def quick_create_role(role: QuickRoleCreate):
     role_obj = RoleModel(**role.model_dump())
     doc = role_obj.model_dump()
     doc['created_at'] = doc['created_at'].isoformat()
@@ -641,6 +698,20 @@ async def get_vendor_services():
 
 @api_router.post("/vendor-services", response_model=Dict)
 async def create_vendor_service(service: VendorServiceCreate, _: bool = Depends(verify_admin)):
+    service_obj = VendorServiceModel(**service.model_dump())
+    doc = service_obj.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
+    await db.vendor_services.insert_one(doc)
+    return serialize_doc(doc)
+
+# Quick create vendor service (no admin auth required for inline creation)
+class QuickVendorCreate(BaseModel):
+    name: str
+    category: str = ""
+    default_markup_percent: float = 15
+
+@api_router.post("/vendor-services/quick", response_model=Dict)
+async def quick_create_vendor_service(service: QuickVendorCreate):
     service_obj = VendorServiceModel(**service.model_dump())
     doc = service_obj.model_dump()
     doc['created_at'] = doc['created_at'].isoformat()
@@ -787,6 +858,105 @@ async def update_theme_settings(data: ThemeSettingsUpdate, _: bool = Depends(ver
     }
     await db.theme_settings.update_one({}, {"$set": update_data}, upsert=True)
     return await db.theme_settings.find_one({}, {"_id": 0})
+
+# ---------- HR CONFIG ----------
+@api_router.get("/hr-config", response_model=Dict)
+async def get_hr_config():
+    config = await db.hr_config.find_one({}, {"_id": 0})
+    if not config:
+        default = HRConfigModel()
+        doc = default.model_dump()
+        doc['updated_at'] = doc['updated_at'].isoformat()
+        await db.hr_config.insert_one(doc)
+        return serialize_doc(doc)
+    return config
+
+@api_router.put("/hr-config", response_model=Dict)
+async def update_hr_config(data: HRConfigUpdate, _: bool = Depends(verify_admin)):
+    update_data = {
+        **data.model_dump(),
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.hr_config.update_one({}, {"$set": update_data}, upsert=True)
+    return await db.hr_config.find_one({}, {"_id": 0})
+
+# ---------- GOOGLE SHEETS IMPORT ----------
+import httpx
+
+@api_router.post("/import-google-sheet", response_model=Dict)
+async def import_google_sheet(url: str, _: bool = Depends(verify_admin)):
+    """Import roles from Google Sheets"""
+    try:
+        # Convert Google Sheets URL to CSV export format
+        # URL format: https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit
+        # CSV format: https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv
+        
+        if '/edit' in url:
+            csv_url = url.replace('/edit', '/export?format=csv').split('#')[0].split('?')[0] + '/export?format=csv'
+        elif 'export' not in url:
+            # Extract sheet ID and create CSV URL
+            parts = url.split('/d/')
+            if len(parts) > 1:
+                sheet_id = parts[1].split('/')[0]
+                csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
+            else:
+                csv_url = url
+        else:
+            csv_url = url
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.get(csv_url, follow_redirects=True, timeout=30)
+            response.raise_for_status()
+            
+        # Parse CSV
+        import csv
+        import io
+        
+        content = response.text
+        reader = csv.DictReader(io.StringIO(content))
+        
+        imported_count = 0
+        for row in reader:
+            # Try to map columns (flexible column names)
+            name = row.get('Role Name') or row.get('role_name') or row.get('Role') or row.get('name') or row.get('الدور')
+            salary = row.get('Average Salary') or row.get('monthly_salary') or row.get('Salary') or row.get('متوسط الراتب') or '0'
+            
+            if not name:
+                continue
+                
+            # Clean and parse salary
+            try:
+                salary_clean = ''.join(c for c in str(salary) if c.isdigit() or c == '.')
+                salary_float = float(salary_clean) if salary_clean else 0
+            except:
+                salary_float = 0
+            
+            # Calculate hourly rate (assuming 176 hours/month)
+            hourly_rate = salary_float / 176 if salary_float > 0 else 0
+            
+            # Check if role exists
+            existing = await db.roles.find_one({"name": name})
+            if existing:
+                # Update existing
+                await db.roles.update_one(
+                    {"name": name},
+                    {"$set": {"monthly_salary": salary_float, "hourly_rate": round(hourly_rate, 2)}}
+                )
+            else:
+                # Create new
+                role_obj = RoleModel(name=name, monthly_salary=salary_float, hourly_rate=round(hourly_rate, 2))
+                doc = role_obj.model_dump()
+                doc['created_at'] = doc['created_at'].isoformat()
+                await db.roles.insert_one(doc)
+            
+            imported_count += 1
+        
+        return {"status": "success", "imported": imported_count}
+        
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=400, detail=f"Failed to fetch Google Sheet: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
 
 # ---------- CALCULATIONS ----------
 @api_router.post("/calculate/simple", response_model=Dict)
