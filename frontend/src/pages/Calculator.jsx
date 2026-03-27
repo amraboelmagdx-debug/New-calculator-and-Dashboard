@@ -20,7 +20,8 @@ import {
   calculateSimple, 
   calculateOpportunity,
   seedDatabase,
-  setAdminPassword
+  setAdminPassword,
+  getThemeSettings
 } from '@/lib/api';
 import { formatCurrency, formatPercent, generateId, getDealStatusClass, getMarginColorClass, deepClone } from '@/lib/utils';
 import ProfitabilityPanel from '@/components/ProfitabilityPanel';
@@ -39,6 +40,7 @@ export default function Calculator() {
   const [scopeTemplates, setScopeTemplates] = useState([]);
   const [paymentTerms, setPaymentTerms] = useState([]);
   const [riskMultipliers, setRiskMultipliers] = useState([]);
+  const [themeSettings, setThemeSettings] = useState({ company_name: 'Opportunity Pricing Engine', logo_url: '' });
   const [loading, setLoading] = useState(true);
   const [calculating, setCalculating] = useState(false);
   
@@ -78,13 +80,14 @@ export default function Calculator() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [rolesData, vendorsData, productsData, scopesData, termsData, risksData] = await Promise.all([
+      const [rolesData, vendorsData, productsData, scopesData, termsData, risksData, themeData] = await Promise.all([
         getRoles(),
         getVendorServices(),
         getProductTemplates(),
         getScopeTemplates(),
         getPaymentTerms(),
-        getRiskMultipliers()
+        getRiskMultipliers(),
+        getThemeSettings().catch(() => ({ company_name: 'Opportunity Pricing Engine', logo_url: '' }))
       ]);
       
       setRoles(rolesData);
@@ -93,6 +96,7 @@ export default function Calculator() {
       setScopeTemplates(scopesData);
       setPaymentTerms(termsData);
       setRiskMultipliers(risksData);
+      setThemeSettings(themeData);
 
       // If no data, offer to seed
       if (rolesData.length === 0) {
@@ -357,11 +361,27 @@ export default function Calculator() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-slate-900 rounded-lg flex items-center justify-center">
+              {themeSettings.logo_url ? (
+                <img 
+                  src={themeSettings.logo_url} 
+                  alt={themeSettings.company_name || 'Logo'} 
+                  className="w-10 h-10 rounded-lg object-contain"
+                  onError={(e) => {
+                    e.target.style.display = 'none';
+                    e.target.nextSibling.style.display = 'flex';
+                  }}
+                />
+              ) : null}
+              <div 
+                className={`w-10 h-10 bg-slate-900 rounded-lg items-center justify-center ${themeSettings.logo_url ? 'hidden' : 'flex'}`}
+                style={{ display: themeSettings.logo_url ? 'none' : 'flex' }}
+              >
                 <span className="text-white font-bold text-sm font-['Manrope']">OPE</span>
               </div>
               <div>
-                <h1 className="text-lg font-bold text-slate-900 font-['Manrope'] tracking-tight">Opportunity Pricing Engine</h1>
+                <h1 className="text-lg font-bold text-slate-900 font-['Manrope'] tracking-tight">
+                  {themeSettings.company_name || 'Opportunity Pricing Engine'}
+                </h1>
                 <p className="text-xs text-slate-500">ZAN Cost Calculator</p>
               </div>
             </div>
