@@ -168,11 +168,15 @@ export default function TeamMemberRow({
 
           {/* Calc Mode Toggle (only for internal employees) */}
           {!isSeconded && (
-            <div className={`flex items-center gap-2 px-3 py-2 rounded-md ${toggleBgClass}`}>
+            <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${toggleBgClass}`}>
               <Clock className={`w-4 h-4 ${!isUtilizationMode ? iconActiveClass : iconInactiveClass}`} />
               <Switch
                 checked={isUtilizationMode}
                 onCheckedChange={(checked) => onUpdate('calc_mode', checked ? 'utilization' : 'hours')}
+                className={darkMode 
+                  ? "data-[state=checked]:bg-blue-500 data-[state=unchecked]:bg-neutral-700" 
+                  : "data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-slate-300"
+                }
                 data-testid={`calc-mode-${index}`}
               />
               <Calendar className={`w-4 h-4 ${isUtilizationMode ? iconActiveClass : iconInactiveClass}`} />

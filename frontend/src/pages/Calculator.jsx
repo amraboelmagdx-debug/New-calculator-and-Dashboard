@@ -517,7 +517,7 @@ export default function Calculator() {
                   </div>
                   <Button 
                     onClick={addTeamMember} 
-                    className={`font-semibold ${isDarkMode ? 'bg-white text-neutral-900 hover:bg-neutral-200' : 'bg-slate-900 text-white hover:bg-slate-800'}`}
+                    className={`font-semibold ${isDarkMode ? 'bg-white text-neutral-900 hover:bg-neutral-200' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}
                     data-testid="add-team-member-btn"
                   >
                     <Plus className="w-4 h-4 mr-2" />
@@ -611,7 +611,7 @@ export default function Calculator() {
                   </div>
                   <Button 
                     onClick={addVendor} 
-                    className={`font-semibold ${isDarkMode ? 'bg-white text-neutral-900 hover:bg-neutral-200' : 'bg-slate-900 text-white hover:bg-slate-800'}`}
+                    className={`font-semibold ${isDarkMode ? 'bg-white text-neutral-900 hover:bg-neutral-200' : 'bg-amber-600 text-white hover:bg-amber-700'}`}
                     data-testid="add-vendor-btn"
                   >
                     <Plus className="w-4 h-4 mr-2" />
