@@ -15,11 +15,31 @@ export default function VendorRow({
   vendorServices, 
   onUpdate, 
   onRemove,
-  onServicesRefresh 
+  onServicesRefresh,
+  darkMode = false
 }) {
   const [showAddVendor, setShowAddVendor] = useState(false);
   const [newVendor, setNewVendor] = useState({ name: '', category: '', default_markup_percent: 15 });
   const [saving, setSaving] = useState(false);
+
+  // Dark mode classes
+  const cardClass = darkMode 
+    ? "p-4 rounded-lg bg-neutral-800/50 border border-neutral-700" 
+    : "p-3 rounded-lg bg-slate-50 border border-slate-100";
+  const inputClass = darkMode
+    ? "bg-neutral-900 border-neutral-700 text-white placeholder:text-neutral-500 font-mono"
+    : "font-mono";
+  const selectTriggerClass = darkMode
+    ? "bg-neutral-900 border-neutral-700 text-white"
+    : "";
+  const selectContentClass = darkMode
+    ? "bg-neutral-900 border-neutral-700"
+    : "";
+  const labelClass = darkMode
+    ? "text-xs text-neutral-400"
+    : "text-xs text-slate-500";
+  const textClass = darkMode ? "text-white" : "text-slate-900";
+  const subtextClass = darkMode ? "text-neutral-500" : "text-slate-500";
 
   const clientPrice = (vendor.cost || 0) * (1 + (vendor.markup_percent || 0) / 100);
 
@@ -66,19 +86,19 @@ export default function VendorRow({
 
   return (
     <>
-      <div className="grid grid-cols-12 gap-3 items-center p-3 rounded-lg bg-slate-50 border border-slate-100" data-testid={`vendor-${index}`}>
+      <div className={`grid grid-cols-12 gap-3 items-center ${cardClass}`} data-testid={`vendor-${index}`}>
         <div className="col-span-4">
           <Select value={vendor.service_id || ''} onValueChange={handleServiceChange}>
-            <SelectTrigger data-testid={`vendor-select-${index}`}>
+            <SelectTrigger className={selectTriggerClass} data-testid={`vendor-select-${index}`}>
               <SelectValue placeholder="Select service" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className={selectContentClass}>
               {vendorServices.map(service => (
-                <SelectItem key={service.id} value={service.id}>
+                <SelectItem key={service.id} value={service.id} className={darkMode ? "text-neutral-300" : ""}>
                   {service.name}
                 </SelectItem>
               ))}
-              <SelectItem value="__add_new__" className="text-indigo-600 font-medium">
+              <SelectItem value="__add_new__" className={darkMode ? "text-blue-400 font-medium" : "text-indigo-600 font-medium"}>
                 <div className="flex items-center gap-2">
                   <Plus className="w-4 h-4" />
                   Add new vendor service...
@@ -93,6 +113,7 @@ export default function VendorRow({
             value={vendor.cost || ''}
             onChange={(e) => onUpdate('cost', parseFloat(e.target.value) || 0)}
             placeholder="Cost (SAR)"
+            className={inputClass}
             data-testid={`vendor-cost-${index}`}
           />
         </div>
@@ -102,14 +123,15 @@ export default function VendorRow({
             value={vendor.markup_percent || ''}
             onChange={(e) => onUpdate('markup_percent', parseFloat(e.target.value) || 0)}
             placeholder="Markup %"
+            className={inputClass}
             data-testid={`vendor-markup-${index}`}
           />
         </div>
         <div className="col-span-2">
-          <div className="text-sm font-mono font-medium text-slate-900">
+          <div className={`text-sm font-mono font-medium ${textClass}`}>
             {formatCurrency(clientPrice, false)}
           </div>
-          <div className="text-xs text-slate-400">
+          <div className={`text-xs ${subtextClass}`}>
             +{formatCurrency(clientPrice - (vendor.cost || 0), false)} markup
           </div>
         </div>
@@ -118,7 +140,7 @@ export default function VendorRow({
             variant="ghost" 
             size="sm" 
             onClick={onRemove}
-            className="text-slate-400 hover:text-red-500"
+            className={darkMode ? "text-neutral-500 hover:text-red-400" : "text-slate-400 hover:text-red-500"}
             data-testid={`remove-vendor-${index}`}
           >
             <Trash2 className="w-4 h-4" />

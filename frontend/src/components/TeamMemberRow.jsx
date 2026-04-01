@@ -16,11 +16,33 @@ export default function TeamMemberRow({
   roles, 
   onUpdate, 
   onRemove,
-  onRolesRefresh 
+  onRolesRefresh,
+  darkMode = false
 }) {
   const [showAddRole, setShowAddRole] = useState(false);
   const [newRole, setNewRole] = useState({ name: '', hourly_rate: 0, monthly_salary: 0 });
   const [saving, setSaving] = useState(false);
+
+  // Dark mode classes
+  const cardClass = darkMode 
+    ? "p-4 rounded-lg bg-neutral-800/50 border border-neutral-700 space-y-3" 
+    : "p-4 rounded-lg bg-slate-50 border border-slate-100 space-y-3";
+  const inputClass = darkMode
+    ? "bg-neutral-900 border-neutral-700 text-white placeholder:text-neutral-500"
+    : "";
+  const selectTriggerClass = darkMode
+    ? "bg-neutral-900 border-neutral-700 text-white"
+    : "";
+  const labelClass = darkMode
+    ? "text-xs text-neutral-400"
+    : "text-xs text-slate-500";
+  const toggleBgClass = darkMode
+    ? "bg-neutral-900 border-neutral-700"
+    : "bg-white border";
+  const iconActiveClass = darkMode ? "text-blue-400" : "text-indigo-600";
+  const iconInactiveClass = darkMode ? "text-neutral-500" : "text-slate-400";
+  const resultTextClass = darkMode ? "text-white" : "text-slate-900";
+  const subtextClass = darkMode ? "text-neutral-500" : "text-slate-500";
 
   // Calculate cost based on mode
   const calculateCost = () => {
@@ -96,22 +118,22 @@ export default function TeamMemberRow({
 
   return (
     <>
-      <div className="p-4 rounded-lg bg-slate-50 border border-slate-100 space-y-3" data-testid={`team-member-${index}`}>
+      <div className={cardClass} data-testid={`team-member-${index}`}>
         {/* Row 1: Role, Employee Type, Calc Mode Toggle */}
         <div className="flex items-center gap-3">
           {/* Role Select */}
           <div className="flex-1">
             <Select value={member.role_id || ''} onValueChange={handleRoleChange}>
-              <SelectTrigger data-testid={`role-select-${index}`}>
+              <SelectTrigger className={selectTriggerClass} data-testid={`role-select-${index}`}>
                 <SelectValue placeholder="Select role" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className={darkMode ? "bg-neutral-900 border-neutral-700" : ""}>
                 {roles.map(role => (
-                  <SelectItem key={role.id} value={role.id}>
+                  <SelectItem key={role.id} value={role.id} className={darkMode ? "text-neutral-300" : ""}>
                     {role.name}
                   </SelectItem>
                 ))}
-                <SelectItem value="__add_new__" className="text-indigo-600 font-medium">
+                <SelectItem value="__add_new__" className={darkMode ? "text-blue-400 font-medium" : "text-indigo-600 font-medium"}>
                   <div className="flex items-center gap-2">
                     <Plus className="w-4 h-4" />
                     Add new role...
@@ -124,17 +146,17 @@ export default function TeamMemberRow({
           {/* Employee Type */}
           <div className="w-44">
             <Select value={member.employee_type || 'internal'} onValueChange={(v) => onUpdate('employee_type', v)}>
-              <SelectTrigger data-testid={`employee-type-${index}`}>
+              <SelectTrigger className={selectTriggerClass} data-testid={`employee-type-${index}`}>
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="internal">
+              <SelectContent className={darkMode ? "bg-neutral-900 border-neutral-700" : ""}>
+                <SelectItem value="internal" className={darkMode ? "text-neutral-300" : ""}>
                   <div className="flex items-center gap-2">
                     <User className="w-4 h-4" />
                     Internal Employee
                   </div>
                 </SelectItem>
-                <SelectItem value="seconded">
+                <SelectItem value="seconded" className={darkMode ? "text-neutral-300" : ""}>
                   <div className="flex items-center gap-2">
                     <UserPlus className="w-4 h-4" />
                     Seconded / Project
@@ -146,14 +168,14 @@ export default function TeamMemberRow({
 
           {/* Calc Mode Toggle (only for internal employees) */}
           {!isSeconded && (
-            <div className="flex items-center gap-2 px-3 py-2 bg-white rounded-md border">
-              <Clock className={`w-4 h-4 ${!isUtilizationMode ? 'text-indigo-600' : 'text-slate-400'}`} />
+            <div className={`flex items-center gap-2 px-3 py-2 rounded-md ${toggleBgClass}`}>
+              <Clock className={`w-4 h-4 ${!isUtilizationMode ? iconActiveClass : iconInactiveClass}`} />
               <Switch
                 checked={isUtilizationMode}
                 onCheckedChange={(checked) => onUpdate('calc_mode', checked ? 'utilization' : 'hours')}
                 data-testid={`calc-mode-${index}`}
               />
-              <Calendar className={`w-4 h-4 ${isUtilizationMode ? 'text-indigo-600' : 'text-slate-400'}`} />
+              <Calendar className={`w-4 h-4 ${isUtilizationMode ? iconActiveClass : iconInactiveClass}`} />
             </div>
           )}
 
@@ -162,7 +184,7 @@ export default function TeamMemberRow({
             variant="ghost" 
             size="sm" 
             onClick={onRemove}
-            className="text-slate-400 hover:text-red-500"
+            className={darkMode ? "text-neutral-500 hover:text-red-400" : "text-slate-400 hover:text-red-500"}
             data-testid={`remove-team-${index}`}
           >
             <Trash2 className="w-4 h-4" />
@@ -175,9 +197,10 @@ export default function TeamMemberRow({
             // Seconded employee fields
             <>
               <div className="col-span-2">
-                <Label className="text-xs text-slate-500">Monthly Salary</Label>
+                <Label className={labelClass}>Monthly Salary</Label>
                 <Input
                   type="number"
+                  className={inputClass}
                   value={member.custom_salary || ''}
                   onChange={(e) => onUpdate('custom_salary', parseFloat(e.target.value) || 0)}
                   placeholder="Salary"
