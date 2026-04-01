@@ -76,7 +76,7 @@ export default function Admin() {
         <Card className="w-full max-w-md bg-white border-slate-200 shadow-xl">
           <CardHeader className="text-center pb-2">
             <div className="w-14 h-14 bg-gradient-to-br from-indigo-600 to-indigo-700 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-indigo-200">
-              <span className="text-white font-bold text-lg font-['Manrope']">ZAN</span>
+              <span className="text-white font-bold text-lg ">ZAN</span>
             </div>
             <CardTitle className="text-2xl font-bold text-slate-900">Admin Access</CardTitle>
             <CardDescription className="text-slate-500">Enter password to access admin panel</CardDescription>
@@ -131,7 +131,7 @@ export default function Admin() {
         <div className="p-5 border-b border-slate-200">
           <Link to="/" className="flex items-center gap-3">
             <div className="w-10 h-10 bg-gradient-to-br from-indigo-600 to-indigo-700 rounded-xl flex items-center justify-center shadow-md shadow-indigo-100">
-              <span className="text-white font-bold text-sm font-['Manrope']">ZAN</span>
+              <span className="text-white font-bold text-sm ">ZAN</span>
             </div>
             <div>
               <h1 className="font-bold text-slate-900">Admin Panel</h1>
@@ -204,7 +204,7 @@ export default function Admin() {
 function AdminWelcome() {
   return (
     <div className="max-w-2xl" data-testid="admin-welcome">
-      <h1 className="text-3xl font-bold text-slate-900 font-['Manrope'] mb-2">Welcome to Admin</h1>
+      <h1 className="text-3xl font-bold text-slate-900  mb-2">Welcome to Admin</h1>
       <p className="text-slate-500 mb-8">Manage your pricing engine configuration</p>
       <div className="grid grid-cols-2 gap-4">
         <Card className="hover:shadow-lg transition-shadow border-slate-200 bg-white">
@@ -480,7 +480,7 @@ function RolesHRManager() {
     <div data-testid="roles-hr-manager">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 font-['Manrope']">Roles & HR Configuration</h1>
+          <h1 className="text-2xl font-bold text-slate-900 ">Roles & HR Configuration</h1>
           <p className="text-slate-600">Manage roles, salaries, and Google Sheets integration</p>
         </div>
         <div className="flex items-center gap-2">
@@ -911,7 +911,7 @@ function ProductTemplatesManager() {
     <div data-testid="product-templates-manager">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 font-['Manrope']">Product Templates</h1>
+          <h1 className="text-2xl font-bold text-slate-900 ">Product Templates</h1>
           <p className="text-slate-600">Pre-configured products with default roles</p>
         </div>
       </div>
@@ -951,7 +951,7 @@ function ScopeTemplatesManager() {
   return (
     <div data-testid="scope-templates-manager">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900 font-['Manrope']">Scope Templates</h1>
+        <h1 className="text-2xl font-bold text-slate-900 ">Scope Templates</h1>
         <p className="text-slate-600">Pre-configured scope packages</p>
       </div>
       <Card>
@@ -1050,7 +1050,7 @@ function VendorServicesManager() {
     <div data-testid="vendor-services-manager">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 font-['Manrope']">Vendor Services</h1>
+          <h1 className="text-2xl font-bold text-slate-900 ">Vendor Services</h1>
           <p className="text-slate-600">External services with default markups</p>
         </div>
         <Button onClick={openCreate} className="gap-2" data-testid="add-vendor-service-btn">
@@ -1147,7 +1147,7 @@ function PaymentTermsManager() {
   return (
     <div data-testid="payment-terms-manager">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900 font-['Manrope']">Payment Terms</h1>
+        <h1 className="text-2xl font-bold text-slate-900 ">Payment Terms</h1>
         <p className="text-slate-600">Payment conditions and financing impact</p>
       </div>
       <Card>
@@ -1209,7 +1209,7 @@ function OverheadRatesManager() {
   return (
     <div data-testid="overhead-rates-manager">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900 font-['Manrope']">Overhead Rates</h1>
+        <h1 className="text-2xl font-bold text-slate-900 ">Overhead Rates</h1>
         <p className="text-slate-600">Configure overhead allocation</p>
       </div>
       <Card className="max-w-xl">
@@ -1274,7 +1274,7 @@ function SalesIncentivesManager() {
   return (
     <div data-testid="sales-incentives-manager">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900 font-['Manrope']">Sales Incentives</h1>
+        <h1 className="text-2xl font-bold text-slate-900 ">Sales Incentives</h1>
         <p className="text-slate-600">Configure sales commission percentage</p>
       </div>
       <Card className="max-w-xl">
@@ -1312,7 +1312,7 @@ function RiskMultipliersManager() {
   return (
     <div data-testid="risk-multipliers-manager">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900 font-['Manrope']">Risk Multipliers</h1>
+        <h1 className="text-2xl font-bold text-slate-900 ">Risk Multipliers</h1>
         <p className="text-slate-600">Cost multipliers based on risk level</p>
       </div>
       <Card>
@@ -1382,7 +1382,7 @@ function ThemeManager() {
   return (
     <div data-testid="theme-manager">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900 font-['Manrope']">Theme Settings</h1>
+        <h1 className="text-2xl font-bold text-slate-900 ">Theme Settings</h1>
         <p className="text-slate-600">Customize branding and colors</p>
       </div>
       <div className="grid grid-cols-2 gap-6">
@@ -1469,7 +1469,7 @@ function DataManager() {
   return (
     <div data-testid="data-manager">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900 font-['Manrope']">Seed Data</h1>
+        <h1 className="text-2xl font-bold text-slate-900 ">Seed Data</h1>
         <p className="text-slate-600">Reset database with sample data</p>
       </div>
       <Card className="max-w-xl">
@@ -1553,7 +1553,7 @@ function HRConfigManager() {
   return (
     <div data-testid="hr-config-manager">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900 font-['Manrope']">HR Cost Configuration</h1>
+        <h1 className="text-2xl font-bold text-slate-900 ">HR Cost Configuration</h1>
         <p className="text-slate-600">Configure benefits percentages and Google Sheets integration</p>
       </div>
 
@@ -1831,7 +1831,7 @@ function PricingGuidelinesManager() {
     <div data-testid="pricing-guidelines-manager">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 font-['Manrope']">Pricing Guidelines</h1>
+          <h1 className="text-2xl font-bold text-slate-900 ">Pricing Guidelines</h1>
           <p className="text-slate-600">Configure margin thresholds by deal size and service type</p>
         </div>
         <Button onClick={openCreate} className="gap-2" data-testid="add-guideline-btn">
@@ -2120,7 +2120,7 @@ function RiskConfigManager() {
   return (
     <div data-testid="risk-config-manager">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900 font-['Manrope']">Risk Configuration</h1>
+        <h1 className="text-2xl font-bold text-slate-900 ">Risk Configuration</h1>
         <p className="text-slate-600">Configure how risk factors affect pricing calculations</p>
       </div>
 
@@ -2453,7 +2453,7 @@ function IncentiveRulesManager() {
     <div data-testid="incentive-rules-manager">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 font-['Manrope']">Incentive Rules</h1>
+          <h1 className="text-2xl font-bold text-slate-900 ">Incentive Rules</h1>
           <p className="text-slate-600">Configure sales incentive percentages and caps by deal size</p>
         </div>
         <Button onClick={openCreate} className="gap-2" data-testid="add-rule-btn">

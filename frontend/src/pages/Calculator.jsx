@@ -307,11 +307,11 @@ export default function Calculator() {
               />
             ) : (
               <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${isDarkMode ? 'bg-white' : 'bg-neutral-900'}`}>
-                <span className={`font-bold text-sm font-['Manrope'] ${isDarkMode ? 'text-neutral-900' : 'text-white'}`}>ZAN</span>
+                <span className={`font-bold text-sm  ${isDarkMode ? 'text-neutral-900' : 'text-white'}`}>ZAN</span>
               </div>
             )}
             <div>
-              <h1 className={`text-lg font-bold font-['Manrope'] ${isDarkMode ? 'text-white' : 'text-neutral-900'}`}>
+              <h1 className={`text-lg font-bold  ${isDarkMode ? 'text-white' : 'text-neutral-900'}`}>
                 {themeSettings.company_name || 'ZAN'}
               </h1>
               <p className={`text-xs ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>Cost Calculator</p>
@@ -407,7 +407,7 @@ export default function Calculator() {
                     <Briefcase className={`w-5 h-5 ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`} />
                   </div>
                   <div>
-                    <CardTitle className={`text-lg font-['Manrope'] ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Project Information</CardTitle>
+                    <CardTitle className={`text-lg  ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Project Information</CardTitle>
                     <CardDescription className={isDarkMode ? 'text-neutral-500' : 'text-slate-500'}>Basic details about the opportunity</CardDescription>
                   </div>
                 </div>
@@ -511,7 +511,7 @@ export default function Calculator() {
                       <Users className={`w-5 h-5 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} />
                     </div>
                     <div>
-                      <CardTitle className={`text-lg font-['Manrope'] ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Internal Team</CardTitle>
+                      <CardTitle className={`text-lg  ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Internal Team</CardTitle>
                       <CardDescription className={isDarkMode ? 'text-neutral-500' : 'text-slate-500'}>Add roles and configure hours or utilization</CardDescription>
                     </div>
                   </div>
@@ -605,7 +605,7 @@ export default function Calculator() {
                       <Truck className={`w-5 h-5 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
                     </div>
                     <div>
-                      <CardTitle className={`text-lg font-['Manrope'] ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Vendors</CardTitle>
+                      <CardTitle className={`text-lg  ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Vendors</CardTitle>
                       <CardDescription className={isDarkMode ? 'text-neutral-500' : 'text-slate-500'}>External services and costs</CardDescription>
                     </div>
                   </div>
@@ -698,7 +698,7 @@ export default function Calculator() {
                     <Target className={`w-5 h-5 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`} />
                   </div>
                   <div>
-                    <CardTitle className={`text-lg font-['Manrope'] ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Pricing Settings</CardTitle>
+                    <CardTitle className={`text-lg  ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Pricing Settings</CardTitle>
                     <CardDescription className={isDarkMode ? 'text-neutral-500' : 'text-slate-500'}>Configure margins and pricing strategy</CardDescription>
                   </div>
                 </div>

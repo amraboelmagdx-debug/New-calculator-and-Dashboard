@@ -43,7 +43,7 @@ export default function ProfitabilityPanel({ results, mode, calculating }) {
   return (
     <Card className="sticky top-24" data-testid="profitability-panel">
       <CardHeader className="pb-2">
-        <CardTitle className="text-lg font-semibold text-slate-800 font-['Manrope']">Profitability Dashboard</CardTitle>
+        <CardTitle className="text-lg font-semibold text-slate-800 ">Profitability Dashboard</CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Key Metrics */}
