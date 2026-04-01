@@ -16,368 +16,447 @@ export default function ExportPDF({ data, results, projectInfo, themeSettings, i
     setExporting(true);
     
     try {
-      const companyName = themeSettings?.company_name || 'ZAN';
       const logoUrl = themeSettings?.logo_url || '';
       const clientName = projectInfo?.client_name || 'Client';
       const projectName = projectInfo?.project_name || 'Project';
       const salesOwner = projectInfo?.sales_owner || '';
+      const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
       
-      // Build team members section
-      const teamSection = data?.team_members?.length > 0 ? `
-        <div class="section">
-          <div class="section-title">Internal Team</div>
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Role</th>
-                <th>Hours</th>
-                <th>Rate/hr</th>
-                <th>Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${data.team_members.map(tm => `
-                <tr>
-                  <td>${tm.role_name || 'Role'}</td>
-                  <td class="mono">${tm.hours || 0}</td>
-                  <td class="mono">SAR ${formatCurrency(tm.hourly_rate || 0, false)}</td>
-                  <td class="mono">SAR ${formatCurrency((tm.hours || 0) * (tm.hourly_rate || 0), false)}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </div>
-      ` : '';
+      // Calculate totals
+      const laborTotal = results?.labor_cost || 0;
+      const vendorTotal = results?.vendor_cost || 0;
+      const overheadTotal = results?.overhead_cost || 0;
+      const totalCost = results?.total_cost || (laborTotal + vendorTotal + overheadTotal);
+      const totalRevenue = results?.total_revenue || 0;
+      const netProfit = results?.net_profit || 0;
+      const marginPercent = results?.margin_percent || 0;
+      
+      // Build team rows
+      const teamRows = data?.team_members?.map(tm => `
+        <tr>
+          <td class="role-name">${tm.role_name || 'Role'}</td>
+          <td class="center">${tm.hours || 0}</td>
+          <td class="mono right">${formatCurrency(tm.hourly_rate || 0, false)}</td>
+          <td class="mono right highlight">${formatCurrency((tm.hours || 0) * (tm.hourly_rate || 0), false)}</td>
+        </tr>
+      `).join('') || '';
 
-      // Build vendors section
-      const vendorSection = data?.vendors?.length > 0 ? `
-        <div class="section">
-          <div class="section-title">External Services</div>
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Service</th>
-                <th>Cost</th>
-                <th>Markup</th>
-                <th>Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${data.vendors.map(v => `
-                <tr>
-                  <td>${v.service_name || 'Service'}</td>
-                  <td class="mono">SAR ${formatCurrency(v.cost || 0, false)}</td>
-                  <td class="mono">${v.markup_percent || 0}%</td>
-                  <td class="mono">SAR ${formatCurrency((v.cost || 0) * (1 + (v.markup_percent || 0) / 100), false)}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </div>
-      ` : '';
-
-      // Logo handling - check if it's a valid URL
-      const logoHtml = logoUrl ? `
-        <img src="${logoUrl}" alt="${companyName}" class="logo-img" crossorigin="anonymous" />
-      ` : `
-        <div class="logo-fallback">${companyName.substring(0, 3).toUpperCase()}</div>
-      `;
+      // Build vendor rows
+      const vendorRows = data?.vendors?.map(v => `
+        <tr>
+          <td class="role-name">${v.service_name || 'Service'}</td>
+          <td class="mono right">${formatCurrency(v.cost || 0, false)}</td>
+          <td class="center">${v.markup_percent || 0}%</td>
+          <td class="mono right highlight">${formatCurrency((v.cost || 0) * (1 + (v.markup_percent || 0) / 100), false)}</td>
+        </tr>
+      `).join('') || '';
 
       const printContent = `
         <!DOCTYPE html>
-        <html>
+        <html dir="ltr">
         <head>
+          <meta charset="UTF-8">
           <title>Price Proposal - ${projectName}</title>
           <style>
-            @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+            @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap');
             
-            * {
-              box-sizing: border-box;
-              margin: 0;
-              padding: 0;
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            
+            :root {
+              --primary: #0f172a;
+              --secondary: #334155;
+              --accent: #3b82f6;
+              --success: #10b981;
+              --muted: #64748b;
+              --light: #f8fafc;
+              --border: #e2e8f0;
             }
             
             body {
               font-family: 'Cairo', sans-serif;
-              color: #1e293b;
-              line-height: 1.6;
-              padding: 40px;
-              max-width: 850px;
-              margin: 0 auto;
               background: white;
+              color: var(--primary);
+              line-height: 1.5;
             }
             
+            .page {
+              max-width: 800px;
+              margin: 0 auto;
+              padding: 48px;
+            }
+            
+            /* Header */
             .header {
               display: flex;
               justify-content: space-between;
-              align-items: center;
-              margin-bottom: 40px;
-              padding-bottom: 24px;
-              border-bottom: 2px solid #e2e8f0;
+              align-items: flex-start;
+              padding-bottom: 32px;
+              margin-bottom: 32px;
+              border-bottom: 3px solid var(--primary);
             }
             
-            .logo-container {
+            .logo-section {
               display: flex;
               align-items: center;
-              gap: 16px;
             }
             
-            .logo-img {
-              max-width: 80px;
-              max-height: 80px;
+            .logo {
+              max-height: 64px;
+              max-width: 160px;
               object-fit: contain;
             }
             
             .logo-fallback {
-              width: 60px;
-              height: 60px;
-              background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
-              border-radius: 12px;
+              width: 64px;
+              height: 64px;
+              background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+              border-radius: 16px;
               display: flex;
               align-items: center;
               justify-content: center;
               color: white;
-              font-weight: bold;
-              font-size: 18px;
-            }
-            
-            .company-name {
+              font-weight: 800;
               font-size: 24px;
-              font-weight: 700;
-              color: #0f172a;
             }
             
-            .header-right {
+            .header-info {
               text-align: right;
             }
             
-            .document-title {
-              font-size: 12px;
-              color: #64748b;
+            .doc-type {
+              font-size: 11px;
               text-transform: uppercase;
-              letter-spacing: 2px;
-              margin-bottom: 4px;
+              letter-spacing: 3px;
+              color: var(--muted);
+              font-weight: 600;
+              margin-bottom: 8px;
             }
             
             .client-name {
-              font-size: 22px;
-              font-weight: 700;
-              color: #0f172a;
+              font-size: 28px;
+              font-weight: 800;
+              color: var(--primary);
+              margin-bottom: 4px;
             }
             
             .project-name {
-              font-size: 14px;
-              color: #64748b;
-              margin-top: 4px;
+              font-size: 16px;
+              color: var(--secondary);
             }
             
+            /* Section */
             .section {
               margin-bottom: 32px;
             }
             
-            .section-title {
-              font-size: 11px;
-              text-transform: uppercase;
-              letter-spacing: 1.5px;
-              color: #64748b;
+            .section-header {
+              display: flex;
+              align-items: center;
+              gap: 12px;
               margin-bottom: 16px;
-              padding-bottom: 8px;
-              border-bottom: 1px solid #e2e8f0;
-              font-weight: 600;
+              padding-bottom: 12px;
+              border-bottom: 2px solid var(--border);
             }
             
-            .data-table {
+            .section-icon {
+              width: 32px;
+              height: 32px;
+              background: var(--light);
+              border-radius: 8px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-size: 16px;
+            }
+            
+            .section-title {
+              font-size: 14px;
+              font-weight: 700;
+              text-transform: uppercase;
+              letter-spacing: 1px;
+              color: var(--secondary);
+            }
+            
+            /* Table */
+            table {
               width: 100%;
               border-collapse: collapse;
               font-size: 13px;
             }
             
-            .data-table th {
-              text-align: left;
-              padding: 12px 16px;
-              background: #f8fafc;
-              color: #64748b;
-              font-weight: 600;
+            thead th {
+              background: var(--light);
+              padding: 14px 16px;
+              font-weight: 700;
               font-size: 11px;
               text-transform: uppercase;
               letter-spacing: 0.5px;
-              border-bottom: 1px solid #e2e8f0;
+              color: var(--muted);
+              text-align: left;
+              border-bottom: 2px solid var(--border);
             }
             
-            .data-table th:last-child,
-            .data-table td:last-child {
-              text-align: right;
+            thead th.right { text-align: right; }
+            thead th.center { text-align: center; }
+            
+            tbody td {
+              padding: 16px;
+              border-bottom: 1px solid var(--border);
+              vertical-align: middle;
             }
             
-            .data-table td {
-              padding: 14px 16px;
-              border-bottom: 1px solid #f1f5f9;
-              color: #334155;
-            }
+            tbody tr:last-child td { border-bottom: none; }
             
-            .data-table tr:last-child td {
-              border-bottom: none;
+            .role-name {
+              font-weight: 600;
+              color: var(--primary);
             }
             
             .mono {
-              font-family: 'JetBrains Mono', monospace;
+              font-family: 'JetBrains Mono', 'Courier New', monospace;
               font-size: 12px;
             }
             
-            .summary-box {
-              background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            .right { text-align: right; }
+            .center { text-align: center; }
+            
+            .highlight {
+              font-weight: 700;
+              color: var(--primary);
+            }
+            
+            /* Summary */
+            .summary {
+              background: var(--primary);
               color: white;
-              border-radius: 16px;
-              padding: 28px;
-              margin-top: 32px;
+              border-radius: 20px;
+              padding: 32px;
+              margin-top: 40px;
             }
             
             .summary-grid {
               display: grid;
-              grid-template-columns: 1fr 1fr;
-              gap: 20px;
-              margin-bottom: 24px;
+              grid-template-columns: repeat(2, 1fr);
+              gap: 24px;
+              margin-bottom: 28px;
             }
             
             .summary-item {
-              padding: 16px;
-              background: rgba(255,255,255,0.05);
-              border-radius: 10px;
+              background: rgba(255,255,255,0.08);
+              border-radius: 12px;
+              padding: 20px;
             }
             
             .summary-label {
               font-size: 11px;
-              color: #94a3b8;
               text-transform: uppercase;
-              letter-spacing: 1px;
-              margin-bottom: 4px;
+              letter-spacing: 1.5px;
+              color: rgba(255,255,255,0.6);
+              margin-bottom: 8px;
             }
             
             .summary-value {
               font-family: 'JetBrains Mono', monospace;
-              font-size: 18px;
-              font-weight: 600;
+              font-size: 22px;
+              font-weight: 700;
             }
             
-            .total-row {
-              padding-top: 20px;
+            .summary-value.profit { color: var(--success); }
+            
+            .summary-total {
               border-top: 1px solid rgba(255,255,255,0.15);
+              padding-top: 24px;
               display: flex;
               justify-content: space-between;
               align-items: center;
+            }
+            
+            .total-left {
+              display: flex;
+              align-items: center;
+              gap: 16px;
             }
             
             .total-label {
               font-size: 14px;
-              color: #94a3b8;
-            }
-            
-            .total-value {
-              font-family: 'JetBrains Mono', monospace;
-              font-size: 32px;
-              font-weight: 700;
-              color: #10b981;
+              color: rgba(255,255,255,0.7);
             }
             
             .margin-badge {
-              display: inline-block;
-              padding: 4px 12px;
-              background: ${(results?.margin_percent || 0) >= 30 ? '#10b981' : (results?.margin_percent || 0) >= 15 ? '#f59e0b' : '#ef4444'};
+              background: ${marginPercent >= 30 ? 'var(--success)' : marginPercent >= 15 ? '#f59e0b' : '#ef4444'};
               color: white;
-              border-radius: 20px;
+              padding: 6px 14px;
+              border-radius: 100px;
               font-size: 12px;
-              font-weight: 600;
-              margin-left: 12px;
+              font-weight: 700;
             }
             
+            .total-amount {
+              font-family: 'JetBrains Mono', monospace;
+              font-size: 36px;
+              font-weight: 800;
+              color: var(--success);
+            }
+            
+            /* Footer */
             .footer {
               margin-top: 48px;
               padding-top: 24px;
-              border-top: 1px solid #e2e8f0;
+              border-top: 2px solid var(--border);
               display: flex;
               justify-content: space-between;
-              align-items: center;
-              color: #94a3b8;
-              font-size: 11px;
+              align-items: flex-end;
             }
             
             .footer-left {
-              display: flex;
-              flex-direction: column;
-              gap: 4px;
+              font-size: 11px;
+              color: var(--muted);
+              line-height: 1.8;
+            }
+            
+            .footer-right {
+              text-align: right;
+            }
+            
+            .prepared-by {
+              font-size: 11px;
+              color: var(--muted);
+              margin-bottom: 4px;
+            }
+            
+            .prepared-name {
+              font-size: 14px;
+              font-weight: 700;
+              color: var(--primary);
             }
             
             @media print {
-              body {
-                padding: 20px;
-                -webkit-print-color-adjust: exact;
-                print-color-adjust: exact;
-              }
-              .section {
-                break-inside: avoid;
-              }
-              .summary-box {
-                break-inside: avoid;
-              }
+              body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+              .page { padding: 24px; }
+              .section { break-inside: avoid; }
+              .summary { break-inside: avoid; }
             }
           </style>
         </head>
         <body>
-          <div class="header">
-            <div class="logo-container">
-              ${logoHtml}
-              <span class="company-name">${companyName}</span>
-            </div>
-            <div class="header-right">
-              <div class="document-title">Price Proposal</div>
-              <div class="client-name">${clientName}</div>
-              <div class="project-name">${projectName}</div>
-            </div>
-          </div>
-          
-          ${teamSection}
-          ${vendorSection}
-          
-          <div class="summary-box">
-            <div class="summary-grid">
-              <div class="summary-item">
-                <div class="summary-label">Internal Labor</div>
-                <div class="summary-value">SAR ${formatCurrency(results?.labor_cost || 0, false)}</div>
+          <div class="page">
+            <!-- Header -->
+            <header class="header">
+              <div class="logo-section">
+                ${logoUrl 
+                  ? `<img src="${logoUrl}" alt="Logo" class="logo" crossorigin="anonymous" />`
+                  : `<div class="logo-fallback">ZAN</div>`
+                }
               </div>
-              <div class="summary-item">
-                <div class="summary-label">Vendor Costs</div>
-                <div class="summary-value">SAR ${formatCurrency(results?.vendor_cost || 0, false)}</div>
+              <div class="header-info">
+                <div class="doc-type">Price Proposal</div>
+                <div class="client-name">${clientName}</div>
+                <div class="project-name">${projectName}</div>
               </div>
-              <div class="summary-item">
-                <div class="summary-label">Overhead</div>
-                <div class="summary-value">SAR ${formatCurrency(results?.overhead_cost || 0, false)}</div>
+            </header>
+            
+            <!-- Internal Team -->
+            ${teamRows ? `
+              <section class="section">
+                <div class="section-header">
+                  <div class="section-icon">👥</div>
+                  <h2 class="section-title">Internal Team</h2>
+                </div>
+                <table>
+                  <thead>
+                    <tr>
+                      <th style="width: 45%">Role</th>
+                      <th class="center" style="width: 15%">Hours</th>
+                      <th class="right" style="width: 20%">Rate</th>
+                      <th class="right" style="width: 20%">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${teamRows}
+                    <tr style="background: var(--light);">
+                      <td colspan="3" class="role-name" style="text-align: right;">Subtotal</td>
+                      <td class="mono right highlight">SAR ${formatCurrency(laborTotal, false)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </section>
+            ` : ''}
+            
+            <!-- Vendors -->
+            ${vendorRows ? `
+              <section class="section">
+                <div class="section-header">
+                  <div class="section-icon">🏢</div>
+                  <h2 class="section-title">External Services</h2>
+                </div>
+                <table>
+                  <thead>
+                    <tr>
+                      <th style="width: 45%">Service</th>
+                      <th class="right" style="width: 20%">Cost</th>
+                      <th class="center" style="width: 15%">Markup</th>
+                      <th class="right" style="width: 20%">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${vendorRows}
+                    <tr style="background: var(--light);">
+                      <td colspan="3" class="role-name" style="text-align: right;">Subtotal</td>
+                      <td class="mono right highlight">SAR ${formatCurrency(vendorTotal, false)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </section>
+            ` : ''}
+            
+            <!-- Summary -->
+            <div class="summary">
+              <div class="summary-grid">
+                <div class="summary-item">
+                  <div class="summary-label">Internal Labor</div>
+                  <div class="summary-value">SAR ${formatCurrency(laborTotal, false)}</div>
+                </div>
+                <div class="summary-item">
+                  <div class="summary-label">External Services</div>
+                  <div class="summary-value">SAR ${formatCurrency(vendorTotal, false)}</div>
+                </div>
+                <div class="summary-item">
+                  <div class="summary-label">Overhead Costs</div>
+                  <div class="summary-value">SAR ${formatCurrency(overheadTotal, false)}</div>
+                </div>
+                <div class="summary-item">
+                  <div class="summary-label">Net Profit</div>
+                  <div class="summary-value profit">SAR ${formatCurrency(netProfit, false)}</div>
+                </div>
               </div>
-              <div class="summary-item">
-                <div class="summary-label">Net Profit</div>
-                <div class="summary-value" style="color: #10b981;">SAR ${formatCurrency(results?.net_profit || 0, false)}</div>
+              <div class="summary-total">
+                <div class="total-left">
+                  <span class="total-label">Total Investment</span>
+                  <span class="margin-badge">${marginPercent.toFixed(1)}% Margin</span>
+                </div>
+                <div class="total-amount">SAR ${formatCurrency(totalRevenue, false)}</div>
               </div>
             </div>
-            <div class="total-row">
-              <div>
-                <span class="total-label">Total Investment</span>
-                <span class="margin-badge">${(results?.margin_percent || 0).toFixed(1)}% Margin</span>
+            
+            <!-- Footer -->
+            <footer class="footer">
+              <div class="footer-left">
+                <div>Generated on ${today}</div>
+                <div>This proposal is valid for 30 days from the date of issue.</div>
               </div>
-              <div class="total-value">SAR ${formatCurrency(results?.total_revenue || 0, false)}</div>
-            </div>
-          </div>
-          
-          <div class="footer">
-            <div class="footer-left">
-              <span>Generated on ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
-              <span>This proposal is valid for 30 days from the date of issue.</span>
-            </div>
-            ${salesOwner ? `<div>Prepared by: ${salesOwner}</div>` : ''}
+              ${salesOwner ? `
+                <div class="footer-right">
+                  <div class="prepared-by">Prepared by</div>
+                  <div class="prepared-name">${salesOwner}</div>
+                </div>
+              ` : ''}
+            </footer>
           </div>
         </body>
         </html>
       `;
       
-      // Open in new window and print
+      // Open in new window
       const printWindow = window.open('', '_blank');
       if (!printWindow) {
         toast.error('يرجى السماح بالنوافذ المنبثقة');
@@ -387,17 +466,12 @@ export default function ExportPDF({ data, results, projectInfo, themeSettings, i
       printWindow.document.write(printContent);
       printWindow.document.close();
       
-      // Wait for content and fonts to load
+      // Wait for fonts and images to load
       printWindow.onload = () => {
-        setTimeout(() => {
-          printWindow.print();
-        }, 300);
+        setTimeout(() => printWindow.print(), 500);
       };
       
-      // Fallback if onload doesn't fire
-      setTimeout(() => {
-        printWindow.print();
-      }, 1000);
+      setTimeout(() => printWindow.print(), 1500);
       
       toast.success('تم فتح نافذة الطباعة');
     } catch (error) {

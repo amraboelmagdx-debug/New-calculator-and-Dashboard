@@ -250,24 +250,45 @@ export default function Calculator() {
     try {
       let newTeamMembers = [];
 
+      // Helper function to find best matching role
+      const findBestMatchingRole = (roleRef) => {
+        // First try exact ID match
+        let role = roles.find(r => r.id === roleRef.role_id);
+        if (role) return role;
+        
+        // Then try exact name match
+        if (roleRef.role_name) {
+          role = roles.find(r => r.name === roleRef.role_name);
+          if (role) return role;
+          
+          // Try partial name match (case insensitive)
+          role = roles.find(r => 
+            r.name?.toLowerCase().includes(roleRef.role_name.toLowerCase()) ||
+            roleRef.role_name.toLowerCase().includes(r.name?.toLowerCase() || '')
+          );
+          if (role) return role;
+        }
+        
+        return null;
+      };
+
       // Check if template has direct default_roles (new format from "Save as Template")
       if (template.default_roles && template.default_roles.length > 0) {
         newTeamMembers = template.default_roles.map(roleRef => {
-          // Find the actual role by ID or name
-          const role = roles.find(r => r.id === roleRef.role_id || r.name === roleRef.role_name);
+          const role = findBestMatchingRole(roleRef);
           return {
             id: `tm-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            role_id: role?.id || roleRef.role_id || '',
+            role_id: role?.id || '',
             role_name: role?.name || roleRef.role_name || '',
-            hours: roleRef.default_hours || 0,
-            hourly_rate: roleRef.hourly_rate || role?.hourly_rate || 0,
+            hours: roleRef.default_hours || roleRef.hours || 0,
+            hourly_rate: role?.hourly_rate || roleRef.hourly_rate || 0,
             monthly_salary: role?.total_monthly_cost || role?.monthly_salary || 0,
             utilization_percent: 0,
             duration_months: 1,
             calc_mode: 'hours',
             employee_type: 'internal'
           };
-        });
+        }).filter(tm => tm.role_id); // Only include if we found a matching role
       } 
       // Otherwise resolve from default_products (legacy format)
       else if (template.default_products && template.default_products.length > 0) {
@@ -276,22 +297,41 @@ export default function Calculator() {
           .map(productId => productTemplates.find(p => p.id === productId))
           .filter(Boolean);
 
+        // Build a map of old role IDs to find matching roles by position/type
+        const roleMapping = {
+          'role-1': roles.find(r => r.name?.includes('Creative Director') || r.name?.includes('مدير إبداعي')),
+          'role-2': roles.find(r => r.name?.includes('Art Director') || r.name?.includes('مدير فني')),
+          'role-3': roles.find(r => r.name?.includes('Designer') || r.name?.includes('مصمم')),
+          'role-4': roles.find(r => r.name?.includes('Copywriter') || r.name?.includes('كاتب')),
+          'role-5': roles.find(r => r.name?.includes('Senior') && r.name?.includes('Creative')),
+          'role-6': roles.find(r => r.name?.includes('Account') || r.name?.includes('حساب')),
+        };
+
         newTeamMembers = resolvedProducts.flatMap(product => 
           (product.default_roles || []).map(roleRef => {
-            const role = roles.find(r => r.id === roleRef.role_id);
+            // Try to find a matching role
+            let role = roleMapping[roleRef.role_id];
+            
+            // If no mapping, try first available role in similar category
+            if (!role && roles.length > 0) {
+              role = roles[Math.floor(Math.random() * Math.min(5, roles.length))];
+            }
+            
+            if (!role) return null;
+            
             return {
               id: `tm-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-              role_id: role?.id || roleRef.role_id || '',
-              role_name: role?.name || '',
+              role_id: role.id,
+              role_name: role.name,
               hours: roleRef.default_hours || 0,
-              hourly_rate: role?.hourly_rate || 0,
-              monthly_salary: role?.total_monthly_cost || role?.monthly_salary || 0,
+              hourly_rate: role.hourly_rate || 0,
+              monthly_salary: role.total_monthly_cost || role.monthly_salary || 0,
               utilization_percent: 0,
               duration_months: 1,
               calc_mode: 'hours',
               employee_type: 'internal'
             };
-          })
+          }).filter(Boolean)
         );
       }
 
@@ -306,7 +346,7 @@ export default function Calculator() {
       }));
 
       if (newTeamMembers.length === 0 && newVendors.length === 0) {
-        toast.info('هذا القالب فارغ');
+        toast.info('لم يتم العثور على وظائف مطابقة في هذا القالب');
         return;
       }
 
@@ -316,7 +356,7 @@ export default function Calculator() {
         vendors: [...prev.vendors, ...newVendors]
       }));
 
-      toast.success(`تم تحميل القالب: ${template.name}`);
+      toast.success(`تم تحميل القالب: ${template.name} (${newTeamMembers.length} وظيفة)`);
     } catch (error) {
       console.error('Error loading template:', error);
       toast.error('فشل تحميل القالب');

@@ -115,9 +115,10 @@ A modern web application for creative agencies to calculate project pricing, pro
 ### P0 - Critical
 - [x] ~~Merge Simple + Structured into unified interface~~ DONE
 - [x] ~~Dark/Light Mode Toggle with White Dashboard~~ DONE
-- [x] ~~Load Template functionality~~ DONE (Dec 2025)
+- [x] ~~Load Template functionality~~ DONE (Dec 2025) - Fixed role matching by name
 - [x] ~~Save as Template from Calculator~~ DONE (Dec 2025)
-- [x] ~~Export Client Price Sheet (PDF)~~ DONE (Dec 2025) - Professional PDF with logo, team table, summary
+- [x] ~~Export Client Price Sheet (PDF)~~ DONE (Dec 2025) - Professional design with logo only, dark summary box
+- [x] ~~Department Role Picker UI~~ DONE (Dec 2025) - Redesigned as elegant cards grid
 - [ ] Add ability to save/load opportunities
 - [ ] Opportunity list view
 
