@@ -70,7 +70,7 @@ export default function Admin() {
 
   if (!authenticated) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center" data-testid="admin-login">
+      <div className="min-h-screen bg-white flex items-center justify-center light-theme" data-testid="admin-login">
         <Card className="w-full max-w-md bg-white border-slate-200 shadow-xl">
           <CardHeader className="text-center pb-2">
             <div className="w-14 h-14 bg-gradient-to-br from-indigo-600 to-indigo-700 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-indigo-200">
@@ -124,7 +124,7 @@ export default function Admin() {
   ];
 
   return (
-    <div className="min-h-screen bg-white flex" data-testid="admin-panel">
+    <div className="min-h-screen bg-white flex light-theme" data-testid="admin-panel">
       {/* Sidebar */}
       <aside className="w-64 bg-slate-50 border-r border-slate-200 flex flex-col" data-testid="admin-sidebar">
         <div className="p-5 border-b border-slate-200">
