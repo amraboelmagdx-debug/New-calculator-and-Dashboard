@@ -150,45 +150,48 @@ export default function VendorRow({
 
       {/* Add New Vendor Dialog */}
       <Dialog open={showAddVendor} onOpenChange={setShowAddVendor}>
-        <DialogContent data-testid="add-vendor-dialog">
+        <DialogContent className={darkMode ? '' : 'bg-white border-slate-200'} data-testid="add-vendor-dialog">
           <DialogHeader>
-            <DialogTitle>Add New Vendor Service</DialogTitle>
-            <DialogDescription>Create a new vendor service to add to the list</DialogDescription>
+            <DialogTitle className={darkMode ? '' : 'text-slate-900'}>Add New Vendor Service</DialogTitle>
+            <DialogDescription className={darkMode ? '' : 'text-slate-500'}>Create a new vendor service to add to the list</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label>Service Name</Label>
+              <Label className={darkMode ? '' : 'text-slate-700'}>Service Name</Label>
               <Input
                 value={newVendor.name}
                 onChange={(e) => setNewVendor(prev => ({ ...prev, name: e.target.value }))}
                 placeholder="e.g., Photography"
+                className={darkMode ? '' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}
                 data-testid="new-vendor-name"
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Category</Label>
+                <Label className={darkMode ? '' : 'text-slate-700'}>Category</Label>
                 <Input
                   value={newVendor.category}
                   onChange={(e) => setNewVendor(prev => ({ ...prev, category: e.target.value }))}
                   placeholder="e.g., Production"
+                  className={darkMode ? '' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}
                   data-testid="new-vendor-category"
                 />
               </div>
               <div className="space-y-2">
-                <Label>Default Markup %</Label>
+                <Label className={darkMode ? '' : 'text-slate-700'}>Default Markup %</Label>
                 <Input
                   type="number"
                   value={newVendor.default_markup_percent || ''}
                   onChange={(e) => setNewVendor(prev => ({ ...prev, default_markup_percent: parseFloat(e.target.value) || 0 }))}
+                  className={darkMode ? '' : 'bg-white border-slate-200 text-slate-900'}
                   data-testid="new-vendor-markup"
                 />
               </div>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddVendor(false)}>Cancel</Button>
-            <Button onClick={handleAddVendor} disabled={saving} data-testid="save-new-vendor">
+            <Button variant="outline" onClick={() => setShowAddVendor(false)} className={darkMode ? '' : 'border-slate-200 text-slate-700 hover:bg-slate-50'}>Cancel</Button>
+            <Button onClick={handleAddVendor} disabled={saving} className={darkMode ? '' : 'bg-amber-600 hover:bg-amber-700 text-white'} data-testid="save-new-vendor">
               {saving ? 'Saving...' : 'Add Vendor Service'}
             </Button>
           </DialogFooter>

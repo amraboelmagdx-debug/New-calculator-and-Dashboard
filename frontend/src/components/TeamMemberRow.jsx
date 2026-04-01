@@ -340,45 +340,48 @@ export default function TeamMemberRow({
 
       {/* Add New Role Dialog */}
       <Dialog open={showAddRole} onOpenChange={setShowAddRole}>
-        <DialogContent data-testid="add-role-dialog">
+        <DialogContent className={darkMode ? '' : 'bg-white border-slate-200'} data-testid="add-role-dialog">
           <DialogHeader>
-            <DialogTitle>Add New Role</DialogTitle>
-            <DialogDescription>Create a new role to add to the list</DialogDescription>
+            <DialogTitle className={darkMode ? '' : 'text-slate-900'}>Add New Role</DialogTitle>
+            <DialogDescription className={darkMode ? '' : 'text-slate-500'}>Create a new role to add to the list</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label>Role Name</Label>
+              <Label className={darkMode ? '' : 'text-slate-700'}>Role Name</Label>
               <Input
                 value={newRole.name}
                 onChange={(e) => setNewRole(prev => ({ ...prev, name: e.target.value }))}
                 placeholder="e.g., Senior Designer"
+                className={darkMode ? '' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}
                 data-testid="new-role-name"
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Hourly Rate (SAR)</Label>
+                <Label className={darkMode ? '' : 'text-slate-700'}>Hourly Rate (SAR)</Label>
                 <Input
                   type="number"
                   value={newRole.hourly_rate || ''}
                   onChange={(e) => setNewRole(prev => ({ ...prev, hourly_rate: parseFloat(e.target.value) || 0 }))}
+                  className={darkMode ? '' : 'bg-white border-slate-200 text-slate-900'}
                   data-testid="new-role-rate"
                 />
               </div>
               <div className="space-y-2">
-                <Label>Monthly Salary (SAR)</Label>
+                <Label className={darkMode ? '' : 'text-slate-700'}>Monthly Salary (SAR)</Label>
                 <Input
                   type="number"
                   value={newRole.monthly_salary || ''}
                   onChange={(e) => setNewRole(prev => ({ ...prev, monthly_salary: parseFloat(e.target.value) || 0 }))}
+                  className={darkMode ? '' : 'bg-white border-slate-200 text-slate-900'}
                   data-testid="new-role-salary"
                 />
               </div>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddRole(false)}>Cancel</Button>
-            <Button onClick={handleAddRole} disabled={saving} data-testid="save-new-role">
+            <Button variant="outline" onClick={() => setShowAddRole(false)} className={darkMode ? '' : 'border-slate-200 text-slate-700 hover:bg-slate-50'}>Cancel</Button>
+            <Button onClick={handleAddRole} disabled={saving} className={darkMode ? '' : 'bg-emerald-600 hover:bg-emerald-700 text-white'} data-testid="save-new-role">
               {saving ? 'Saving...' : 'Add Role'}
             </Button>
           </DialogFooter>
