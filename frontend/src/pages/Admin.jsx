@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   Users, Package, Layers, Truck, CreditCard, Gauge, Percent, 
   AlertTriangle, Palette, Database, LogOut, ChevronRight, Save,
   Plus, Pencil, Trash2, Check, X, Settings2, FileSpreadsheet, RefreshCw,
-  Target, ShieldAlert, DollarSign
+  Target, ShieldAlert, DollarSign, CloudDownload, Filter, ArrowUpDown, Clock
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import {
   getRoles, createRole, updateRole, deleteRole,
@@ -27,6 +28,7 @@ import {
   getRiskMultipliers, createRiskMultiplier, updateRiskMultiplier, deleteRiskMultiplier,
   getThemeSettings, updateThemeSettings,
   getHRConfig, updateHRConfig, importGoogleSheet,
+  fetchSheetsRoles, syncSheetsToDb, clearSheetsCache,
   getPricingGuidelines, createPricingGuideline, updatePricingGuideline, deletePricingGuideline,
   getRiskConfig, updateRiskConfig,
   getIncentiveRules, createIncentiveRule, updateIncentiveRule, deleteIncentiveRule, bulkUpdateIncentiveRules,
@@ -107,8 +109,7 @@ export default function Admin() {
   }
 
   const navItems = [
-    { path: '/admin/roles', label: 'Roles', icon: Users },
-    { path: '/admin/hr-config', label: 'HR Cost Config', icon: Settings2 },
+    { path: '/admin/roles', label: 'Roles & HR', icon: Users },
     { path: '/admin/pricing-guidelines', label: 'Pricing Guidelines', icon: Target },
     { path: '/admin/risk-config', label: 'Risk Configuration', icon: ShieldAlert },
     { path: '/admin/incentive-rules', label: 'Incentive Rules', icon: DollarSign },
@@ -179,8 +180,8 @@ export default function Admin() {
       <main className="flex-1 p-8 overflow-y-auto bg-white" data-testid="admin-content">
         <Routes>
           <Route path="/" element={<AdminWelcome />} />
-          <Route path="/roles" element={<RolesManager />} />
-          <Route path="/hr-config" element={<HRConfigManager />} />
+          <Route path="/roles" element={<RolesHRManager />} />
+          <Route path="/hr-config" element={<RolesHRManager />} />
           <Route path="/pricing-guidelines" element={<PricingGuidelinesManager />} />
           <Route path="/risk-config" element={<RiskConfigManager />} />
           <Route path="/incentive-rules" element={<IncentiveRulesManager />} />
@@ -247,30 +248,123 @@ function AdminWelcome() {
   );
 }
 
-// Roles Manager
-function RolesManager() {
+// Merged Roles & HR Manager - Pulls data from Google Sheets
+function RolesHRManager() {
+  const [activeTab, setActiveTab] = useState('roles');
   const [roles, setRoles] = useState([]);
+  const [sheetsData, setSheetsData] = useState([]);
+  const [sheetsStatus, setSheetsStatus] = useState({ source: 'none', fetched_at: null });
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [editingRole, setEditingRole] = useState(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [formData, setFormData] = useState({ name: '', hourly_rate: 0, monthly_salary: 0, description: '' });
+  const [formData, setFormData] = useState({ name: '', hourly_rate: 0, monthly_salary: 0, department: '', description: '' });
+  
+  // HR Config State
+  const [hrConfig, setHrConfig] = useState({
+    social_insurance_percent: 12,
+    medical_insurance_percent: 3,
+    end_of_service_divisor: 2,
+    google_sheets_enabled: false,
+    google_sheets_url: '',
+    google_sheets_tab: 'Average Emp. Salary'
+  });
+  const [savingConfig, setSavingConfig] = useState(false);
+  
+  // Filtering & Sorting
+  const [searchTerm, setSearchTerm] = useState('');
+  const [departmentFilter, setDepartmentFilter] = useState('all');
+  const [sortField, setSortField] = useState('role_name');
+  const [sortDirection, setSortDirection] = useState('asc');
 
   useEffect(() => {
-    loadRoles();
+    loadData();
   }, []);
 
-  const loadRoles = async () => {
+  const loadData = async () => {
+    setLoading(true);
     try {
-      const data = await getRoles();
-      setRoles(data);
+      // Load HR Config
+      const config = await getHRConfig();
+      setHrConfig({
+        social_insurance_percent: config.social_insurance_percent || 12,
+        medical_insurance_percent: config.medical_insurance_percent || 3,
+        end_of_service_divisor: config.end_of_service_divisor || 2,
+        google_sheets_enabled: config.google_sheets_enabled || false,
+        google_sheets_url: config.google_sheets_url || '',
+        google_sheets_tab: config.google_sheets_tab || 'Average Emp. Salary'
+      });
+      
+      // Load roles from database
+      const rolesData = await getRoles();
+      setRoles(rolesData);
+      
+      // If Google Sheets is enabled, fetch live data
+      if (config.google_sheets_enabled && config.google_sheets_url) {
+        const sheetsResult = await fetchSheetsRoles(false);
+        if (sheetsResult.status === 'success') {
+          setSheetsData(sheetsResult.data || []);
+          setSheetsStatus({ source: sheetsResult.source, fetched_at: sheetsResult.fetched_at || sheetsResult.cached_at });
+        }
+      }
     } catch (error) {
-      toast.error('Failed to load roles');
+      toast.error('Failed to load data');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSave = async () => {
+  const handleRefreshSheets = async () => {
+    setRefreshing(true);
+    try {
+      const result = await fetchSheetsRoles(true);
+      if (result.status === 'success') {
+        setSheetsData(result.data || []);
+        setSheetsStatus({ source: 'live', fetched_at: result.fetched_at });
+        toast.success(`Refreshed ${result.count} roles from Google Sheets`);
+      } else if (result.status === 'error') {
+        toast.error(result.message || 'Failed to fetch from Google Sheets');
+      } else {
+        toast.info('Google Sheets integration is disabled');
+      }
+    } catch (error) {
+      toast.error('Failed to refresh data');
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const handleSyncToDb = async () => {
+    setSyncing(true);
+    try {
+      const result = await syncSheetsToDb();
+      toast.success(`Synced ${result.synced} roles (${result.created} created, ${result.updated} updated)`);
+      // Reload roles from DB
+      const rolesData = await getRoles();
+      setRoles(rolesData);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to sync data');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleSaveConfig = async () => {
+    setSavingConfig(true);
+    try {
+      await updateHRConfig(hrConfig);
+      toast.success('Configuration saved');
+      // Reload data with new config
+      loadData();
+    } catch (error) {
+      toast.error('Failed to save configuration');
+    } finally {
+      setSavingConfig(false);
+    }
+  };
+
+  const handleSaveRole = async () => {
     try {
       if (editingRole) {
         await updateRole(editingRole.id, formData);
@@ -281,19 +375,19 @@ function RolesManager() {
       }
       setIsDialogOpen(false);
       setEditingRole(null);
-      setFormData({ name: '', hourly_rate: 0, monthly_salary: 0, description: '' });
-      loadRoles();
+      setFormData({ name: '', hourly_rate: 0, monthly_salary: 0, department: '', description: '' });
+      loadData();
     } catch (error) {
       toast.error('Failed to save role');
     }
   };
 
-  const handleDelete = async (id) => {
+  const handleDeleteRole = async (id) => {
     if (window.confirm('Are you sure you want to delete this role?')) {
       try {
         await deleteRole(id);
         toast.success('Role deleted');
-        loadRoles();
+        loadData();
       } catch (error) {
         toast.error('Failed to delete role');
       }
@@ -302,69 +396,427 @@ function RolesManager() {
 
   const openEdit = (role) => {
     setEditingRole(role);
-    setFormData({ name: role.name, hourly_rate: role.hourly_rate, monthly_salary: role.monthly_salary, description: role.description || '' });
+    setFormData({ 
+      name: role.name, 
+      hourly_rate: role.hourly_rate, 
+      monthly_salary: role.monthly_salary, 
+      department: role.department || '',
+      description: role.description || '' 
+    });
     setIsDialogOpen(true);
   };
 
   const openCreate = () => {
     setEditingRole(null);
-    setFormData({ name: '', hourly_rate: 0, monthly_salary: 0, description: '' });
+    setFormData({ name: '', hourly_rate: 0, monthly_salary: 0, department: '', description: '' });
     setIsDialogOpen(true);
   };
 
+  // Get unique departments for filtering
+  const departments = useMemo(() => {
+    const depts = new Set();
+    roles.forEach(r => r.department && depts.add(r.department));
+    sheetsData.forEach(r => r.department && depts.add(r.department));
+    return Array.from(depts).sort();
+  }, [roles, sheetsData]);
+
+  // Filter and sort data
+  const filteredSheetsData = useMemo(() => {
+    let data = [...sheetsData];
+    
+    // Filter by search
+    if (searchTerm) {
+      data = data.filter(r => 
+        r.role_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        r.department?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+    
+    // Filter by department
+    if (departmentFilter !== 'all') {
+      data = data.filter(r => r.department === departmentFilter);
+    }
+    
+    // Sort
+    data.sort((a, b) => {
+      let aVal = a[sortField] || '';
+      let bVal = b[sortField] || '';
+      if (typeof aVal === 'string') aVal = aVal.toLowerCase();
+      if (typeof bVal === 'string') bVal = bVal.toLowerCase();
+      if (sortDirection === 'asc') return aVal > bVal ? 1 : -1;
+      return aVal < bVal ? 1 : -1;
+    });
+    
+    return data;
+  }, [sheetsData, searchTerm, departmentFilter, sortField, sortDirection]);
+
+  const filteredDbRoles = useMemo(() => {
+    let data = [...roles];
+    
+    if (searchTerm) {
+      data = data.filter(r => 
+        r.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        r.department?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+    
+    if (departmentFilter !== 'all') {
+      data = data.filter(r => r.department === departmentFilter);
+    }
+    
+    return data;
+  }, [roles, searchTerm, departmentFilter]);
+
+  const toggleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
   return (
-    <div data-testid="roles-manager">
+    <div data-testid="roles-hr-manager">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 font-['Manrope']">Roles</h1>
-          <p className="text-slate-600">Manage team roles, salaries, and HR benefits</p>
+          <h1 className="text-2xl font-bold text-slate-900 font-['Manrope']">Roles & HR Configuration</h1>
+          <p className="text-slate-600">Manage roles, salaries, and Google Sheets integration</p>
         </div>
-        <Button onClick={openCreate} className="gap-2" data-testid="add-role-btn">
-          <Plus className="w-4 h-4" />
-          Add Role
-        </Button>
+        <div className="flex items-center gap-2">
+          {hrConfig.google_sheets_enabled && (
+            <>
+              <Button 
+                variant="outline" 
+                onClick={handleRefreshSheets} 
+                disabled={refreshing}
+                className="gap-2"
+                data-testid="refresh-sheets-btn"
+              >
+                <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={handleSyncToDb} 
+                disabled={syncing}
+                className="gap-2"
+                data-testid="sync-to-db-btn"
+              >
+                <CloudDownload className={`w-4 h-4 ${syncing ? 'animate-pulse' : ''}`} />
+                {syncing ? 'Syncing...' : 'Sync to DB'}
+              </Button>
+            </>
+          )}
+          <Button onClick={openCreate} className="gap-2" data-testid="add-role-btn">
+            <Plus className="w-4 h-4" />
+            Add Role
+          </Button>
+        </div>
       </div>
 
-      <Card>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Role Name</TableHead>
-              <TableHead>Hourly Rate</TableHead>
-              <TableHead>Monthly Salary</TableHead>
-              <TableHead>Social Insurance</TableHead>
-              <TableHead>Medical Ins.</TableHead>
-              <TableHead>End of Service</TableHead>
-              <TableHead>Total Monthly</TableHead>
-              <TableHead className="w-24">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {roles.map(role => (
-              <TableRow key={role.id} data-testid={`role-row-${role.id}`}>
-                <TableCell className="font-medium">{role.name}</TableCell>
-                <TableCell className="font-mono text-sm">{formatCurrency(role.hourly_rate, false)}</TableCell>
-                <TableCell className="font-mono text-sm">{formatCurrency(role.monthly_salary, false)}</TableCell>
-                <TableCell className="font-mono text-sm text-slate-500">{formatCurrency(role.social_insurance || 0, false)}</TableCell>
-                <TableCell className="font-mono text-sm text-slate-500">{formatCurrency(role.medical_insurance || 0, false)}</TableCell>
-                <TableCell className="font-mono text-sm text-slate-500">{formatCurrency(role.end_of_service || 0, false)}</TableCell>
-                <TableCell className="font-mono text-sm font-semibold text-indigo-600">{formatCurrency(role.total_monthly_cost || role.monthly_salary, false)}</TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-1">
-                    <Button variant="ghost" size="sm" onClick={() => openEdit(role)} data-testid={`edit-role-${role.id}`}>
-                      <Pencil className="w-4 h-4" />
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleDelete(role.id)} className="text-red-500 hover:text-red-700" data-testid={`delete-role-${role.id}`}>
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </Card>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+        <TabsList className="bg-slate-100">
+          <TabsTrigger value="roles" className="data-[state=active]:bg-white">
+            <Users className="w-4 h-4 mr-2" />
+            Database Roles ({filteredDbRoles.length})
+          </TabsTrigger>
+          <TabsTrigger value="sheets" className="data-[state=active]:bg-white" disabled={!hrConfig.google_sheets_enabled}>
+            <FileSpreadsheet className="w-4 h-4 mr-2" />
+            Google Sheets ({filteredSheetsData.length})
+          </TabsTrigger>
+          <TabsTrigger value="config" className="data-[state=active]:bg-white">
+            <Settings2 className="w-4 h-4 mr-2" />
+            Configuration
+          </TabsTrigger>
+        </TabsList>
 
+        {/* Search & Filter Bar */}
+        {activeTab !== 'config' && (
+          <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-lg">
+            <div className="flex-1">
+              <Input
+                placeholder="Search by role name or department..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="bg-white"
+              />
+            </div>
+            <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
+              <SelectTrigger className="w-48 bg-white">
+                <Filter className="w-4 h-4 mr-2" />
+                <SelectValue placeholder="All Departments" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Departments</SelectItem>
+                {departments.map(dept => (
+                  <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {/* Database Roles Tab */}
+        <TabsContent value="roles">
+          <Card>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="cursor-pointer" onClick={() => toggleSort('name')}>
+                    Role Name <ArrowUpDown className="w-3 h-3 inline ml-1" />
+                  </TableHead>
+                  <TableHead>Department</TableHead>
+                  <TableHead className="cursor-pointer" onClick={() => toggleSort('hourly_rate')}>
+                    Hourly Rate <ArrowUpDown className="w-3 h-3 inline ml-1" />
+                  </TableHead>
+                  <TableHead>Monthly Salary</TableHead>
+                  <TableHead>Social Ins.</TableHead>
+                  <TableHead>Medical Ins.</TableHead>
+                  <TableHead>End of Service</TableHead>
+                  <TableHead className="cursor-pointer" onClick={() => toggleSort('total_monthly_cost')}>
+                    Total Monthly <ArrowUpDown className="w-3 h-3 inline ml-1" />
+                  </TableHead>
+                  <TableHead className="w-24">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredDbRoles.map(role => (
+                  <TableRow key={role.id} data-testid={`role-row-${role.id}`}>
+                    <TableCell className="font-medium">{role.name}</TableCell>
+                    <TableCell>
+                      {role.department && (
+                        <Badge variant="secondary" className="text-xs">{role.department}</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="font-mono text-sm">{formatCurrency(role.hourly_rate, false)}</TableCell>
+                    <TableCell className="font-mono text-sm">{formatCurrency(role.monthly_salary, false)}</TableCell>
+                    <TableCell className="font-mono text-sm text-slate-500">{formatCurrency(role.social_insurance || 0, false)}</TableCell>
+                    <TableCell className="font-mono text-sm text-slate-500">{formatCurrency(role.medical_insurance || 0, false)}</TableCell>
+                    <TableCell className="font-mono text-sm text-slate-500">{formatCurrency(role.end_of_service || 0, false)}</TableCell>
+                    <TableCell className="font-mono text-sm font-semibold text-emerald-600">{formatCurrency(role.total_monthly_cost || role.monthly_salary, false)}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="sm" onClick={() => openEdit(role)} data-testid={`edit-role-${role.id}`}>
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => handleDeleteRole(role.id)} className="text-red-500 hover:text-red-700" data-testid={`delete-role-${role.id}`}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {filteredDbRoles.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center py-8 text-slate-500">
+                      No roles found. Add roles manually or sync from Google Sheets.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </Card>
+        </TabsContent>
+
+        {/* Google Sheets Tab */}
+        <TabsContent value="sheets">
+          {sheetsStatus.source && (
+            <div className="flex items-center gap-4 mb-4 p-3 bg-blue-50 rounded-lg text-sm text-blue-700">
+              <Clock className="w-4 h-4" />
+              <span>
+                Data source: <strong>{sheetsStatus.source === 'cache' ? 'Cached' : 'Live'}</strong>
+                {sheetsStatus.fetched_at && ` • Last fetched: ${new Date(sheetsStatus.fetched_at).toLocaleString()}`}
+              </span>
+            </div>
+          )}
+          
+          <Card>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="cursor-pointer" onClick={() => toggleSort('role_name')}>
+                    Role Name <ArrowUpDown className="w-3 h-3 inline ml-1" />
+                  </TableHead>
+                  <TableHead className="cursor-pointer" onClick={() => toggleSort('department')}>
+                    Department <ArrowUpDown className="w-3 h-3 inline ml-1" />
+                  </TableHead>
+                  <TableHead className="cursor-pointer" onClick={() => toggleSort('hourly_rate')}>
+                    Hourly Rate <ArrowUpDown className="w-3 h-3 inline ml-1" />
+                  </TableHead>
+                  <TableHead className="cursor-pointer" onClick={() => toggleSort('total_monthly')}>
+                    Total Monthly <ArrowUpDown className="w-3 h-3 inline ml-1" />
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredSheetsData.map((role, idx) => (
+                  <TableRow key={idx}>
+                    <TableCell className="font-medium">{role.role_name}</TableCell>
+                    <TableCell>
+                      {role.department && (
+                        <Badge variant="secondary" className="text-xs">{role.department}</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="font-mono text-sm">{formatCurrency(role.hourly_rate, false)}</TableCell>
+                    <TableCell className="font-mono text-sm font-semibold text-emerald-600">{formatCurrency(role.total_monthly, false)}</TableCell>
+                  </TableRow>
+                ))}
+                {filteredSheetsData.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center py-8 text-slate-500">
+                      {hrConfig.google_sheets_enabled 
+                        ? 'No data loaded. Click "Refresh" to fetch from Google Sheets.'
+                        : 'Enable Google Sheets in the Configuration tab.'
+                      }
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </Card>
+        </TabsContent>
+
+        {/* Configuration Tab */}
+        <TabsContent value="config">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Google Sheets Settings */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <FileSpreadsheet className="w-5 h-5" />
+                  Google Sheets Integration
+                </CardTitle>
+                <CardDescription>Configure the Google Sheet URL and tab name</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+                  <div>
+                    <Label className="text-sm font-medium">Enable Google Sheets</Label>
+                    <p className="text-xs text-slate-500">Pull roles from external spreadsheet</p>
+                  </div>
+                  <Switch
+                    checked={hrConfig.google_sheets_enabled}
+                    onCheckedChange={(checked) => setHrConfig(prev => ({ ...prev, google_sheets_enabled: checked }))}
+                    data-testid="google-sheets-toggle"
+                  />
+                </div>
+
+                {hrConfig.google_sheets_enabled && (
+                  <div className="space-y-4 animate-fade-in">
+                    <div className="space-y-2">
+                      <Label>Google Sheets URL</Label>
+                      <Input
+                        value={hrConfig.google_sheets_url}
+                        onChange={(e) => setHrConfig(prev => ({ ...prev, google_sheets_url: e.target.value }))}
+                        placeholder="https://docs.google.com/spreadsheets/d/..."
+                        data-testid="google-sheets-url-input"
+                      />
+                      <p className="text-xs text-slate-400">
+                        Make sure the sheet is publicly accessible (Anyone with link can view)
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Tab Name</Label>
+                      <Input
+                        value={hrConfig.google_sheets_tab}
+                        onChange={(e) => setHrConfig(prev => ({ ...prev, google_sheets_tab: e.target.value }))}
+                        placeholder="Average Emp. Salary"
+                        data-testid="google-sheets-tab-input"
+                      />
+                    </div>
+
+                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                      <h4 className="text-sm font-semibold text-amber-900 mb-2">Expected Column Format</h4>
+                      <ul className="text-xs text-amber-800 space-y-1">
+                        <li>• <strong>Column A</strong>: Role Name (starting row 6)</li>
+                        <li>• <strong>Column B</strong>: Department (starting row 6)</li>
+                        <li>• <strong>Column C</strong>: Hourly Rate (starting row 6)</li>
+                        <li>• <strong>Column D</strong>: Total Monthly (starting row 6)</li>
+                      </ul>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* HR Benefits Configuration */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Settings2 className="w-5 h-5" />
+                  Benefits Percentages
+                </CardTitle>
+                <CardDescription>Configure how benefits are calculated from base salary</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-2">
+                  <Label>Social Insurance %</Label>
+                  <div className="flex items-center gap-3">
+                    <Input
+                      type="number"
+                      value={hrConfig.social_insurance_percent}
+                      onChange={(e) => setHrConfig(prev => ({ ...prev, social_insurance_percent: parseFloat(e.target.value) || 0 }))}
+                      className="max-w-32"
+                      data-testid="social-insurance-input"
+                    />
+                    <span className="text-slate-500">% of monthly salary</span>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Medical Insurance %</Label>
+                  <div className="flex items-center gap-3">
+                    <Input
+                      type="number"
+                      value={hrConfig.medical_insurance_percent}
+                      onChange={(e) => setHrConfig(prev => ({ ...prev, medical_insurance_percent: parseFloat(e.target.value) || 0 }))}
+                      className="max-w-32"
+                      data-testid="medical-insurance-input"
+                    />
+                    <span className="text-slate-500">% of monthly salary</span>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>End of Service Divisor</Label>
+                  <div className="flex items-center gap-3">
+                    <span className="text-slate-500">Salary ÷</span>
+                    <Input
+                      type="number"
+                      value={hrConfig.end_of_service_divisor}
+                      onChange={(e) => setHrConfig(prev => ({ ...prev, end_of_service_divisor: parseFloat(e.target.value) || 2 }))}
+                      className="max-w-32"
+                      data-testid="eos-divisor-input"
+                    />
+                  </div>
+                </div>
+
+                <div className="p-4 bg-emerald-50 rounded-lg">
+                  <h4 className="text-sm font-semibold text-emerald-900 mb-2">Example Calculation</h4>
+                  <p className="text-xs text-emerald-700">
+                    For SAR 20,000 salary:<br />
+                    • Social Insurance: SAR {(20000 * hrConfig.social_insurance_percent / 100).toLocaleString()}<br />
+                    • Medical Insurance: SAR {(20000 * hrConfig.medical_insurance_percent / 100).toLocaleString()}<br />
+                    • End of Service: SAR {hrConfig.end_of_service_divisor > 0 ? (20000 / hrConfig.end_of_service_divisor).toLocaleString() : 0}<br />
+                    <strong>Total Monthly Cost: SAR {(20000 + 20000 * hrConfig.social_insurance_percent / 100 + 20000 * hrConfig.medical_insurance_percent / 100 + (hrConfig.end_of_service_divisor > 0 ? 20000 / hrConfig.end_of_service_divisor : 0)).toLocaleString()}</strong>
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="mt-6">
+            <Button onClick={handleSaveConfig} disabled={savingConfig} className="w-full md:w-auto gap-2" data-testid="save-config-btn">
+              <Save className="w-4 h-4" />
+              {savingConfig ? 'Saving...' : 'Save Configuration'}
+            </Button>
+          </div>
+        </TabsContent>
+      </Tabs>
+
+      {/* Add/Edit Role Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent data-testid="role-dialog">
           <DialogHeader>
@@ -379,6 +831,15 @@ function RolesManager() {
                 onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
                 placeholder="e.g., Creative Director"
                 data-testid="role-name-input"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Department</Label>
+              <Input
+                value={formData.department}
+                onChange={(e) => setFormData(prev => ({ ...prev, department: e.target.value }))}
+                placeholder="e.g., Creative"
+                data-testid="role-dept-input"
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -413,12 +874,17 @@ function RolesManager() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave} data-testid="save-role-btn">Save</Button>
+            <Button onClick={handleSaveRole} data-testid="save-role-btn">Save</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
   );
+}
+
+// Keep old RolesManager as alias for backwards compatibility
+function RolesManager() {
+  return <RolesHRManager />;
 }
 
 // Simplified managers for other entities (following same pattern)

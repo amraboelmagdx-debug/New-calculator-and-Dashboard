@@ -56,6 +56,7 @@ class HRConfigModel(BaseModel):
     end_of_service_divisor: float = 2  # salary / divisor
     google_sheets_enabled: bool = False
     google_sheets_url: str = ""
+    google_sheets_tab: str = "Average Emp. Salary"  # Tab name in sheet
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class HRConfigUpdate(BaseModel):
@@ -64,6 +65,15 @@ class HRConfigUpdate(BaseModel):
     end_of_service_divisor: float = 2
     google_sheets_enabled: bool = False
     google_sheets_url: str = ""
+    google_sheets_tab: str = "Average Emp. Salary"
+
+# Google Sheets cache
+sheets_cache = {
+    "data": None,
+    "timestamp": None,
+    "url": None
+}
+CACHE_TTL_SECONDS = 300  # 5 minutes cache
 
 # ==================== PRICING GUIDELINES MODELS ====================
 
@@ -1511,6 +1521,188 @@ async def import_google_sheet(url: str, _: bool = Depends(verify_admin)):
         raise HTTPException(status_code=400, detail=f"Failed to fetch Google Sheet: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
+
+# ---------- GOOGLE SHEETS LIVE FETCH ----------
+@api_router.get("/sheets/roles", response_model=Dict)
+async def fetch_roles_from_sheet(force_refresh: bool = False):
+    """Fetch roles from Google Sheets with caching"""
+    global sheets_cache
+    
+    # Get HR config for sheet URL
+    hr_config = await db.hr_config.find_one({"id": "hr_config"}, {"_id": 0})
+    if not hr_config or not hr_config.get("google_sheets_enabled"):
+        return {"status": "disabled", "data": [], "source": "sheets_disabled"}
+    
+    sheet_url = hr_config.get("google_sheets_url", "")
+    sheet_tab = hr_config.get("google_sheets_tab", "Average Emp. Salary")
+    
+    if not sheet_url:
+        return {"status": "error", "message": "No Google Sheets URL configured", "data": []}
+    
+    # Check cache
+    current_time = datetime.now(timezone.utc)
+    if not force_refresh and sheets_cache["data"] is not None and sheets_cache["url"] == sheet_url:
+        if sheets_cache["timestamp"] and (current_time - sheets_cache["timestamp"]).total_seconds() < CACHE_TTL_SECONDS:
+            return {
+                "status": "success", 
+                "data": sheets_cache["data"], 
+                "source": "cache",
+                "cached_at": sheets_cache["timestamp"].isoformat()
+            }
+    
+    try:
+        # Convert Google Sheets URL to CSV export format with specific tab (gid)
+        # URL format: https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit#gid={GID}
+        
+        # Extract sheet ID
+        parts = sheet_url.split('/d/')
+        if len(parts) < 2:
+            raise HTTPException(status_code=400, detail="Invalid Google Sheets URL format")
+        
+        sheet_id = parts[1].split('/')[0].split('#')[0].split('?')[0]
+        
+        # Extract gid from URL if present
+        gid = "912485061"  # Default gid for "Average Emp. Salary" tab
+        if '#gid=' in sheet_url:
+            gid = sheet_url.split('#gid=')[1].split('&')[0]
+        
+        csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.get(csv_url, follow_redirects=True, timeout=30)
+            response.raise_for_status()
+        
+        # Parse CSV
+        import csv
+        import io
+        
+        content = response.text
+        lines = content.strip().split('\n')
+        
+        # Skip header rows (rows 1-5), data starts from row 6
+        data_lines = lines[5:] if len(lines) > 5 else []
+        
+        # Parse manually since first rows are headers
+        roles_data = []
+        for line in data_lines:
+            # Parse CSV line
+            reader = csv.reader(io.StringIO(line))
+            row = next(reader, None)
+            if not row or len(row) < 4:
+                continue
+            
+            role_name = row[0].strip() if row[0] else ""
+            department = row[1].strip() if len(row) > 1 and row[1] else ""
+            hourly_rate_str = row[2].strip() if len(row) > 2 and row[2] else "0"
+            total_monthly_str = row[3].strip() if len(row) > 3 and row[3] else "0"
+            
+            if not role_name:
+                continue
+            
+            # Clean and parse numbers
+            try:
+                hourly_rate = float(''.join(c for c in hourly_rate_str if c.isdigit() or c == '.') or '0')
+                total_monthly = float(''.join(c for c in total_monthly_str if c.isdigit() or c == '.') or '0')
+            except (ValueError, TypeError):
+                hourly_rate = 0
+                total_monthly = 0
+            
+            roles_data.append({
+                "role_name": role_name,
+                "department": department,
+                "hourly_rate": round(hourly_rate, 2),
+                "total_monthly": round(total_monthly, 2)
+            })
+        
+        # Update cache
+        sheets_cache["data"] = roles_data
+        sheets_cache["timestamp"] = current_time
+        sheets_cache["url"] = sheet_url
+        
+        return {
+            "status": "success",
+            "data": roles_data,
+            "source": "live",
+            "fetched_at": current_time.isoformat(),
+            "count": len(roles_data)
+        }
+        
+    except httpx.HTTPError as e:
+        return {"status": "error", "message": f"Failed to fetch sheet: {str(e)}", "data": []}
+    except Exception as e:
+        return {"status": "error", "message": f"Error: {str(e)}", "data": []}
+
+@api_router.post("/sheets/sync-to-db", response_model=Dict)
+async def sync_sheets_to_database(_: bool = Depends(verify_admin)):
+    """Sync roles from Google Sheets to database"""
+    # First fetch from sheets
+    sheets_result = await fetch_roles_from_sheet(force_refresh=True)
+    
+    if sheets_result.get("status") != "success":
+        raise HTTPException(status_code=400, detail=sheets_result.get("message", "Failed to fetch from sheets"))
+    
+    # Get HR config for benefits calculation
+    hr_config = await db.hr_config.find_one({"id": "hr_config"}, {"_id": 0})
+    social_percent = hr_config.get("social_insurance_percent", 12) if hr_config else 12
+    medical_percent = hr_config.get("medical_insurance_percent", 3) if hr_config else 3
+    eos_divisor = hr_config.get("end_of_service_divisor", 2) if hr_config else 2
+    
+    synced_count = 0
+    created_count = 0
+    updated_count = 0
+    
+    for role_data in sheets_result.get("data", []):
+        role_name = role_data.get("role_name", "")
+        if not role_name:
+            continue
+        
+        total_monthly = role_data.get("total_monthly", 0)
+        hourly_rate = role_data.get("hourly_rate", 0)
+        department = role_data.get("department", "")
+        
+        # If hourly rate is 0 but total_monthly exists, calculate it
+        if hourly_rate == 0 and total_monthly > 0:
+            hourly_rate = round(total_monthly / 176, 2)
+        
+        # Check if role exists
+        existing = await db.roles.find_one({"name": role_name})
+        
+        role_doc = {
+            "name": role_name,
+            "hourly_rate": hourly_rate,
+            "monthly_salary": total_monthly,
+            "department": department,
+            "total_monthly_cost": total_monthly,
+            "social_insurance": round(total_monthly * social_percent / 100, 2),
+            "medical_insurance": round(total_monthly * medical_percent / 100, 2),
+            "end_of_service": round(total_monthly / eos_divisor, 2) if eos_divisor > 0 else 0
+        }
+        
+        if existing:
+            await db.roles.update_one({"name": role_name}, {"$set": role_doc})
+            updated_count += 1
+        else:
+            role_doc["id"] = str(uuid.uuid4())
+            role_doc["created_at"] = datetime.now(timezone.utc).isoformat()
+            role_doc["description"] = ""
+            await db.roles.insert_one(role_doc)
+            created_count += 1
+        
+        synced_count += 1
+    
+    return {
+        "status": "success",
+        "synced": synced_count,
+        "created": created_count,
+        "updated": updated_count
+    }
+
+@api_router.delete("/sheets/cache", response_model=Dict)
+async def clear_sheets_cache(_: bool = Depends(verify_admin)):
+    """Clear the Google Sheets cache"""
+    global sheets_cache
+    sheets_cache = {"data": None, "timestamp": None, "url": None}
+    return {"status": "success", "message": "Cache cleared"}
 
 # ---------- PRICING GUIDELINES ----------
 @api_router.get("/pricing-guidelines", response_model=List[Dict])

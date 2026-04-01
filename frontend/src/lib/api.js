@@ -214,6 +214,24 @@ export const importGoogleSheet = async (url) => {
   return response.data;
 };
 
+// Fetch roles from Google Sheets (live with caching)
+export const fetchSheetsRoles = async (forceRefresh = false) => {
+  const response = await apiClient.get(`/sheets/roles?force_refresh=${forceRefresh}`);
+  return response.data;
+};
+
+// Sync Google Sheets data to database
+export const syncSheetsToDb = async () => {
+  const response = await apiClient.post('/sheets/sync-to-db', {}, adminConfig());
+  return response.data;
+};
+
+// Clear Google Sheets cache
+export const clearSheetsCache = async () => {
+  const response = await apiClient.delete('/sheets/cache', adminConfig());
+  return response.data;
+};
+
 // ==================== PRICING GUIDELINES ====================
 export const getPricingGuidelines = async () => {
   const response = await apiClient.get('/pricing-guidelines');
