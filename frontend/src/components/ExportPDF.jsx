@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { formatCurrency } from '@/lib/utils';
 
-export default function ExportPDF({ opportunity, results }) {
+export default function ExportPDF({ opportunity, results, isDarkMode = true }) {
   const [exporting, setExporting] = useState(false);
 
   const generatePDF = async () => {
@@ -296,7 +296,7 @@ export default function ExportPDF({ opportunity, results }) {
     <Button 
       onClick={generatePDF} 
       disabled={exporting}
-      className="w-full gap-2"
+      className={`gap-2 ${isDarkMode ? 'bg-neutral-800 text-white border-neutral-700 hover:bg-neutral-700' : 'bg-white text-slate-900 border-slate-300 hover:bg-slate-50'}`}
       variant="outline"
       data-testid="export-pdf-btn"
     >
