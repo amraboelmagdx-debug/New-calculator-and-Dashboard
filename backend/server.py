@@ -1634,18 +1634,12 @@ async def fetch_roles_from_sheet(force_refresh: bool = False):
 
 @api_router.post("/sheets/sync-to-db", response_model=Dict)
 async def sync_sheets_to_database(_: bool = Depends(verify_admin)):
-    """Sync roles from Google Sheets to database"""
+    """Sync roles from Google Sheets to database - uses Total Monthly directly from sheet"""
     # First fetch from sheets
     sheets_result = await fetch_roles_from_sheet(force_refresh=True)
     
     if sheets_result.get("status") != "success":
         raise HTTPException(status_code=400, detail=sheets_result.get("message", "Failed to fetch from sheets"))
-    
-    # Get HR config for benefits calculation
-    hr_config = await db.hr_config.find_one({"id": "hr_config"}, {"_id": 0})
-    social_percent = hr_config.get("social_insurance_percent", 12) if hr_config else 12
-    medical_percent = hr_config.get("medical_insurance_percent", 3) if hr_config else 3
-    eos_divisor = hr_config.get("end_of_service_divisor", 2) if hr_config else 2
     
     synced_count = 0
     created_count = 0
@@ -1667,15 +1661,13 @@ async def sync_sheets_to_database(_: bool = Depends(verify_admin)):
         # Check if role exists
         existing = await db.roles.find_one({"name": role_name})
         
+        # Use total_monthly directly from sheet (column D) without calculating benefits
         role_doc = {
             "name": role_name,
             "hourly_rate": hourly_rate,
             "monthly_salary": total_monthly,
             "department": department,
-            "total_monthly_cost": total_monthly,
-            "social_insurance": round(total_monthly * social_percent / 100, 2),
-            "medical_insurance": round(total_monthly * medical_percent / 100, 2),
-            "end_of_service": round(total_monthly / eos_divisor, 2) if eos_divisor > 0 else 0
+            "total_monthly_cost": total_monthly  # Direct from Google Sheets column D
         }
         
         if existing:
@@ -1703,6 +1695,13 @@ async def clear_sheets_cache(_: bool = Depends(verify_admin)):
     global sheets_cache
     sheets_cache = {"data": None, "timestamp": None, "url": None}
     return {"status": "success", "message": "Cache cleared"}
+
+@api_router.get("/departments", response_model=List[str])
+async def get_unique_departments():
+    """Get unique department values from roles"""
+    departments = await db.roles.distinct("department")
+    # Filter out None and empty strings
+    return [d for d in departments if d]
 
 # ---------- PRICING GUIDELINES ----------
 @api_router.get("/pricing-guidelines", response_model=List[Dict])

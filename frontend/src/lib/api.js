@@ -232,6 +232,12 @@ export const clearSheetsCache = async () => {
   return response.data;
 };
 
+// Get unique departments from roles
+export const getDepartments = async () => {
+  const response = await apiClient.get('/departments');
+  return response.data;
+};
+
 // ==================== PRICING GUIDELINES ====================
 export const getPricingGuidelines = async () => {
   const response = await apiClient.get('/pricing-guidelines');

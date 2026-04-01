@@ -566,18 +566,16 @@ function RolesHRManager() {
                   <TableHead className="cursor-pointer" onClick={() => toggleSort('name')}>
                     Role Name <ArrowUpDown className="w-3 h-3 inline ml-1" />
                   </TableHead>
-                  <TableHead>Department</TableHead>
-                  <TableHead className="cursor-pointer" onClick={() => toggleSort('hourly_rate')}>
+                  <TableHead className="cursor-pointer" onClick={() => toggleSort('department')}>
+                    Department <ArrowUpDown className="w-3 h-3 inline ml-1" />
+                  </TableHead>
+                  <TableHead className="cursor-pointer text-right" onClick={() => toggleSort('hourly_rate')}>
                     Hourly Rate <ArrowUpDown className="w-3 h-3 inline ml-1" />
                   </TableHead>
-                  <TableHead>Monthly Salary</TableHead>
-                  <TableHead>Social Ins.</TableHead>
-                  <TableHead>Medical Ins.</TableHead>
-                  <TableHead>End of Service</TableHead>
-                  <TableHead className="cursor-pointer" onClick={() => toggleSort('total_monthly_cost')}>
+                  <TableHead className="cursor-pointer text-right" onClick={() => toggleSort('total_monthly_cost')}>
                     Total Monthly <ArrowUpDown className="w-3 h-3 inline ml-1" />
                   </TableHead>
-                  <TableHead className="w-24">Actions</TableHead>
+                  <TableHead className="w-24 text-center">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -586,17 +584,13 @@ function RolesHRManager() {
                     <TableCell className="font-medium">{role.name}</TableCell>
                     <TableCell>
                       {role.department && (
-                        <Badge variant="secondary" className="text-xs">{role.department}</Badge>
+                        <Badge variant="secondary" className="text-xs bg-slate-100 text-slate-700">{role.department}</Badge>
                       )}
                     </TableCell>
-                    <TableCell className="font-mono text-sm">{formatCurrency(role.hourly_rate, false)}</TableCell>
-                    <TableCell className="font-mono text-sm">{formatCurrency(role.monthly_salary, false)}</TableCell>
-                    <TableCell className="font-mono text-sm text-slate-500">{formatCurrency(role.social_insurance || 0, false)}</TableCell>
-                    <TableCell className="font-mono text-sm text-slate-500">{formatCurrency(role.medical_insurance || 0, false)}</TableCell>
-                    <TableCell className="font-mono text-sm text-slate-500">{formatCurrency(role.end_of_service || 0, false)}</TableCell>
-                    <TableCell className="font-mono text-sm font-semibold text-emerald-600">{formatCurrency(role.total_monthly_cost || role.monthly_salary, false)}</TableCell>
+                    <TableCell className="font-mono text-sm text-right">{formatCurrency(role.hourly_rate, false)}</TableCell>
+                    <TableCell className="font-mono text-sm font-semibold text-emerald-600 text-right">{formatCurrency(role.total_monthly_cost || role.monthly_salary, false)}</TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center justify-center gap-1">
                         <Button variant="ghost" size="sm" onClick={() => openEdit(role)} data-testid={`edit-role-${role.id}`}>
                           <Pencil className="w-4 h-4" />
                         </Button>
@@ -609,7 +603,7 @@ function RolesHRManager() {
                 ))}
                 {filteredDbRoles.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center py-8 text-slate-500">
+                    <TableCell colSpan={5} className="text-center py-8 text-slate-500">
                       No roles found. Add roles manually or sync from Google Sheets.
                     </TableCell>
                   </TableRow>

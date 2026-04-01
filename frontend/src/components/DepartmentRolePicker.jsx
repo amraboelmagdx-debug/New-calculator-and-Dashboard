@@ -1,360 +1,236 @@
 import { useState, useMemo } from 'react';
 import { 
-  Users, Briefcase, Palette, FileText, Film, Megaphone, Target,
-  Plus, ChevronDown, ChevronRight, Check
+  Users, ChevronDown, Plus, Check, Search
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { formatCurrency } from '@/lib/utils';
-
-// Department configuration with icons and colors
-const DEPARTMENTS = [
-  { 
-    id: 'accounts', 
-    nameAr: 'إدارة الحسابات', 
-    nameEn: 'Accounts Management',
-    icon: Briefcase,
-    color: 'blue',
-    bgLight: 'bg-blue-50 hover:bg-blue-100 border-blue-200',
-    bgDark: 'bg-blue-500/10 hover:bg-blue-500/20 border-blue-500/30',
-    textLight: 'text-blue-700',
-    textDark: 'text-blue-400',
-    activeLight: 'bg-blue-600 text-white border-blue-600',
-    activeDark: 'bg-blue-600 text-white border-blue-600'
-  },
-  { 
-    id: 'branding', 
-    nameAr: 'وحدة البراندينج', 
-    nameEn: 'Branding Unit',
-    icon: Palette,
-    color: 'purple',
-    bgLight: 'bg-purple-50 hover:bg-purple-100 border-purple-200',
-    bgDark: 'bg-purple-500/10 hover:bg-purple-500/20 border-purple-500/30',
-    textLight: 'text-purple-700',
-    textDark: 'text-purple-400',
-    activeLight: 'bg-purple-600 text-white border-purple-600',
-    activeDark: 'bg-purple-600 text-white border-purple-600'
-  },
-  { 
-    id: 'creative', 
-    nameAr: 'الوحدة الإبداعية', 
-    nameEn: 'Creative Unit',
-    icon: Palette,
-    color: 'pink',
-    bgLight: 'bg-pink-50 hover:bg-pink-100 border-pink-200',
-    bgDark: 'bg-pink-500/10 hover:bg-pink-500/20 border-pink-500/30',
-    textLight: 'text-pink-700',
-    textDark: 'text-pink-400',
-    activeLight: 'bg-pink-600 text-white border-pink-600',
-    activeDark: 'bg-pink-600 text-white border-pink-600'
-  },
-  { 
-    id: 'content', 
-    nameAr: 'وحدة المحتوى', 
-    nameEn: 'Content Unit',
-    icon: FileText,
-    color: 'emerald',
-    bgLight: 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200',
-    bgDark: 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30',
-    textLight: 'text-emerald-700',
-    textDark: 'text-emerald-400',
-    activeLight: 'bg-emerald-600 text-white border-emerald-600',
-    activeDark: 'bg-emerald-600 text-white border-emerald-600'
-  },
-  { 
-    id: 'production', 
-    nameAr: 'وحدة الإنتاج', 
-    nameEn: 'Production Unit',
-    icon: Film,
-    color: 'amber',
-    bgLight: 'bg-amber-50 hover:bg-amber-100 border-amber-200',
-    bgDark: 'bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/30',
-    textLight: 'text-amber-700',
-    textDark: 'text-amber-400',
-    activeLight: 'bg-amber-600 text-white border-amber-600',
-    activeDark: 'bg-amber-600 text-white border-amber-600'
-  },
-  { 
-    id: 'media', 
-    nameAr: 'وحدة الإعلام والعلاقات العامة', 
-    nameEn: 'Media and PR Unit',
-    icon: Megaphone,
-    color: 'rose',
-    bgLight: 'bg-rose-50 hover:bg-rose-100 border-rose-200',
-    bgDark: 'bg-rose-500/10 hover:bg-rose-500/20 border-rose-500/30',
-    textLight: 'text-rose-700',
-    textDark: 'text-rose-400',
-    activeLight: 'bg-rose-600 text-white border-rose-600',
-    activeDark: 'bg-rose-600 text-white border-rose-600'
-  },
-  { 
-    id: 'strategy', 
-    nameAr: 'وحدة الاستراتيجية والاتصال', 
-    nameEn: 'Strategy and Communication Unit',
-    icon: Target,
-    color: 'cyan',
-    bgLight: 'bg-cyan-50 hover:bg-cyan-100 border-cyan-200',
-    bgDark: 'bg-cyan-500/10 hover:bg-cyan-500/20 border-cyan-500/30',
-    textLight: 'text-cyan-700',
-    textDark: 'text-cyan-400',
-    activeLight: 'bg-cyan-600 text-white border-cyan-600',
-    activeDark: 'bg-cyan-600 text-white border-cyan-600'
-  }
-];
-
-// Map department names from DB to our department IDs
-const mapDepartmentToId = (deptName) => {
-  if (!deptName) return null;
-  const lower = deptName.toLowerCase();
-  if (lower.includes('accounts') || lower.includes('الحسابات')) return 'accounts';
-  if (lower.includes('branding') || lower.includes('براندينج') || lower.includes('البراندينج')) return 'branding';
-  if (lower.includes('creative') || lower.includes('إبداع') || lower.includes('الإبداعية')) return 'creative';
-  if (lower.includes('content') || lower.includes('محتوى') || lower.includes('المحتوى')) return 'content';
-  if (lower.includes('production') || lower.includes('إنتاج') || lower.includes('الإنتاج')) return 'production';
-  if (lower.includes('media') || lower.includes('إعلام') || lower.includes('الإعلام')) return 'media';
-  if (lower.includes('strategy') || lower.includes('استراتيجية') || lower.includes('الاستراتيجية')) return 'strategy';
-  return null;
-};
 
 export default function DepartmentRolePicker({ roles, selectedMembers, onAddMemberWithRole, isDarkMode }) {
   const [expandedDept, setExpandedDept] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
 
-  // Group roles by department
-  const rolesByDepartment = useMemo(() => {
-    const grouped = {};
-    DEPARTMENTS.forEach(dept => {
-      grouped[dept.id] = [];
-    });
-    grouped['other'] = [];
-
+  // Get unique departments from roles
+  const departments = useMemo(() => {
+    const depts = new Map();
     roles.forEach(role => {
-      const deptId = mapDepartmentToId(role.department);
-      if (deptId && grouped[deptId]) {
-        grouped[deptId].push(role);
-      } else {
-        grouped['other'].push(role);
+      if (role.department) {
+        if (!depts.has(role.department)) {
+          depts.set(role.department, []);
+        }
+        depts.get(role.department).push(role);
       }
     });
-
-    return grouped;
+    return depts;
   }, [roles]);
 
-  // Count selected members per department
-  const selectedCountByDept = useMemo(() => {
-    const counts = {};
-    DEPARTMENTS.forEach(dept => {
-      counts[dept.id] = 0;
-    });
-    counts['other'] = 0;
+  // Roles without department
+  const uncategorizedRoles = useMemo(() => {
+    return roles.filter(r => !r.department);
+  }, [roles]);
 
+  // Filter roles by search
+  const filteredRoles = useMemo(() => {
+    if (!searchTerm) return null;
+    return roles.filter(r => 
+      r.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      r.department?.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [roles, searchTerm]);
+
+  // Count selected per department
+  const selectedCounts = useMemo(() => {
+    const counts = {};
     selectedMembers.forEach(member => {
       const role = roles.find(r => r.id === member.role_id);
-      if (role) {
-        const deptId = mapDepartmentToId(role.department) || 'other';
-        counts[deptId] = (counts[deptId] || 0) + 1;
+      if (role?.department) {
+        counts[role.department] = (counts[role.department] || 0) + 1;
       }
     });
-
     return counts;
   }, [selectedMembers, roles]);
 
-  const toggleDept = (deptId) => {
-    setExpandedDept(prev => prev === deptId ? null : deptId);
+  const isRoleSelected = (roleId) => selectedMembers.some(m => m.role_id === roleId);
+
+  const toggleDept = (dept) => {
+    setExpandedDept(prev => prev === dept ? null : dept);
+    setSearchTerm('');
   };
 
-  const isRoleSelected = (roleId) => {
-    return selectedMembers.some(m => m.role_id === roleId);
+  // Department colors
+  const getDeptColor = (dept, index) => {
+    const colors = [
+      { bg: 'bg-blue-500', light: 'bg-blue-50 border-blue-200 text-blue-700', badge: 'bg-blue-100 text-blue-700' },
+      { bg: 'bg-purple-500', light: 'bg-purple-50 border-purple-200 text-purple-700', badge: 'bg-purple-100 text-purple-700' },
+      { bg: 'bg-emerald-500', light: 'bg-emerald-50 border-emerald-200 text-emerald-700', badge: 'bg-emerald-100 text-emerald-700' },
+      { bg: 'bg-amber-500', light: 'bg-amber-50 border-amber-200 text-amber-700', badge: 'bg-amber-100 text-amber-700' },
+      { bg: 'bg-rose-500', light: 'bg-rose-50 border-rose-200 text-rose-700', badge: 'bg-rose-100 text-rose-700' },
+      { bg: 'bg-cyan-500', light: 'bg-cyan-50 border-cyan-200 text-cyan-700', badge: 'bg-cyan-100 text-cyan-700' },
+      { bg: 'bg-indigo-500', light: 'bg-indigo-50 border-indigo-200 text-indigo-700', badge: 'bg-indigo-100 text-indigo-700' },
+    ];
+    return colors[index % colors.length];
+  };
+
+  const RoleButton = ({ role }) => {
+    const isSelected = isRoleSelected(role.id);
+    return (
+      <button
+        onClick={() => !isSelected && onAddMemberWithRole(role.id)}
+        disabled={isSelected}
+        className={`
+          flex items-center justify-between w-full p-3 rounded-lg border text-right transition-all
+          ${isSelected 
+            ? (isDarkMode ? 'bg-emerald-500/20 border-emerald-500/30' : 'bg-emerald-50 border-emerald-200')
+            : (isDarkMode ? 'bg-neutral-800 border-neutral-700 hover:border-neutral-500' : 'bg-white border-slate-200 hover:border-slate-400 hover:shadow-sm')
+          }
+          ${isSelected ? 'cursor-not-allowed' : 'cursor-pointer'}
+        `}
+      >
+        <div className="flex-1 min-w-0">
+          <p className={`font-medium text-sm truncate ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+            {role.name}
+          </p>
+          <div className="flex items-center gap-2 mt-1">
+            <span className={`text-xs font-mono ${isDarkMode ? 'text-neutral-400' : 'text-slate-500'}`}>
+              {formatCurrency(role.hourly_rate, false)}/hr
+            </span>
+            <span className={`text-xs font-mono ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>
+              {formatCurrency(role.total_monthly_cost || role.monthly_salary, false)}/mo
+            </span>
+          </div>
+        </div>
+        <div className={`
+          w-7 h-7 rounded-full flex items-center justify-center ml-2 flex-shrink-0
+          ${isSelected ? 'bg-emerald-500 text-white' : (isDarkMode ? 'bg-neutral-700 text-neutral-400' : 'bg-slate-100 text-slate-400')}
+        `}>
+          {isSelected ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+        </div>
+      </button>
+    );
   };
 
   return (
-    <div className="space-y-3">
-      {/* Department Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-        {DEPARTMENTS.map(dept => {
-          const Icon = dept.icon;
-          const rolesCount = rolesByDepartment[dept.id]?.length || 0;
-          const selectedCount = selectedCountByDept[dept.id] || 0;
-          const isExpanded = expandedDept === dept.id;
-          
-          if (rolesCount === 0) return null;
-
-          return (
-            <button
-              key={dept.id}
-              onClick={() => toggleDept(dept.id)}
-              className={`
-                relative p-4 rounded-xl border-2 transition-all duration-200 text-right
-                ${isExpanded 
-                  ? (isDarkMode ? dept.activeDark : dept.activeLight)
-                  : (isDarkMode ? dept.bgDark : dept.bgLight)
-                }
-              `}
-              data-testid={`dept-${dept.id}`}
-            >
-              <div className="flex items-start justify-between">
-                <div className={`
-                  w-10 h-10 rounded-lg flex items-center justify-center mb-2
-                  ${isExpanded 
-                    ? 'bg-white/20' 
-                    : (isDarkMode ? 'bg-white/10' : 'bg-white')
-                  }
-                `}>
-                  <Icon className={`w-5 h-5 ${isExpanded ? 'text-white' : (isDarkMode ? dept.textDark : dept.textLight)}`} />
-                </div>
-                {selectedCount > 0 && (
-                  <Badge className={`
-                    text-xs font-bold
-                    ${isExpanded 
-                      ? 'bg-white/20 text-white' 
-                      : (isDarkMode ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-100 text-emerald-700')
-                    }
-                  `}>
-                    {selectedCount}
-                  </Badge>
-                )}
-              </div>
-              <h4 className={`font-semibold text-sm mb-0.5 ${isExpanded ? 'text-white' : (isDarkMode ? 'text-white' : 'text-slate-900')}`}>
-                {dept.nameAr}
-              </h4>
-              <p className={`text-xs ${isExpanded ? 'text-white/70' : (isDarkMode ? 'text-neutral-400' : 'text-slate-500')}`}>
-                {rolesCount} وظيفة
-              </p>
-              <div className={`absolute bottom-2 left-2 ${isExpanded ? 'text-white' : (isDarkMode ? dept.textDark : dept.textLight)}`}>
-                {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-              </div>
-            </button>
-          );
-        })}
+    <div className="space-y-4">
+      {/* Search Bar */}
+      <div className="relative">
+        <Search className={`absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDarkMode ? 'text-neutral-500' : 'text-slate-400'}`} />
+        <Input
+          placeholder="ابحث عن وظيفة..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className={`pr-10 text-right ${isDarkMode ? 'bg-neutral-800 border-neutral-700 text-white placeholder:text-neutral-500' : 'bg-white border-slate-200'}`}
+        />
       </div>
 
-      {/* Expanded Department Roles */}
-      {expandedDept && rolesByDepartment[expandedDept]?.length > 0 && (
-        <div className={`
-          mt-4 p-4 rounded-xl animate-fade-in
-          ${isDarkMode ? 'bg-neutral-800/50 border border-neutral-700' : 'bg-slate-50 border border-slate-200'}
-        `}>
-          <div className="flex items-center justify-between mb-4">
-            <h4 className={`font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-              {DEPARTMENTS.find(d => d.id === expandedDept)?.nameAr}
-            </h4>
-            <span className={`text-sm ${isDarkMode ? 'text-neutral-400' : 'text-slate-500'}`}>
-              اختر الوظائف للإضافة
-            </span>
+      {/* Search Results */}
+      {searchTerm && filteredRoles && (
+        <div className={`p-4 rounded-xl ${isDarkMode ? 'bg-neutral-800/50 border border-neutral-700' : 'bg-slate-50 border border-slate-200'}`}>
+          <p className={`text-sm mb-3 ${isDarkMode ? 'text-neutral-400' : 'text-slate-500'}`}>
+            نتائج البحث ({filteredRoles.length})
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-64 overflow-y-auto">
+            {filteredRoles.map(role => (
+              <RoleButton key={role.id} role={role} />
+            ))}
           </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            {rolesByDepartment[expandedDept].map(role => {
-              const isSelected = isRoleSelected(role.id);
-              const dept = DEPARTMENTS.find(d => d.id === expandedDept);
-              
-              return (
-                <button
-                  key={role.id}
-                  onClick={() => !isSelected && onAddMemberWithRole(role.id)}
-                  disabled={isSelected}
-                  className={`
-                    flex items-center justify-between p-3 rounded-lg border transition-all text-right
-                    ${isSelected 
-                      ? (isDarkMode 
-                          ? 'bg-emerald-500/20 border-emerald-500/30 cursor-not-allowed' 
-                          : 'bg-emerald-50 border-emerald-200 cursor-not-allowed')
-                      : (isDarkMode 
-                          ? 'bg-neutral-900 border-neutral-700 hover:border-neutral-500' 
-                          : 'bg-white border-slate-200 hover:border-slate-400 hover:shadow-sm')
-                    }
-                  `}
-                  data-testid={`role-btn-${role.id}`}
-                >
-                  <div className="flex-1">
-                    <p className={`font-medium text-sm ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                      {role.name}
-                    </p>
-                    <div className="flex items-center gap-3 mt-1">
-                      <span className={`text-xs font-mono ${isDarkMode ? 'text-neutral-400' : 'text-slate-500'}`}>
-                        {formatCurrency(role.hourly_rate, false)}/ساعة
-                      </span>
-                      <span className={`text-xs font-mono ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>
-                        {formatCurrency(role.total_monthly_cost || role.monthly_salary, false)}/شهر
-                      </span>
-                    </div>
-                  </div>
-                  <div className={`
-                    w-8 h-8 rounded-full flex items-center justify-center ml-3
-                    ${isSelected 
-                      ? (isDarkMode ? 'bg-emerald-500 text-white' : 'bg-emerald-500 text-white')
-                      : (isDarkMode ? 'bg-neutral-800 text-neutral-400' : 'bg-slate-100 text-slate-400')
-                    }
-                  `}>
-                    {isSelected ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+          {filteredRoles.length === 0 && (
+            <p className={`text-center py-4 ${isDarkMode ? 'text-neutral-500' : 'text-slate-400'}`}>
+              لا توجد نتائج
+            </p>
+          )}
         </div>
       )}
 
-      {/* Other/Uncategorized Roles */}
-      {rolesByDepartment['other']?.length > 0 && (
-        <div className={`
-          mt-2 p-3 rounded-lg
-          ${isDarkMode ? 'bg-neutral-800/30' : 'bg-slate-50'}
-        `}>
-          <button
-            onClick={() => toggleDept('other')}
-            className={`flex items-center gap-2 text-sm ${isDarkMode ? 'text-neutral-400' : 'text-slate-500'}`}
-          >
-            {expandedDept === 'other' ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-            <span>وظائف أخرى ({rolesByDepartment['other'].length})</span>
-            {selectedCountByDept['other'] > 0 && (
-              <Badge className="text-xs bg-emerald-100 text-emerald-700">{selectedCountByDept['other']}</Badge>
+      {/* Department Pills */}
+      {!searchTerm && (
+        <>
+          <div className="flex flex-wrap gap-2">
+            {Array.from(departments.entries()).map(([dept, deptRoles], index) => {
+              const color = getDeptColor(dept, index);
+              const isExpanded = expandedDept === dept;
+              const selectedCount = selectedCounts[dept] || 0;
+              
+              return (
+                <button
+                  key={dept}
+                  onClick={() => toggleDept(dept)}
+                  className={`
+                    flex items-center gap-2 px-4 py-2 rounded-full border-2 transition-all text-sm font-medium
+                    ${isExpanded 
+                      ? `${color.bg} text-white border-transparent shadow-lg` 
+                      : (isDarkMode 
+                          ? 'bg-neutral-800 border-neutral-700 text-neutral-300 hover:border-neutral-500' 
+                          : `${color.light} border-2`
+                        )
+                    }
+                  `}
+                >
+                  <span>{dept}</span>
+                  <Badge className={`text-xs ${isExpanded ? 'bg-white/20 text-white' : color.badge}`}>
+                    {deptRoles.length}
+                  </Badge>
+                  {selectedCount > 0 && (
+                    <Badge className="text-xs bg-emerald-500 text-white">
+                      +{selectedCount}
+                    </Badge>
+                  )}
+                  <ChevronDown className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                </button>
+              );
+            })}
+            
+            {uncategorizedRoles.length > 0 && (
+              <button
+                onClick={() => toggleDept('__other__')}
+                className={`
+                  flex items-center gap-2 px-4 py-2 rounded-full border-2 transition-all text-sm
+                  ${expandedDept === '__other__'
+                    ? 'bg-slate-600 text-white border-transparent'
+                    : (isDarkMode 
+                        ? 'bg-neutral-800 border-neutral-700 text-neutral-400 hover:border-neutral-500' 
+                        : 'bg-slate-100 border-slate-200 text-slate-600 hover:border-slate-300'
+                      )
+                  }
+                `}
+              >
+                <span>أخرى</span>
+                <Badge className="text-xs bg-slate-200 text-slate-600">{uncategorizedRoles.length}</Badge>
+              </button>
             )}
-          </button>
-          
-          {expandedDept === 'other' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-3">
-              {rolesByDepartment['other'].map(role => {
-                const isSelected = isRoleSelected(role.id);
-                
-                return (
-                  <button
-                    key={role.id}
-                    onClick={() => !isSelected && onAddMemberWithRole(role.id)}
-                    disabled={isSelected}
-                    className={`
-                      flex items-center justify-between p-3 rounded-lg border transition-all text-right
-                      ${isSelected 
-                        ? (isDarkMode 
-                            ? 'bg-emerald-500/20 border-emerald-500/30 cursor-not-allowed' 
-                            : 'bg-emerald-50 border-emerald-200 cursor-not-allowed')
-                        : (isDarkMode 
-                            ? 'bg-neutral-900 border-neutral-700 hover:border-neutral-500' 
-                            : 'bg-white border-slate-200 hover:border-slate-400')
-                      }
-                    `}
-                  >
-                    <div className="flex-1">
-                      <p className={`font-medium text-sm ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                        {role.name}
-                      </p>
-                      <span className={`text-xs font-mono ${isDarkMode ? 'text-neutral-400' : 'text-slate-500'}`}>
-                        {formatCurrency(role.hourly_rate, false)}/ساعة
-                      </span>
-                    </div>
-                    <div className={`
-                      w-8 h-8 rounded-full flex items-center justify-center ml-3
-                      ${isSelected 
-                        ? 'bg-emerald-500 text-white'
-                        : (isDarkMode ? 'bg-neutral-800 text-neutral-400' : 'bg-slate-100 text-slate-400')
-                      }
-                    `}>
-                      {isSelected ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                    </div>
-                  </button>
-                );
-              })}
+          </div>
+
+          {/* Expanded Department Roles */}
+          {expandedDept && (
+            <div className={`
+              p-4 rounded-xl animate-fade-in
+              ${isDarkMode ? 'bg-neutral-800/50 border border-neutral-700' : 'bg-slate-50 border border-slate-200'}
+            `}>
+              <div className="flex items-center justify-between mb-3">
+                <span className={`text-sm ${isDarkMode ? 'text-neutral-400' : 'text-slate-500'}`}>
+                  اختر الوظائف
+                </span>
+                <h4 className={`font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                  {expandedDept === '__other__' ? 'وظائف أخرى' : expandedDept}
+                </h4>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-72 overflow-y-auto">
+                {(expandedDept === '__other__' ? uncategorizedRoles : departments.get(expandedDept) || []).map(role => (
+                  <RoleButton key={role.id} role={role} />
+                ))}
+              </div>
             </div>
           )}
+        </>
+      )}
+
+      {/* Empty State */}
+      {!searchTerm && departments.size === 0 && uncategorizedRoles.length === 0 && (
+        <div className={`text-center py-8 ${isDarkMode ? 'text-neutral-500' : 'text-slate-400'}`}>
+          <Users className="w-12 h-12 mx-auto mb-3 opacity-30" />
+          <p>لا توجد وظائف متاحة</p>
+          <p className="text-sm mt-1">قم بمزامنة البيانات من Google Sheets</p>
         </div>
       )}
     </div>
