@@ -7,12 +7,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { 
   Plus, Trash2, Settings, FileText, ChevronDown, ChevronRight,
   Users, Truck, AlertTriangle, TrendingUp, DollarSign, Clock,
   Briefcase, User, Building2, CreditCard, Target, Shield, Zap,
-  LayoutTemplate, Calculator as CalcIcon, Download, Sun, Moon
+  LayoutTemplate, Calculator as CalcIcon, Download, Sun, Moon, Save
 } from 'lucide-react';
 
 import { 
@@ -20,6 +21,7 @@ import {
   getVendorServices, 
   getProductTemplates, 
   getScopeTemplates,
+  createScopeTemplate,
   getPaymentTerms,
   getRiskMultipliers,
   calculateSimple, 
@@ -72,6 +74,12 @@ export default function Calculator() {
   
   const [results, setResults] = useState(null);
   const [activeSection, setActiveSection] = useState('project');
+  
+  // Save Template Dialog State
+  const [saveTemplateDialogOpen, setSaveTemplateDialogOpen] = useState(false);
+  const [newTemplateName, setNewTemplateName] = useState('');
+  const [newTemplateDescription, setNewTemplateDescription] = useState('');
+  const [savingTemplate, setSavingTemplate] = useState(false);
 
   // Load initial data
   useEffect(() => {
@@ -235,32 +243,140 @@ export default function Calculator() {
   };
 
   // Load scope template
-  const loadScopeTemplate = (templateId) => {
+  const loadScopeTemplate = async (templateId) => {
     const template = scopeTemplates.find(t => t.id === templateId);
     if (!template) return;
 
-    // Convert template products to team members
-    const newTeamMembers = (template.default_products || []).flatMap(product => 
-      (product.roles || []).map(role => ({
-        id: `tm-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        role_id: role.role_id || '',
-        role_name: role.role_name || '',
-        hours: role.hours || 0,
-        hourly_rate: role.hourly_rate || 0,
-        monthly_salary: 0,
-        utilization_percent: 0,
-        duration_months: 1,
-        calc_mode: 'hours',
-        employee_type: 'internal'
-      }))
-    );
+    try {
+      let newTeamMembers = [];
 
-    setCalcData(prev => ({
-      ...prev,
-      team_members: [...prev.team_members, ...newTeamMembers]
-    }));
+      // Check if template has direct default_roles (new format from "Save as Template")
+      if (template.default_roles && template.default_roles.length > 0) {
+        newTeamMembers = template.default_roles.map(roleRef => {
+          // Find the actual role by ID or name
+          const role = roles.find(r => r.id === roleRef.role_id || r.name === roleRef.role_name);
+          return {
+            id: `tm-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            role_id: role?.id || roleRef.role_id || '',
+            role_name: role?.name || roleRef.role_name || '',
+            hours: roleRef.default_hours || 0,
+            hourly_rate: roleRef.hourly_rate || role?.hourly_rate || 0,
+            monthly_salary: role?.total_monthly_cost || role?.monthly_salary || 0,
+            utilization_percent: 0,
+            duration_months: 1,
+            calc_mode: 'hours',
+            employee_type: 'internal'
+          };
+        });
+      } 
+      // Otherwise resolve from default_products (legacy format)
+      else if (template.default_products && template.default_products.length > 0) {
+        const productTemplates = await getProductTemplates();
+        const resolvedProducts = template.default_products
+          .map(productId => productTemplates.find(p => p.id === productId))
+          .filter(Boolean);
 
-    toast.success(`Loaded template: ${template.name}`);
+        newTeamMembers = resolvedProducts.flatMap(product => 
+          (product.default_roles || []).map(roleRef => {
+            const role = roles.find(r => r.id === roleRef.role_id);
+            return {
+              id: `tm-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              role_id: role?.id || roleRef.role_id || '',
+              role_name: role?.name || '',
+              hours: roleRef.default_hours || 0,
+              hourly_rate: role?.hourly_rate || 0,
+              monthly_salary: role?.total_monthly_cost || role?.monthly_salary || 0,
+              utilization_percent: 0,
+              duration_months: 1,
+              calc_mode: 'hours',
+              employee_type: 'internal'
+            };
+          })
+        );
+      }
+
+      // Add default vendors from template
+      const newVendors = (template.default_vendors || []).map(vendor => ({
+        id: `v-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        service_name: vendor.service_name || '',
+        service_id: '',
+        cost: 0,
+        markup_percent: vendor.default_markup || 15,
+        risk: { complexity: 'none', rush: 'none', execution: 'none', custom_multiplier: 0 }
+      }));
+
+      if (newTeamMembers.length === 0 && newVendors.length === 0) {
+        toast.info('هذا القالب فارغ');
+        return;
+      }
+
+      setCalcData(prev => ({
+        ...prev,
+        team_members: [...prev.team_members, ...newTeamMembers],
+        vendors: [...prev.vendors, ...newVendors]
+      }));
+
+      toast.success(`تم تحميل القالب: ${template.name}`);
+    } catch (error) {
+      console.error('Error loading template:', error);
+      toast.error('فشل تحميل القالب');
+    }
+  };
+
+  // Save current configuration as new template
+  const handleSaveAsTemplate = async () => {
+    if (!newTemplateName.trim()) {
+      toast.error('يرجى إدخال اسم القالب');
+      return;
+    }
+    
+    if (calcData.team_members.length === 0 && calcData.vendors.length === 0) {
+      toast.error('يرجى إضافة فريق أو موردين قبل حفظ القالب');
+      return;
+    }
+
+    setSavingTemplate(true);
+    try {
+      // Set admin password for API call
+      setAdminPassword('Amr123');
+      
+      // Create template with current team members and vendors
+      const templateData = {
+        name: newTemplateName.trim(),
+        description: newTemplateDescription.trim(),
+        scope_type: 'standard',
+        // Store team members as embedded roles data
+        default_products: [],
+        default_roles: calcData.team_members.map(tm => ({
+          role_id: tm.role_id,
+          role_name: tm.role_name,
+          default_hours: tm.hours,
+          hourly_rate: tm.hourly_rate
+        })),
+        default_vendors: calcData.vendors.map(v => ({
+          service_name: v.service_name,
+          default_markup: v.markup_percent
+        }))
+      };
+
+      await createScopeTemplate(templateData);
+      
+      // Refresh templates list
+      const updatedTemplates = await getScopeTemplates();
+      setScopeTemplates(updatedTemplates);
+      
+      // Reset dialog
+      setSaveTemplateDialogOpen(false);
+      setNewTemplateName('');
+      setNewTemplateDescription('');
+      
+      toast.success(`تم حفظ القالب: ${newTemplateName}`);
+    } catch (error) {
+      console.error('Error saving template:', error);
+      toast.error('فشل حفظ القالب');
+    } finally {
+      setSavingTemplate(false);
+    }
   };
 
   // Refresh roles
@@ -394,6 +510,21 @@ export default function Calculator() {
                 ))}
               </SelectContent>
             </Select>
+          </div>
+          
+          {/* Save as Template Button */}
+          <div className="px-2 mt-4">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSaveTemplateDialogOpen(true)}
+              disabled={calcData.team_members.length === 0 && calcData.vendors.length === 0}
+              className={`w-full gap-2 ${isDarkMode ? 'border-neutral-700 text-neutral-300 hover:bg-neutral-800' : 'border-slate-300 text-slate-700 hover:bg-slate-50'}`}
+              data-testid="save-template-btn"
+            >
+              <Save className="w-4 h-4" />
+              Save as Template
+            </Button>
           </div>
         </nav>
 
@@ -959,6 +1090,66 @@ export default function Calculator() {
         </aside>
 
       </div>
+
+      {/* Save as Template Dialog */}
+      <Dialog open={saveTemplateDialogOpen} onOpenChange={setSaveTemplateDialogOpen}>
+        <DialogContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700 text-white' : 'bg-white border-slate-200'}>
+          <DialogHeader>
+            <DialogTitle className={isDarkMode ? 'text-white' : 'text-slate-900'}>Save as Template</DialogTitle>
+            <DialogDescription className={isDarkMode ? 'text-neutral-400' : 'text-slate-500'}>
+              Save current team and vendor configuration as a reusable template
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label className={isDarkMode ? 'text-neutral-300' : 'text-slate-700'}>Template Name *</Label>
+              <Input
+                value={newTemplateName}
+                onChange={(e) => setNewTemplateName(e.target.value)}
+                placeholder="e.g., Campaign Production"
+                className={isDarkMode ? 'bg-neutral-800 border-neutral-700 text-white' : 'bg-white border-slate-300'}
+                data-testid="template-name-input"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className={isDarkMode ? 'text-neutral-300' : 'text-slate-700'}>Description</Label>
+              <Input
+                value={newTemplateDescription}
+                onChange={(e) => setNewTemplateDescription(e.target.value)}
+                placeholder="Brief description of this template"
+                className={isDarkMode ? 'bg-neutral-800 border-neutral-700 text-white' : 'bg-white border-slate-300'}
+                data-testid="template-desc-input"
+              />
+            </div>
+            <div className={`p-3 rounded-lg ${isDarkMode ? 'bg-neutral-800' : 'bg-slate-50'}`}>
+              <p className={`text-sm ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`}>
+                This template will include:
+              </p>
+              <ul className={`text-sm mt-2 space-y-1 ${isDarkMode ? 'text-neutral-300' : 'text-slate-700'}`}>
+                <li>• {calcData.team_members.length} team member(s)</li>
+                <li>• {calcData.vendors.length} vendor(s)</li>
+              </ul>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setSaveTemplateDialogOpen(false)}
+              className={isDarkMode ? 'border-neutral-700 text-neutral-300' : ''}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveAsTemplate}
+              disabled={savingTemplate || !newTemplateName.trim()}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white"
+              data-testid="save-template-confirm-btn"
+            >
+              {savingTemplate ? 'Saving...' : 'Save Template'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

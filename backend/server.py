@@ -186,6 +186,7 @@ class ScopeTemplateModel(BaseModel):
     description: str = ""
     scope_type: str = "standard"  # standard, staffing
     default_products: List[str] = []  # product template IDs
+    default_roles: List[Dict[str, Any]] = []  # Direct roles with hours (new format)
     default_vendors: List[Dict[str, Any]] = []
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -194,6 +195,7 @@ class ScopeTemplateCreate(BaseModel):
     description: str = ""
     scope_type: str = "standard"
     default_products: List[str] = []
+    default_roles: List[Dict[str, Any]] = []  # Direct roles with hours
     default_vendors: List[Dict[str, Any]] = []
 
 class VendorServiceModel(BaseModel):

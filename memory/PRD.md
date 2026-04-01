@@ -115,6 +115,8 @@ A modern web application for creative agencies to calculate project pricing, pro
 ### P0 - Critical
 - [x] ~~Merge Simple + Structured into unified interface~~ DONE
 - [x] ~~Dark/Light Mode Toggle with White Dashboard~~ DONE
+- [x] ~~Load Template functionality~~ DONE (Dec 2025)
+- [x] ~~Save as Template from Calculator~~ DONE (Dec 2025)
 - [ ] Add ability to save/load opportunities
 - [ ] Opportunity list view
 
