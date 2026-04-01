@@ -41,7 +41,12 @@ export default function VendorRow({
   const textClass = darkMode ? "text-white" : "text-slate-900";
   const subtextClass = darkMode ? "text-neutral-500" : "text-slate-500";
 
-  const clientPrice = (vendor.cost || 0) * (1 + (vendor.markup_percent || 0) / 100);
+  // Calculate totals with quantity
+  const quantity = vendor.quantity || 1;
+  const unitCost = vendor.unit_cost || vendor.cost || 0;
+  const totalCost = unitCost * quantity;
+  const clientPrice = totalCost * (1 + (vendor.markup_percent || 0) / 100);
+  const markupAmount = clientPrice - totalCost;
 
   const handleAddVendor = async () => {
     if (!newVendor.name) {
@@ -86,56 +91,29 @@ export default function VendorRow({
 
   return (
     <>
-      <div className={`grid grid-cols-12 gap-3 items-center ${cardClass}`} data-testid={`vendor-${index}`}>
-        <div className="col-span-4">
-          <Select value={vendor.service_id || ''} onValueChange={handleServiceChange}>
-            <SelectTrigger className={selectTriggerClass} data-testid={`vendor-select-${index}`}>
-              <SelectValue placeholder="Select service" />
-            </SelectTrigger>
-            <SelectContent className={selectContentClass}>
-              {vendorServices.map(service => (
-                <SelectItem key={service.id} value={service.id} className={darkMode ? "text-neutral-300" : "text-slate-700"}>
-                  {service.name}
+      <div className={`${cardClass}`} data-testid={`vendor-${index}`}>
+        {/* Row 1: Service selection */}
+        <div className="flex items-center gap-3 mb-3">
+          <div className="flex-1">
+            <Select value={vendor.service_id || ''} onValueChange={handleServiceChange}>
+              <SelectTrigger className={selectTriggerClass} data-testid={`vendor-select-${index}`}>
+                <SelectValue placeholder="Select service" />
+              </SelectTrigger>
+              <SelectContent className={selectContentClass}>
+                {vendorServices.map(service => (
+                  <SelectItem key={service.id} value={service.id} className={darkMode ? "text-neutral-300" : "text-slate-700"}>
+                    {service.name}
+                  </SelectItem>
+                ))}
+                <SelectItem value="__add_new__" className={darkMode ? "text-blue-400 font-medium" : "text-slate-900 font-medium"}>
+                  <div className="flex items-center gap-2">
+                    <Plus className="w-4 h-4" />
+                    Add new vendor service...
+                  </div>
                 </SelectItem>
-              ))}
-              <SelectItem value="__add_new__" className={darkMode ? "text-blue-400 font-medium" : "text-slate-900 font-medium"}>
-                <div className="flex items-center gap-2">
-                  <Plus className="w-4 h-4" />
-                  Add new vendor service...
-                </div>
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="col-span-3">
-          <Input
-            type="number"
-            value={vendor.cost || ''}
-            onChange={(e) => onUpdate('cost', parseFloat(e.target.value) || 0)}
-            placeholder="Cost (SAR)"
-            className={inputClass}
-            data-testid={`vendor-cost-${index}`}
-          />
-        </div>
-        <div className="col-span-2">
-          <Input
-            type="number"
-            value={vendor.markup_percent || ''}
-            onChange={(e) => onUpdate('markup_percent', parseFloat(e.target.value) || 0)}
-            placeholder="Markup %"
-            className={inputClass}
-            data-testid={`vendor-markup-${index}`}
-          />
-        </div>
-        <div className="col-span-2">
-          <div className={`text-sm font-mono font-medium ${textClass}`}>
-            {formatCurrency(clientPrice, false)}
+              </SelectContent>
+            </Select>
           </div>
-          <div className={`text-xs ${subtextClass}`}>
-            +{formatCurrency(clientPrice - (vendor.cost || 0), false)} markup
-          </div>
-        </div>
-        <div className="col-span-1 flex justify-end">
           <Button 
             variant="ghost" 
             size="sm" 
@@ -145,6 +123,65 @@ export default function VendorRow({
           >
             <Trash2 className="w-4 h-4" />
           </Button>
+        </div>
+        
+        {/* Row 2: Quantity, Unit Cost, Total, Markup, Client Price */}
+        <div className="grid grid-cols-12 gap-3 items-end">
+          <div className="col-span-2">
+            <Label className={labelClass}>Quantity</Label>
+            <Input
+              type="number"
+              min="1"
+              value={vendor.quantity || 1}
+              onChange={(e) => onUpdate('quantity', parseInt(e.target.value) || 1)}
+              placeholder="1"
+              className={`mt-1 ${inputClass}`}
+              data-testid={`vendor-qty-${index}`}
+            />
+          </div>
+          <div className="col-span-2">
+            <Label className={labelClass}>Unit Cost</Label>
+            <Input
+              type="number"
+              value={vendor.unit_cost || vendor.cost || ''}
+              onChange={(e) => {
+                const val = parseFloat(e.target.value) || 0;
+                onUpdate('unit_cost', val);
+                onUpdate('cost', val); // Keep legacy field updated
+              }}
+              placeholder="SAR"
+              className={`mt-1 ${inputClass}`}
+              data-testid={`vendor-unit-cost-${index}`}
+            />
+          </div>
+          <div className="col-span-2">
+            <Label className={labelClass}>Total Cost</Label>
+            <div className={`text-sm font-mono px-3 py-2 rounded-md border mt-1 ${darkMode ? 'bg-neutral-900 border-neutral-700 text-neutral-300' : 'bg-white border-slate-200 text-slate-600'}`}>
+              {formatCurrency(totalCost, false)}
+            </div>
+          </div>
+          <div className="col-span-2">
+            <Label className={labelClass}>Markup %</Label>
+            <Input
+              type="number"
+              value={vendor.markup_percent || ''}
+              onChange={(e) => onUpdate('markup_percent', parseFloat(e.target.value) || 0)}
+              placeholder="%"
+              className={`mt-1 ${inputClass}`}
+              data-testid={`vendor-markup-${index}`}
+            />
+          </div>
+          <div className="col-span-4">
+            <Label className={labelClass}>Client Price</Label>
+            <div className={`flex items-center justify-between mt-1`}>
+              <div className={`text-lg font-mono font-bold ${textClass}`}>
+                {formatCurrency(clientPrice, false)}
+              </div>
+              <div className={`text-xs ${subtextClass}`}>
+                +{formatCurrency(markupAmount, false)} markup
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 

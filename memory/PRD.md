@@ -117,8 +117,12 @@ A modern web application for creative agencies to calculate project pricing, pro
 - [x] ~~Dark/Light Mode Toggle with White Dashboard~~ DONE
 - [x] ~~Load Template functionality~~ DONE (Dec 2025) - Fixed role matching by name
 - [x] ~~Save as Template from Calculator~~ DONE (Dec 2025)
-- [x] ~~Export Client Price Sheet (PDF)~~ DONE (Dec 2025) - Professional design with logo only, dark summary box
+- [x] ~~Export Client Price Sheet (PDF)~~ DONE (Dec 2025) - Clean professional design, no dark box
 - [x] ~~Department Role Picker UI~~ DONE (Dec 2025) - Redesigned as elegant cards grid
+- [x] ~~Deal Size Ranges Configuration~~ DONE (Dec 2025) - Tiny/Standard/Big/Mega ranges in Pricing Guidelines
+- [x] ~~Incentive Rules with Order/Collection phases~~ DONE (Dec 2025) - Per phase percentage + fixed amount
+- [x] ~~Vendor Quantity & Unit Cost~~ DONE (Dec 2025) - Added Qty, Unit Cost, Total Cost fields
+- [x] ~~Team Member Quantity~~ DONE (Dec 2025) - Added Qty field for multiple team members per role
 - [ ] Add ability to save/load opportunities
 - [ ] Opportunity list view
 

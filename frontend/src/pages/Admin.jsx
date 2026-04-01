@@ -33,6 +33,7 @@ import {
   getRiskConfig, updateRiskConfig,
   getIncentiveRules, createIncentiveRule, updateIncentiveRule, deleteIncentiveRule, bulkUpdateIncentiveRules,
   getIncentiveMultipliers, updateIncentiveMultipliers,
+  getDealSizeRanges, updateDealSizeRanges,
   seedDatabase,
   setAdminPassword, getAdminPassword
 } from '@/lib/api';
@@ -1636,6 +1637,17 @@ function PricingGuidelinesManager() {
   const [loading, setLoading] = useState(true);
   const [editingGuideline, setEditingGuideline] = useState(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [dealSizeRanges, setDealSizeRanges] = useState({
+    tiny_min: 0,
+    tiny_max: 50000,
+    standard_min: 50001,
+    standard_max: 200000,
+    big_min: 200001,
+    big_max: 500000,
+    mega_min: 500001,
+    mega_max: 999999999
+  });
+  const [savingRanges, setSavingRanges] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     category: 'general',
@@ -1653,7 +1665,29 @@ function PricingGuidelinesManager() {
 
   useEffect(() => {
     loadGuidelines();
+    loadDealSizeRanges();
   }, []);
+
+  const loadDealSizeRanges = async () => {
+    try {
+      const data = await getDealSizeRanges();
+      setDealSizeRanges(data);
+    } catch (error) {
+      console.error('Failed to load deal size ranges');
+    }
+  };
+
+  const handleSaveDealSizeRanges = async () => {
+    setSavingRanges(true);
+    try {
+      await updateDealSizeRanges(dealSizeRanges);
+      toast.success('Deal size ranges updated');
+    } catch (error) {
+      toast.error('Failed to update deal size ranges');
+    } finally {
+      setSavingRanges(false);
+    }
+  };
 
   const loadGuidelines = async () => {
     try {
@@ -1766,6 +1800,135 @@ function PricingGuidelinesManager() {
           Add Guideline
         </Button>
       </div>
+
+      {/* Deal Size Ranges Configuration */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Target className="w-5 h-5 text-indigo-600" />
+            Deal Size Ranges (SAR)
+          </CardTitle>
+          <CardDescription>Define the value ranges for each deal size category</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-4 gap-6">
+            {/* Tiny */}
+            <div className="space-y-3 p-4 bg-purple-50 rounded-xl border border-purple-100">
+              <div className="flex items-center gap-2">
+                <Badge className="bg-purple-100 text-purple-700">Tiny</Badge>
+              </div>
+              <div className="space-y-2">
+                <div>
+                  <Label className="text-xs text-slate-500">Min</Label>
+                  <Input
+                    type="number"
+                    value={dealSizeRanges.tiny_min}
+                    onChange={(e) => setDealSizeRanges(prev => ({ ...prev, tiny_min: parseFloat(e.target.value) || 0 }))}
+                    className="font-mono"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-slate-500">Max</Label>
+                  <Input
+                    type="number"
+                    value={dealSizeRanges.tiny_max}
+                    onChange={(e) => setDealSizeRanges(prev => ({ ...prev, tiny_max: parseFloat(e.target.value) || 0 }))}
+                    className="font-mono"
+                  />
+                </div>
+              </div>
+            </div>
+            
+            {/* Standard */}
+            <div className="space-y-3 p-4 bg-blue-50 rounded-xl border border-blue-100">
+              <div className="flex items-center gap-2">
+                <Badge className="bg-blue-100 text-blue-700">Standard</Badge>
+              </div>
+              <div className="space-y-2">
+                <div>
+                  <Label className="text-xs text-slate-500">Min</Label>
+                  <Input
+                    type="number"
+                    value={dealSizeRanges.standard_min}
+                    onChange={(e) => setDealSizeRanges(prev => ({ ...prev, standard_min: parseFloat(e.target.value) || 0 }))}
+                    className="font-mono"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-slate-500">Max</Label>
+                  <Input
+                    type="number"
+                    value={dealSizeRanges.standard_max}
+                    onChange={(e) => setDealSizeRanges(prev => ({ ...prev, standard_max: parseFloat(e.target.value) || 0 }))}
+                    className="font-mono"
+                  />
+                </div>
+              </div>
+            </div>
+            
+            {/* Big */}
+            <div className="space-y-3 p-4 bg-amber-50 rounded-xl border border-amber-100">
+              <div className="flex items-center gap-2">
+                <Badge className="bg-amber-100 text-amber-700">Big</Badge>
+              </div>
+              <div className="space-y-2">
+                <div>
+                  <Label className="text-xs text-slate-500">Min</Label>
+                  <Input
+                    type="number"
+                    value={dealSizeRanges.big_min}
+                    onChange={(e) => setDealSizeRanges(prev => ({ ...prev, big_min: parseFloat(e.target.value) || 0 }))}
+                    className="font-mono"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-slate-500">Max</Label>
+                  <Input
+                    type="number"
+                    value={dealSizeRanges.big_max}
+                    onChange={(e) => setDealSizeRanges(prev => ({ ...prev, big_max: parseFloat(e.target.value) || 0 }))}
+                    className="font-mono"
+                  />
+                </div>
+              </div>
+            </div>
+            
+            {/* Mega */}
+            <div className="space-y-3 p-4 bg-emerald-50 rounded-xl border border-emerald-100">
+              <div className="flex items-center gap-2">
+                <Badge className="bg-emerald-100 text-emerald-700">Mega</Badge>
+              </div>
+              <div className="space-y-2">
+                <div>
+                  <Label className="text-xs text-slate-500">Min</Label>
+                  <Input
+                    type="number"
+                    value={dealSizeRanges.mega_min}
+                    onChange={(e) => setDealSizeRanges(prev => ({ ...prev, mega_min: parseFloat(e.target.value) || 0 }))}
+                    className="font-mono"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-slate-500">Max</Label>
+                  <Input
+                    type="number"
+                    value={dealSizeRanges.mega_max}
+                    onChange={(e) => setDealSizeRanges(prev => ({ ...prev, mega_max: parseFloat(e.target.value) || 0 }))}
+                    className="font-mono"
+                    placeholder="No limit"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="mt-4 flex justify-end">
+            <Button onClick={handleSaveDealSizeRanges} disabled={savingRanges} className="gap-2">
+              <Save className="w-4 h-4" />
+              {savingRanges ? 'Saving...' : 'Save Deal Sizes'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <Table>
@@ -2334,7 +2497,10 @@ function IncentiveRulesManager() {
     setFormData({
       deal_size: 'standard',
       role: 'sales_rep',
-      base_percent: 3,
+      order_percent: 2,
+      collection_percent: 1,
+      order_fixed: 0,
+      collection_fixed: 0,
       max_cap: 0,
       is_active: true
     });
@@ -2345,7 +2511,10 @@ function IncentiveRulesManager() {
     setFormData({
       deal_size: rule.deal_size,
       role: rule.role,
-      base_percent: rule.base_percent,
+      order_percent: rule.order_percent || rule.base_percent || 0,
+      collection_percent: rule.collection_percent || 0,
+      order_fixed: rule.order_fixed || 0,
+      collection_fixed: rule.collection_fixed || 0,
       max_cap: rule.max_cap || 0,
       is_active: rule.is_active
     });
@@ -2420,10 +2589,21 @@ function IncentiveRulesManager() {
                             <p className="text-sm font-medium text-slate-700">
                               {rule.role === 'sales_rep' ? 'Sales Rep' : 'Sales Manager'}
                             </p>
-                            <p className="text-xs text-slate-500">
-                              Base: {rule.base_percent}%
-                              {rule.max_cap > 0 && ` • Cap: SAR ${rule.max_cap.toLocaleString()}`}
-                            </p>
+                            <div className="flex items-center gap-2 text-xs text-slate-500">
+                              <span className="px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded">
+                                Order: {rule.order_percent || rule.base_percent || 0}%
+                                {rule.order_fixed > 0 && ` + SAR ${rule.order_fixed}`}
+                              </span>
+                              <span className="px-1.5 py-0.5 bg-green-50 text-green-600 rounded">
+                                Collection: {rule.collection_percent || 0}%
+                                {rule.collection_fixed > 0 && ` + SAR ${rule.collection_fixed}`}
+                              </span>
+                              {rule.max_cap > 0 && (
+                                <span className="px-1.5 py-0.5 bg-amber-50 text-amber-600 rounded">
+                                  Cap: SAR {rule.max_cap.toLocaleString()}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
@@ -2533,10 +2713,10 @@ function IncentiveRulesManager() {
 
       {/* Add/Edit Rule Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent data-testid="rule-dialog">
+        <DialogContent className="max-w-lg" data-testid="rule-dialog">
           <DialogHeader>
             <DialogTitle>{editingRule ? 'Edit Incentive Rule' : 'Add Incentive Rule'}</DialogTitle>
-            <DialogDescription>Define incentive percentage for a specific deal size and role</DialogDescription>
+            <DialogDescription>Define incentive for Order and Collection phases</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="grid grid-cols-2 gap-4">
@@ -2568,18 +2748,65 @@ function IncentiveRulesManager() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Base Incentive %</Label>
-                <Input
-                  type="number"
-                  step="0.5"
-                  value={formData.base_percent}
-                  onChange={(e) => setFormData(prev => ({ ...prev, base_percent: parseFloat(e.target.value) || 0 }))}
-                  data-testid="rule-percent-input"
-                />
-                <p className="text-xs text-slate-500">New Customer, Direct sale</p>
+            {/* Order Phase */}
+            <div className="p-4 bg-blue-50 rounded-lg border border-blue-100">
+              <Label className="text-blue-700 font-semibold mb-3 block">Order Phase (عند التعاقد)</Label>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs text-slate-500">Percentage %</Label>
+                  <Input
+                    type="number"
+                    step="0.5"
+                    value={formData.order_percent}
+                    onChange={(e) => setFormData(prev => ({ ...prev, order_percent: parseFloat(e.target.value) || 0 }))}
+                    className="bg-white"
+                    data-testid="rule-order-percent"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-slate-500">Fixed Amount (SAR)</Label>
+                  <Input
+                    type="number"
+                    value={formData.order_fixed}
+                    onChange={(e) => setFormData(prev => ({ ...prev, order_fixed: parseFloat(e.target.value) || 0 }))}
+                    className="bg-white"
+                    placeholder="0"
+                    data-testid="rule-order-fixed"
+                  />
+                </div>
               </div>
+            </div>
+
+            {/* Collection Phase */}
+            <div className="p-4 bg-green-50 rounded-lg border border-green-100">
+              <Label className="text-green-700 font-semibold mb-3 block">Collection Phase (عند التحصيل)</Label>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs text-slate-500">Percentage %</Label>
+                  <Input
+                    type="number"
+                    step="0.5"
+                    value={formData.collection_percent}
+                    onChange={(e) => setFormData(prev => ({ ...prev, collection_percent: parseFloat(e.target.value) || 0 }))}
+                    className="bg-white"
+                    data-testid="rule-collection-percent"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-slate-500">Fixed Amount (SAR)</Label>
+                  <Input
+                    type="number"
+                    value={formData.collection_fixed}
+                    onChange={(e) => setFormData(prev => ({ ...prev, collection_fixed: parseFloat(e.target.value) || 0 }))}
+                    className="bg-white"
+                    placeholder="0"
+                    data-testid="rule-collection-fixed"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Max Cap (SAR)</Label>
                 <Input
@@ -2591,15 +2818,21 @@ function IncentiveRulesManager() {
                 />
                 <p className="text-xs text-slate-500">0 = بدون حد أقصى</p>
               </div>
+              <div className="space-y-2 flex items-center pt-6">
+                <Switch
+                  checked={formData.is_active}
+                  onCheckedChange={(checked) => setFormData(prev => ({ ...prev, is_active: checked }))}
+                  data-testid="rule-active-toggle"
+                />
+                <Label className="ml-2">Active</Label>
+              </div>
             </div>
 
-            <div className="flex items-center gap-3">
-              <Switch
-                checked={formData.is_active}
-                onCheckedChange={(checked) => setFormData(prev => ({ ...prev, is_active: checked }))}
-                data-testid="rule-active-toggle"
-              />
-              <Label>Active</Label>
+            {/* Preview */}
+            <div className="p-3 bg-slate-100 rounded-lg">
+              <p className="text-xs text-slate-600">
+                <strong>Preview:</strong> For SAR 100,000 deal = Order: SAR {((formData.order_percent / 100) * 100000 + (formData.order_fixed || 0)).toLocaleString()} + Collection: SAR {((formData.collection_percent / 100) * 100000 + (formData.collection_fixed || 0)).toLocaleString()} = Total: SAR {(((formData.order_percent + formData.collection_percent) / 100) * 100000 + (formData.order_fixed || 0) + (formData.collection_fixed || 0)).toLocaleString()}
+              </p>
             </div>
           </div>
           <DialogFooter>

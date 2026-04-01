@@ -46,13 +46,15 @@ export default function TeamMemberRow({
 
   // Calculate cost based on mode
   const calculateCost = () => {
+    const quantity = member.quantity || 1;
+    
     if (member.employee_type === 'seconded') {
       // Seconded: (custom_salary + allowance) * (1 + admin_fee%) * utilization * duration
       const baseCost = (member.custom_salary || 0) + (member.custom_allowance || 0);
       const withAdminFee = baseCost * (1 + (member.admin_fee_percent || 10) / 100);
       const utilization = (member.utilization_percent || 100) / 100;
       const duration = member.duration_months || 1;
-      return withAdminFee * utilization * duration;
+      return withAdminFee * utilization * duration * quantity;
     } else {
       // Internal employee
       if (member.calc_mode === 'utilization') {
@@ -61,10 +63,10 @@ export default function TeamMemberRow({
         const monthlyCost = role?.total_monthly_cost || role?.monthly_salary || 0;
         const utilization = (member.utilization_percent || 0) / 100;
         const duration = member.duration_months || 1;
-        return monthlyCost * utilization * duration;
+        return monthlyCost * utilization * duration * quantity;
       } else {
-        // Hours mode: hours * hourly_rate
-        return (member.hours || 0) * (member.hourly_rate || 0);
+        // Hours mode: hours * hourly_rate * quantity
+        return (member.hours || 0) * (member.hourly_rate || 0) * quantity;
       }
     }
   };
@@ -304,7 +306,19 @@ export default function TeamMemberRow({
           ) : (
             // Hours mode for internal employee
             <>
-              <div className="col-span-3">
+              <div className="col-span-2">
+                <Label className={labelClass}>Qty</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  className={`mt-1 ${inputClass}`}
+                  value={member.quantity || 1}
+                  onChange={(e) => onUpdate('quantity', parseInt(e.target.value) || 1)}
+                  placeholder="1"
+                  data-testid={`qty-input-${index}`}
+                />
+              </div>
+              <div className="col-span-2">
                 <Label className={labelClass}>Hours</Label>
                 <Input
                   type="number"
@@ -315,7 +329,7 @@ export default function TeamMemberRow({
                   data-testid={`hours-input-${index}`}
                 />
               </div>
-              <div className="col-span-3">
+              <div className="col-span-2">
                 <Label className={labelClass}>Hourly Rate</Label>
                 <div className={`text-sm font-mono px-3 py-2 rounded-md border mt-1 ${darkMode ? 'bg-neutral-900 border-neutral-700 text-neutral-300' : 'bg-white border-slate-200 text-slate-600'}`}>
                   {formatCurrency(member.hourly_rate || 0, false)} / hr
@@ -324,7 +338,7 @@ export default function TeamMemberRow({
               <div className="col-span-3">
                 <Label className={labelClass}>Calc Preview</Label>
                 <div className={`text-xs mt-1 ${subtextClass}`}>
-                  {member.hours || 0} hrs × {formatCurrency(member.hourly_rate || 0, false)}
+                  {member.quantity || 1} × {member.hours || 0} hrs × {formatCurrency(member.hourly_rate || 0, false)}
                 </div>
               </div>
               <div className="col-span-3">

@@ -252,7 +252,11 @@ class IncentiveRuleModel(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     deal_size: str  # tiny, standard, big, mega
     role: str  # sales_rep, sales_manager
-    base_percent: float  # Base incentive percentage
+    # Phase-based incentives
+    order_percent: float = 0  # Percentage on order/booking
+    collection_percent: float = 0  # Percentage on collection
+    order_fixed: float = 0  # Fixed amount on order (SAR)
+    collection_fixed: float = 0  # Fixed amount on collection (SAR)
     max_cap: float = 0  # Maximum cap in SAR (0 = no cap)
     is_active: bool = True
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -260,14 +264,20 @@ class IncentiveRuleModel(BaseModel):
 class IncentiveRuleCreate(BaseModel):
     deal_size: str
     role: str
-    base_percent: float
+    order_percent: float = 0
+    collection_percent: float = 0
+    order_fixed: float = 0
+    collection_fixed: float = 0
     max_cap: float = 0
     is_active: bool = True
 
 class IncentiveRuleUpdate(BaseModel):
     deal_size: str = ""
     role: str = ""
-    base_percent: float = 0
+    order_percent: float = 0
+    collection_percent: float = 0
+    order_fixed: float = 0
+    collection_fixed: float = 0
     max_cap: float = 0
     is_active: bool = True
 
@@ -311,6 +321,7 @@ class RiskMultiplierCreate(BaseModel):
 class TeamMemberInput(BaseModel):
     role_id: str
     role_name: str = ""
+    quantity: int = 1  # Number of team members with this role
     hours: float = 0
     utilization_percent: float = 0
     duration_months: int = 1
@@ -326,7 +337,10 @@ class TeamMemberInput(BaseModel):
 class VendorInput(BaseModel):
     service_id: str = ""
     service_name: str
-    cost: float
+    quantity: int = 1  # Number of units
+    unit_cost: float = 0  # Cost per unit
+    cost: float = 0  # Total cost (legacy, will be quantity * unit_cost if not provided)
+    unit: str = ""  # Unit type (e.g., "per day", "per session")
     markup_percent: float = 15
 
 class ProductInput(BaseModel):
@@ -554,12 +568,8 @@ async def get_incentive_multipliers():
 
 async def calculate_incentives(selling_price: float, deal_size: str, client_type: str, lead_source: str):
     """
-    Calculate incentives per role based on rules.
-    Returns a dict with:
-    - sales_rep: {base_percent, adjusted_percent, value, capped_value, cap}
-    - sales_manager: {base_percent, adjusted_percent, value, capped_value, cap}
-    - total_incentive: sum of capped values
-    - total_percent: effective total percentage
+    Calculate incentives per role based on rules with Order/Collection phases.
+    Returns a dict with incentives breakdown for sales_rep and sales_manager.
     """
     rules = await get_incentive_rules()
     multipliers = await get_incentive_multipliers()
@@ -575,6 +585,8 @@ async def calculate_incentives(selling_price: float, deal_size: str, client_type
         "sales_rep": None,
         "sales_manager": None,
         "total_incentive": 0,
+        "total_order_incentive": 0,
+        "total_collection_incentive": 0,
         "total_percent": 0,
         "client_multiplier": client_multiplier,
         "client_type": client_type,
@@ -591,38 +603,68 @@ async def calculate_incentives(selling_price: float, deal_size: str, client_type
                 break
         
         if rule:
-            base_percent = rule.get('base_percent', 0)
-            adjusted_percent = base_percent * client_multiplier
-            value = selling_price * (adjusted_percent / 100)
+            # Order phase calculation
+            order_percent = rule.get('order_percent', 0) or rule.get('base_percent', 0) or 0
+            order_fixed = rule.get('order_fixed', 0) or 0
+            order_value = (selling_price * (order_percent / 100) * client_multiplier) + order_fixed
+            
+            # Collection phase calculation
+            collection_percent = rule.get('collection_percent', 0) or 0
+            collection_fixed = rule.get('collection_fixed', 0) or 0
+            collection_value = (selling_price * (collection_percent / 100) * client_multiplier) + collection_fixed
+            
+            total_value = order_value + collection_value
             cap = rule.get('max_cap', 0)
             
             # Apply cap if defined
-            if cap > 0 and value > cap:
+            if cap > 0 and total_value > cap:
                 capped_value = cap
+                # Proportionally reduce order/collection values
+                ratio = cap / total_value if total_value > 0 else 0
+                order_capped = order_value * ratio
+                collection_capped = collection_value * ratio
             else:
-                capped_value = value
+                capped_value = total_value
+                order_capped = order_value
+                collection_capped = collection_value
             
             result[role] = {
-                "base_percent": base_percent,
-                "adjusted_percent": round(adjusted_percent, 4),
-                "value": round(value, 2),
+                "order_percent": order_percent,
+                "order_fixed": order_fixed,
+                "order_value": round(order_value, 2),
+                "order_capped": round(order_capped, 2),
+                "collection_percent": collection_percent,
+                "collection_fixed": collection_fixed,
+                "collection_value": round(collection_value, 2),
+                "collection_capped": round(collection_capped, 2),
+                "total_value": round(total_value, 2),
                 "capped_value": round(capped_value, 2),
                 "cap": cap,
-                "cap_applied": cap > 0 and value > cap
+                "cap_applied": cap > 0 and total_value > cap
             }
             result["total_incentive"] += capped_value
+            result["total_order_incentive"] += order_capped
+            result["total_collection_incentive"] += collection_capped
         else:
             # No rule found, use 0
             result[role] = {
-                "base_percent": 0,
-                "adjusted_percent": 0,
-                "value": 0,
+                "order_percent": 0,
+                "order_fixed": 0,
+                "order_value": 0,
+                "order_capped": 0,
+                "collection_percent": 0,
+                "collection_fixed": 0,
+                "collection_value": 0,
+                "collection_capped": 0,
+                "total_value": 0,
                 "capped_value": 0,
                 "cap": 0,
                 "cap_applied": False
             }
     
     result["total_incentive"] = round(result["total_incentive"], 2)
+    result["total_order_incentive"] = round(result["total_order_incentive"], 2)
+    result["total_collection_incentive"] = round(result["total_collection_incentive"], 2)
     result["total_percent"] = round((result["total_incentive"] / selling_price * 100) if selling_price > 0 else 0, 4)
     
     return result
@@ -677,12 +719,28 @@ async def calculate_simple(data: SimpleCalculationInput):
             member_hours = member.hours if member.hours > 0 else 0
             member_cost = member_hours * (member.hourly_rate or 0)
         
+        # Apply quantity multiplier
+        quantity = getattr(member, 'quantity', 1) or 1
+        member_cost *= quantity
+        member_hours *= quantity
+        
         internal_labor_cost += member_cost
         total_hours += member_hours
     
-    # Vendor costs
-    vendor_cost = sum(v.cost for v in data.vendors)
-    vendor_revenue = sum(v.cost * (1 + v.markup_percent / 100) for v in data.vendors)
+    # Vendor costs (with quantity support)
+    vendor_cost = 0
+    for v in data.vendors:
+        qty = getattr(v, 'quantity', 1) or 1
+        unit_cost = getattr(v, 'unit_cost', 0) or v.cost or 0
+        vendor_cost += unit_cost * qty
+    
+    vendor_revenue = 0
+    for v in data.vendors:
+        qty = getattr(v, 'quantity', 1) or 1
+        unit_cost = getattr(v, 'unit_cost', 0) or v.cost or 0
+        total_cost = unit_cost * qty
+        vendor_revenue += total_cost * (1 + v.markup_percent / 100)
+    
     vendor_markup_revenue = vendor_revenue - vendor_cost
     
     # Overhead
@@ -726,16 +784,24 @@ async def calculate_simple(data: SimpleCalculationInput):
     # Get base percentages for each role
     sales_rep_base = 0
     sales_rep_cap = 0
+    sales_rep_order = 0
+    sales_rep_collection = 0
     sales_manager_base = 0
     sales_manager_cap = 0
+    sales_manager_order = 0
+    sales_manager_collection = 0
     
     for rule in incentive_rules:
         if rule.get('deal_size') == deal_size:
             if rule.get('role') == 'sales_rep':
-                sales_rep_base = rule.get('base_percent', 0)
+                sales_rep_order = rule.get('order_percent', 0) or rule.get('base_percent', 0) or 0
+                sales_rep_collection = rule.get('collection_percent', 0) or 0
+                sales_rep_base = sales_rep_order + sales_rep_collection
                 sales_rep_cap = rule.get('max_cap', 0)
             elif rule.get('role') == 'sales_manager':
-                sales_manager_base = rule.get('base_percent', 0)
+                sales_manager_order = rule.get('order_percent', 0) or rule.get('base_percent', 0) or 0
+                sales_manager_collection = rule.get('collection_percent', 0) or 0
+                sales_manager_base = sales_manager_order + sales_manager_collection
                 sales_manager_cap = rule.get('max_cap', 0)
     
     # Apply multiplier to get adjusted percentages
@@ -889,6 +955,8 @@ async def calculate_simple(data: SimpleCalculationInput):
             "client_multiplier": round(client_multiplier, 2),
             "sales_rep": {
                 "base_percent": sales_rep_base,
+                "order_percent": sales_rep_order,
+                "collection_percent": sales_rep_collection,
                 "adjusted_percent": round(sales_rep_adjusted, 2),
                 "value": round(sales_rep_value, 2),
                 "capped_value": round(sales_rep_capped, 2),
@@ -897,6 +965,8 @@ async def calculate_simple(data: SimpleCalculationInput):
             },
             "sales_manager": {
                 "base_percent": sales_manager_base,
+                "order_percent": sales_manager_order,
+                "collection_percent": sales_manager_collection,
                 "adjusted_percent": round(sales_manager_adjusted, 2),
                 "value": round(sales_manager_value, 2),
                 "capped_value": round(sales_manager_capped, 2),
@@ -1857,6 +1927,29 @@ async def get_deal_size_ranges():
         await db.deal_size_ranges.insert_one(doc)
         return serialize_doc(doc)
     return ranges
+
+@api_router.put("/deal-size-ranges", response_model=Dict)
+async def update_deal_size_ranges(ranges: Dict, _: bool = Depends(verify_admin)):
+    # Validate ranges
+    update_data = {
+        "tiny_min": ranges.get("tiny_min", 0),
+        "tiny_max": ranges.get("tiny_max", 50000),
+        "standard_min": ranges.get("standard_min", 50001),
+        "standard_max": ranges.get("standard_max", 200000),
+        "big_min": ranges.get("big_min", 200001),
+        "big_max": ranges.get("big_max", 500000),
+        "mega_min": ranges.get("mega_min", 500001),
+        "mega_max": ranges.get("mega_max", 999999999),
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.deal_size_ranges.update_one(
+        {},
+        {"$set": update_data},
+        upsert=True
+    )
+    
+    return await get_deal_size_ranges()
 
 # ---------- CALCULATIONS ----------
 @api_router.post("/calculate/simple", response_model=Dict)

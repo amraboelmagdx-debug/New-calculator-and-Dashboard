@@ -350,6 +350,11 @@ export const getDealSizeRanges = async () => {
   return response.data;
 };
 
+export const updateDealSizeRanges = async (ranges) => {
+  const response = await apiClient.put('/deal-size-ranges', ranges, adminConfig());
+  return response.data;
+};
+
 // ==================== SEED DATA ====================
 export const seedDatabase = async () => {
   const response = await apiClient.post('/seed-data', {}, adminConfig());
