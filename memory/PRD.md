@@ -24,7 +24,8 @@ A modern web application for creative agencies to calculate project pricing, pro
 - [x] **Configurable Sheet URL** - Admin can change Google Sheet URL in Configuration tab
 - [x] **Tab-Based UI** - Database Roles, Google Sheets, and Configuration tabs
 - [x] **Sync to Database** - One-click sync from Google Sheets to database
-- [x] **Benefits Calculation** - Auto-calculate Social Insurance, Medical Insurance, End of Service
+- [x] **Total Monthly from Sheet** - Total Monthly value pulled directly from Google Sheet (Column D)
+- [x] **Benefits Percentages Removed** - No manual benefit calculations needed (Dec 2025)
 - [x] **Filtering & Sorting** - Search by role name/department, sort by any column
 - [x] **Manual Refresh** - Force refresh data from Google Sheets
 - [x] **Department Field** - Added department support to roles

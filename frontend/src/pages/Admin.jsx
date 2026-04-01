@@ -261,11 +261,8 @@ function RolesHRManager() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [formData, setFormData] = useState({ name: '', hourly_rate: 0, monthly_salary: 0, department: '', description: '' });
   
-  // HR Config State
+  // HR Config State - Only Google Sheets settings (Total Monthly pulled directly from Sheet)
   const [hrConfig, setHrConfig] = useState({
-    social_insurance_percent: 12,
-    medical_insurance_percent: 3,
-    end_of_service_divisor: 2,
     google_sheets_enabled: false,
     google_sheets_url: '',
     google_sheets_tab: 'Average Emp. Salary'
@@ -735,70 +732,6 @@ function RolesHRManager() {
               </CardContent>
             </Card>
 
-            {/* HR Benefits Configuration */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Settings2 className="w-5 h-5" />
-                  Benefits Percentages
-                </CardTitle>
-                <CardDescription>Configure how benefits are calculated from base salary</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="space-y-2">
-                  <Label>Social Insurance %</Label>
-                  <div className="flex items-center gap-3">
-                    <Input
-                      type="number"
-                      value={hrConfig.social_insurance_percent}
-                      onChange={(e) => setHrConfig(prev => ({ ...prev, social_insurance_percent: parseFloat(e.target.value) || 0 }))}
-                      className="max-w-32"
-                      data-testid="social-insurance-input"
-                    />
-                    <span className="text-slate-500">% of monthly salary</span>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Medical Insurance %</Label>
-                  <div className="flex items-center gap-3">
-                    <Input
-                      type="number"
-                      value={hrConfig.medical_insurance_percent}
-                      onChange={(e) => setHrConfig(prev => ({ ...prev, medical_insurance_percent: parseFloat(e.target.value) || 0 }))}
-                      className="max-w-32"
-                      data-testid="medical-insurance-input"
-                    />
-                    <span className="text-slate-500">% of monthly salary</span>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>End of Service Divisor</Label>
-                  <div className="flex items-center gap-3">
-                    <span className="text-slate-500">Salary ÷</span>
-                    <Input
-                      type="number"
-                      value={hrConfig.end_of_service_divisor}
-                      onChange={(e) => setHrConfig(prev => ({ ...prev, end_of_service_divisor: parseFloat(e.target.value) || 2 }))}
-                      className="max-w-32"
-                      data-testid="eos-divisor-input"
-                    />
-                  </div>
-                </div>
-
-                <div className="p-4 bg-emerald-50 rounded-lg">
-                  <h4 className="text-sm font-semibold text-emerald-900 mb-2">Example Calculation</h4>
-                  <p className="text-xs text-emerald-700">
-                    For SAR 20,000 salary:<br />
-                    • Social Insurance: SAR {(20000 * hrConfig.social_insurance_percent / 100).toLocaleString()}<br />
-                    • Medical Insurance: SAR {(20000 * hrConfig.medical_insurance_percent / 100).toLocaleString()}<br />
-                    • End of Service: SAR {hrConfig.end_of_service_divisor > 0 ? (20000 / hrConfig.end_of_service_divisor).toLocaleString() : 0}<br />
-                    <strong>Total Monthly Cost: SAR {(20000 + 20000 * hrConfig.social_insurance_percent / 100 + 20000 * hrConfig.medical_insurance_percent / 100 + (hrConfig.end_of_service_divisor > 0 ? 20000 / hrConfig.end_of_service_divisor : 0)).toLocaleString()}</strong>
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
           </div>
 
           <div className="mt-6">

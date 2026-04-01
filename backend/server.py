@@ -51,18 +51,22 @@ class RoleCreate(BaseModel):
 class HRConfigModel(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = "hr_config"
-    social_insurance_percent: float = 12
-    medical_insurance_percent: float = 3
-    end_of_service_divisor: float = 2  # salary / divisor
+    # Legacy fields kept optional for backward compatibility (not used anymore - Total Monthly comes from Sheet)
+    social_insurance_percent: float = 0
+    medical_insurance_percent: float = 0
+    end_of_service_divisor: float = 0
+    # Active fields - Google Sheets Integration
     google_sheets_enabled: bool = False
     google_sheets_url: str = ""
     google_sheets_tab: str = "Average Emp. Salary"  # Tab name in sheet
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class HRConfigUpdate(BaseModel):
-    social_insurance_percent: float = 12
-    medical_insurance_percent: float = 3
-    end_of_service_divisor: float = 2
+    # Legacy fields - optional, defaults to 0 (not used anymore)
+    social_insurance_percent: Optional[float] = 0
+    medical_insurance_percent: Optional[float] = 0
+    end_of_service_divisor: Optional[float] = 0
+    # Active fields
     google_sheets_enabled: bool = False
     google_sheets_url: str = ""
     google_sheets_tab: str = "Average Emp. Salary"
