@@ -25,16 +25,16 @@ export default function VendorRow({
   // Dark mode classes
   const cardClass = darkMode 
     ? "p-4 rounded-lg bg-neutral-800/50 border border-neutral-700" 
-    : "p-3 rounded-lg bg-slate-50 border border-slate-100";
+    : "p-4 rounded-lg bg-white border border-slate-200 shadow-sm";
   const inputClass = darkMode
     ? "bg-neutral-900 border-neutral-700 text-white placeholder:text-neutral-500 font-mono"
-    : "font-mono";
+    : "bg-white border-slate-200 text-slate-900 placeholder:text-slate-400 font-mono";
   const selectTriggerClass = darkMode
     ? "bg-neutral-900 border-neutral-700 text-white"
-    : "";
+    : "bg-white border-slate-200 text-slate-900";
   const selectContentClass = darkMode
     ? "bg-neutral-900 border-neutral-700"
-    : "";
+    : "bg-white border-slate-200";
   const labelClass = darkMode
     ? "text-xs text-neutral-400"
     : "text-xs text-slate-500";
@@ -94,11 +94,11 @@ export default function VendorRow({
             </SelectTrigger>
             <SelectContent className={selectContentClass}>
               {vendorServices.map(service => (
-                <SelectItem key={service.id} value={service.id} className={darkMode ? "text-neutral-300" : ""}>
+                <SelectItem key={service.id} value={service.id} className={darkMode ? "text-neutral-300" : "text-slate-700"}>
                   {service.name}
                 </SelectItem>
               ))}
-              <SelectItem value="__add_new__" className={darkMode ? "text-blue-400 font-medium" : "text-indigo-600 font-medium"}>
+              <SelectItem value="__add_new__" className={darkMode ? "text-blue-400 font-medium" : "text-slate-900 font-medium"}>
                 <div className="flex items-center gap-2">
                   <Plus className="w-4 h-4" />
                   Add new vendor service...

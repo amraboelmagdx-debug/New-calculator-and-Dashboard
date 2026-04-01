@@ -26,20 +26,20 @@ export default function TeamMemberRow({
   // Dark mode classes
   const cardClass = darkMode 
     ? "p-4 rounded-lg bg-neutral-800/50 border border-neutral-700 space-y-3" 
-    : "p-4 rounded-lg bg-slate-50 border border-slate-100 space-y-3";
+    : "p-4 rounded-lg bg-white border border-slate-200 shadow-sm space-y-3";
   const inputClass = darkMode
     ? "bg-neutral-900 border-neutral-700 text-white placeholder:text-neutral-500"
-    : "";
+    : "bg-white border-slate-200 text-slate-900 placeholder:text-slate-400";
   const selectTriggerClass = darkMode
     ? "bg-neutral-900 border-neutral-700 text-white"
-    : "";
+    : "bg-white border-slate-200 text-slate-900";
   const labelClass = darkMode
     ? "text-xs text-neutral-400"
     : "text-xs text-slate-500";
   const toggleBgClass = darkMode
     ? "bg-neutral-900 border-neutral-700"
-    : "bg-white border";
-  const iconActiveClass = darkMode ? "text-blue-400" : "text-indigo-600";
+    : "bg-slate-100 border-slate-200";
+  const iconActiveClass = darkMode ? "text-blue-400" : "text-slate-700";
   const iconInactiveClass = darkMode ? "text-neutral-500" : "text-slate-400";
   const resultTextClass = darkMode ? "text-white" : "text-slate-900";
   const subtextClass = darkMode ? "text-neutral-500" : "text-slate-500";
@@ -127,13 +127,13 @@ export default function TeamMemberRow({
               <SelectTrigger className={selectTriggerClass} data-testid={`role-select-${index}`}>
                 <SelectValue placeholder="Select role" />
               </SelectTrigger>
-              <SelectContent className={darkMode ? "bg-neutral-900 border-neutral-700" : ""}>
+              <SelectContent className={darkMode ? "bg-neutral-900 border-neutral-700" : "bg-white border-slate-200"}>
                 {roles.map(role => (
-                  <SelectItem key={role.id} value={role.id} className={darkMode ? "text-neutral-300" : ""}>
+                  <SelectItem key={role.id} value={role.id} className={darkMode ? "text-neutral-300" : "text-slate-700"}>
                     {role.name}
                   </SelectItem>
                 ))}
-                <SelectItem value="__add_new__" className={darkMode ? "text-blue-400 font-medium" : "text-indigo-600 font-medium"}>
+                <SelectItem value="__add_new__" className={darkMode ? "text-blue-400 font-medium" : "text-slate-900 font-medium"}>
                   <div className="flex items-center gap-2">
                     <Plus className="w-4 h-4" />
                     Add new role...
@@ -149,14 +149,14 @@ export default function TeamMemberRow({
               <SelectTrigger className={selectTriggerClass} data-testid={`employee-type-${index}`}>
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className={darkMode ? "bg-neutral-900 border-neutral-700" : ""}>
-                <SelectItem value="internal" className={darkMode ? "text-neutral-300" : ""}>
+              <SelectContent className={darkMode ? "bg-neutral-900 border-neutral-700" : "bg-white border-slate-200"}>
+                <SelectItem value="internal" className={darkMode ? "text-neutral-300" : "text-slate-700"}>
                   <div className="flex items-center gap-2">
                     <User className="w-4 h-4" />
                     Internal Employee
                   </div>
                 </SelectItem>
-                <SelectItem value="seconded" className={darkMode ? "text-neutral-300" : ""}>
+                <SelectItem value="seconded" className={darkMode ? "text-neutral-300" : "text-slate-700"}>
                   <div className="flex items-center gap-2">
                     <UserPlus className="w-4 h-4" />
                     Seconded / Project
