@@ -117,6 +117,7 @@ A modern web application for creative agencies to calculate project pricing, pro
 - [x] ~~Dark/Light Mode Toggle with White Dashboard~~ DONE
 - [x] ~~Load Template functionality~~ DONE (Dec 2025)
 - [x] ~~Save as Template from Calculator~~ DONE (Dec 2025)
+- [x] ~~Export Client Price Sheet (PDF)~~ DONE (Dec 2025) - Professional PDF with logo, team table, summary
 - [ ] Add ability to save/load opportunities
 - [ ] Opportunity list view
 
