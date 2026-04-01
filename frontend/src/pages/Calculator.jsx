@@ -764,21 +764,21 @@ export default function Calculator() {
 
         </main>
 
-        {/* Right Dashboard - Always Light for contrast */}
+        {/* Right Dashboard */}
         <aside className="hidden lg:block sticky top-24 h-[calc(100vh-7rem)]">
-          <div className="bg-white h-full flex flex-col p-6 overflow-y-auto rounded-2xl shadow-xl border border-slate-200" data-testid="dashboard">
+          <div className={`h-full flex flex-col p-6 overflow-y-auto rounded-2xl shadow-xl border ${isDarkMode ? 'bg-neutral-900 border-neutral-800' : 'bg-white border-slate-200'}`} data-testid="dashboard">
             {/* Revenue & Profit */}
             <div className="mb-6">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <p className="text-xs text-slate-500 uppercase tracking-wider">Revenue</p>
-                  <p className="text-2xl font-bold text-slate-900 font-mono mt-1" data-testid="revenue">
+                  <p className={`text-xs uppercase tracking-wider ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>Revenue</p>
+                  <p className={`text-2xl font-bold font-mono mt-1 ${isDarkMode ? 'text-white' : 'text-slate-900'}`} data-testid="revenue">
                     {results ? formatCurrency(results.selling_price) : 'SAR 0'}
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs text-slate-500 uppercase tracking-wider">Net Profit</p>
-                  <p className={`text-2xl font-bold font-mono mt-1 ${results?.contribution_margin >= 0 ? 'text-emerald-600' : 'text-rose-600'}`} data-testid="profit">
+                  <p className={`text-xs uppercase tracking-wider ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>Net Profit</p>
+                  <p className={`text-2xl font-bold font-mono mt-1 ${results?.contribution_margin >= 0 ? 'text-emerald-500' : 'text-rose-500'}`} data-testid="profit">
                     {results ? formatCurrency(results.contribution_margin) : 'SAR 0'}
                   </p>
                 </div>
@@ -788,15 +788,15 @@ export default function Calculator() {
             {/* Margin Indicator */}
             <div className="mb-6">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-slate-600">Contribution Margin</span>
+                <span className={`text-sm ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`}>Contribution Margin</span>
                 <span className={`text-lg font-bold font-mono ${
-                  (results?.contribution_margin_percent || 0) >= 30 ? 'text-emerald-600' : 
-                  (results?.contribution_margin_percent || 0) >= 20 ? 'text-amber-600' : 'text-rose-600'
+                  (results?.contribution_margin_percent || 0) >= 30 ? 'text-emerald-500' : 
+                  (results?.contribution_margin_percent || 0) >= 20 ? 'text-amber-500' : 'text-rose-500'
                 }`} data-testid="margin-percent">
                   {results?.contribution_margin_percent?.toFixed(1) || 0}%
                 </span>
               </div>
-              <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+              <div className={`h-2 rounded-full overflow-hidden ${isDarkMode ? 'bg-neutral-800' : 'bg-slate-100'}`}>
                 <div 
                   className={`h-full transition-all duration-500 ease-out ${
                     (results?.contribution_margin_percent || 0) >= 30 ? 'bg-emerald-500' : 
@@ -810,13 +810,16 @@ export default function Calculator() {
             {/* Deal Size Badge */}
             {results?.incentive_breakdown?.deal_size && (
               <div className="flex items-center gap-2 mb-4">
-                <span className="text-xs text-slate-500">Deal Size:</span>
-                <Badge className={`text-xs uppercase font-mono ${
-                  results.incentive_breakdown.deal_size === 'mega' ? 'bg-blue-100 text-blue-700 border-blue-200' :
-                  results.incentive_breakdown.deal_size === 'big' ? 'bg-amber-100 text-amber-700 border-amber-200' :
-                  results.incentive_breakdown.deal_size === 'standard' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
-                  'bg-slate-100 text-slate-700 border-slate-200'
-                } border`}>
+                <span className={`text-xs ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>Deal Size:</span>
+                <Badge className={`text-xs uppercase font-mono border ${
+                  results.incentive_breakdown.deal_size === 'mega' 
+                    ? (isDarkMode ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' : 'bg-blue-100 text-blue-700 border-blue-200') :
+                  results.incentive_breakdown.deal_size === 'big' 
+                    ? (isDarkMode ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' : 'bg-amber-100 text-amber-700 border-amber-200') :
+                  results.incentive_breakdown.deal_size === 'standard' 
+                    ? (isDarkMode ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-emerald-100 text-emerald-700 border-emerald-200') :
+                  (isDarkMode ? 'bg-neutral-700 text-neutral-300 border-neutral-600' : 'bg-slate-100 text-slate-700 border-slate-200')
+                }`}>
                   {results.incentive_breakdown.deal_size}
                 </Badge>
               </div>
@@ -824,52 +827,52 @@ export default function Calculator() {
 
             {/* Cost Breakdown */}
             <div className="mb-6">
-              <h4 className="text-xs text-slate-500 uppercase tracking-wider mb-3">Cost Breakdown</h4>
+              <h4 className={`text-xs uppercase tracking-wider mb-3 ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>Cost Breakdown</h4>
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
-                  <span className="text-slate-600">Internal Labor</span>
-                  <span className="text-slate-900 font-mono">{formatCurrency(results?.internal_labor_cost || 0)}</span>
+                  <span className={isDarkMode ? 'text-neutral-400' : 'text-slate-600'}>Internal Labor</span>
+                  <span className={`font-mono ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{formatCurrency(results?.internal_labor_cost || 0)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-slate-600">Vendor Cost</span>
-                  <span className="text-slate-900 font-mono">{formatCurrency(results?.vendor_cost || 0)}</span>
+                  <span className={isDarkMode ? 'text-neutral-400' : 'text-slate-600'}>Vendor Cost</span>
+                  <span className={`font-mono ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{formatCurrency(results?.vendor_cost || 0)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-slate-600">Overhead</span>
-                  <span className="text-slate-900 font-mono">{formatCurrency(results?.overhead_cost || 0)}</span>
+                  <span className={isDarkMode ? 'text-neutral-400' : 'text-slate-600'}>Overhead</span>
+                  <span className={`font-mono ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{formatCurrency(results?.overhead_cost || 0)}</span>
                 </div>
-                <div className="flex justify-between text-sm pt-2 border-t border-slate-200">
-                  <span className="text-slate-700 font-medium">Total COGS</span>
-                  <span className="text-slate-900 font-mono font-medium">{formatCurrency(results?.cogs || 0)}</span>
+                <div className={`flex justify-between text-sm pt-2 border-t ${isDarkMode ? 'border-neutral-800' : 'border-slate-200'}`}>
+                  <span className={`font-medium ${isDarkMode ? 'text-neutral-300' : 'text-slate-700'}`}>Total COGS</span>
+                  <span className={`font-mono font-medium ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{formatCurrency(results?.cogs || 0)}</span>
                 </div>
               </div>
             </div>
 
             {/* Deductions */}
             <div className="mb-6">
-              <h4 className="text-xs text-slate-500 uppercase tracking-wider mb-3">Deductions</h4>
+              <h4 className={`text-xs uppercase tracking-wider mb-3 ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>Deductions</h4>
               <div className="space-y-2">
                 {results?.incentive_breakdown ? (
                   <>
                     <div className="flex justify-between text-sm">
-                      <span className="text-slate-600">Sales Rep</span>
-                      <span className="text-rose-600 font-mono">-{formatCurrency(results.incentive_breakdown.sales_rep.capped_value)}</span>
+                      <span className={isDarkMode ? 'text-neutral-400' : 'text-slate-600'}>Sales Rep</span>
+                      <span className="text-rose-500 font-mono">-{formatCurrency(results.incentive_breakdown.sales_rep.capped_value)}</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-slate-600">Sales Manager</span>
-                      <span className="text-rose-600 font-mono">-{formatCurrency(results.incentive_breakdown.sales_manager.capped_value)}</span>
+                      <span className={isDarkMode ? 'text-neutral-400' : 'text-slate-600'}>Sales Manager</span>
+                      <span className="text-rose-500 font-mono">-{formatCurrency(results.incentive_breakdown.sales_manager.capped_value)}</span>
                     </div>
                   </>
                 ) : (
                   <div className="flex justify-between text-sm">
-                    <span className="text-slate-600">Sales Incentive</span>
-                    <span className="text-rose-600 font-mono">-{formatCurrency(results?.sales_incentive || 0)}</span>
+                    <span className={isDarkMode ? 'text-neutral-400' : 'text-slate-600'}>Sales Incentive</span>
+                    <span className="text-rose-500 font-mono">-{formatCurrency(results?.sales_incentive || 0)}</span>
                   </div>
                 )}
                 {results?.financing_cost > 0 && (
                   <div className="flex justify-between text-sm">
-                    <span className="text-slate-600">Financing Cost</span>
-                    <span className="text-rose-600 font-mono">-{formatCurrency(results.financing_cost)}</span>
+                    <span className={isDarkMode ? 'text-neutral-400' : 'text-slate-600'}>Financing Cost</span>
+                    <span className="text-rose-500 font-mono">-{formatCurrency(results.financing_cost)}</span>
                   </div>
                 )}
               </div>
@@ -892,8 +895,9 @@ export default function Calculator() {
                   <div 
                     key={idx}
                     className={`p-3 rounded-lg text-sm flex items-start gap-2 ${
-                      warning.severity === 'error' ? 'bg-rose-50 text-rose-700 border border-rose-200' : 
-                      'bg-amber-50 text-amber-700 border border-amber-200'
+                      warning.severity === 'error' 
+                        ? (isDarkMode ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30' : 'bg-rose-50 text-rose-700 border border-rose-200')
+                        : (isDarkMode ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' : 'bg-amber-50 text-amber-700 border border-amber-200')
                     }`}
                     data-testid={`warning-${warning.type}`}
                   >
@@ -906,20 +910,22 @@ export default function Calculator() {
 
             {/* Risk Summary */}
             {results?.risk_level && results.total_risk_multiplier > 1 && (
-              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+              <div className={`p-4 rounded-xl border ${isDarkMode ? 'bg-neutral-800 border-neutral-700' : 'bg-slate-50 border-slate-200'}`}>
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-slate-500 uppercase tracking-wider">Risk Assessment</span>
+                  <span className={`text-xs uppercase tracking-wider ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>Risk Assessment</span>
                   <Badge className={`text-xs border ${
-                    results.risk_level === 'High' ? 'bg-rose-100 text-rose-700 border-rose-200' :
-                    results.risk_level === 'Medium' ? 'bg-amber-100 text-amber-700 border-amber-200' :
-                    'bg-emerald-100 text-emerald-700 border-emerald-200'
+                    results.risk_level === 'High' 
+                      ? (isDarkMode ? 'bg-rose-500/20 text-rose-400 border-rose-500/30' : 'bg-rose-100 text-rose-700 border-rose-200') :
+                    results.risk_level === 'Medium' 
+                      ? (isDarkMode ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' : 'bg-amber-100 text-amber-700 border-amber-200') :
+                    (isDarkMode ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-emerald-100 text-emerald-700 border-emerald-200')
                   }`}>
                     {results.risk_level}
                   </Badge>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-slate-600">Risk Multiplier</span>
-                  <span className="text-slate-900 font-mono">×{results.total_risk_multiplier?.toFixed(3)}</span>
+                  <span className={isDarkMode ? 'text-neutral-400' : 'text-slate-600'}>Risk Multiplier</span>
+                  <span className={`font-mono ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>×{results.total_risk_multiplier?.toFixed(3)}</span>
                 </div>
               </div>
             )}
