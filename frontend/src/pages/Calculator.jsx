@@ -12,7 +12,7 @@ import {
   Plus, Trash2, Settings, FileText, ChevronDown, ChevronRight,
   Users, Truck, AlertTriangle, TrendingUp, DollarSign, Clock,
   Briefcase, User, Building2, CreditCard, Target, Shield, Zap,
-  LayoutTemplate, Calculator as CalcIcon, Download
+  LayoutTemplate, Calculator as CalcIcon, Download, Sun, Moon
 } from 'lucide-react';
 
 import { 
@@ -34,6 +34,9 @@ import ExportPDF from '@/components/ExportPDF';
 import { formatCurrency } from '@/lib/utils';
 
 export default function Calculator() {
+  // Theme state
+  const [isDarkMode, setIsDarkMode] = useState(true);
+  
   // Data states
   const [roles, setRoles] = useState([]);
   const [vendorServices, setVendorServices] = useState([]);
@@ -290,9 +293,9 @@ export default function Calculator() {
   }
 
   return (
-    <div className="min-h-screen bg-neutral-950">
+    <div className={`min-h-screen ${isDarkMode ? 'bg-neutral-950' : 'bg-slate-100'}`}>
       {/* Header */}
-      <header className="glass-header sticky top-0 z-50 px-6 py-4" data-testid="header">
+      <header className={`sticky top-0 z-50 px-6 py-4 ${isDarkMode ? 'glass-header' : 'bg-white border-b border-slate-200 shadow-sm'}`} data-testid="header">
         <div className="max-w-[1600px] mx-auto flex items-center justify-between">
           <div className="flex items-center gap-4">
             {themeSettings.logo_url ? (
@@ -303,19 +306,30 @@ export default function Calculator() {
                 onError={(e) => e.target.style.display = 'none'}
               />
             ) : (
-              <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center">
-                <span className="text-neutral-900 font-bold text-sm font-['Manrope']">ZAN</span>
+              <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${isDarkMode ? 'bg-white' : 'bg-neutral-900'}`}>
+                <span className={`font-bold text-sm font-['Manrope'] ${isDarkMode ? 'text-neutral-900' : 'text-white'}`}>ZAN</span>
               </div>
             )}
             <div>
-              <h1 className="text-lg font-bold text-white font-['Manrope']">
+              <h1 className={`text-lg font-bold font-['Manrope'] ${isDarkMode ? 'text-white' : 'text-neutral-900'}`}>
                 {themeSettings.company_name || 'ZAN'}
               </h1>
-              <p className="text-xs text-neutral-500">Cost Calculator</p>
+              <p className={`text-xs ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>Cost Calculator</p>
             </div>
           </div>
           
           <div className="flex items-center gap-3">
+            {/* Theme Toggle */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setIsDarkMode(!isDarkMode)}
+              className={`${isDarkMode ? 'text-neutral-400 hover:text-white hover:bg-neutral-800' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'}`}
+              data-testid="theme-toggle"
+            >
+              {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </Button>
+            
             <ExportPDF 
               data={calcData} 
               results={results} 
@@ -325,7 +339,7 @@ export default function Calculator() {
             <Button 
               variant="ghost" 
               size="sm" 
-              className="text-neutral-400 hover:text-white hover:bg-neutral-800"
+              className={`${isDarkMode ? 'text-neutral-400 hover:text-white hover:bg-neutral-800' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'}`}
               onClick={() => window.location.href = '/admin'}
               data-testid="admin-btn"
             >
@@ -340,7 +354,7 @@ export default function Calculator() {
       <div className="max-w-[1600px] mx-auto grid grid-cols-1 lg:grid-cols-[220px_1fr_380px] gap-6 p-6">
         
         {/* Left Navigation */}
-        <nav className="hidden lg:block sticky top-24 h-fit space-y-2">
+        <nav className={`hidden lg:block sticky top-24 h-fit space-y-2 p-4 rounded-xl ${isDarkMode ? '' : 'bg-white shadow-sm border border-slate-200'}`}>
           {navSections.map(section => (
             <button
               key={section.id}
@@ -348,7 +362,11 @@ export default function Calculator() {
                 setActiveSection(section.id);
                 document.getElementById(section.id)?.scrollIntoView({ behavior: 'smooth' });
               }}
-              className={`nav-item w-full ${activeSection === section.id ? 'active' : ''}`}
+              className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 ${
+                activeSection === section.id 
+                  ? (isDarkMode ? 'text-neutral-50 bg-neutral-800' : 'text-slate-900 bg-slate-100') 
+                  : (isDarkMode ? 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/50' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50')
+              }`}
               data-testid={`nav-${section.id}`}
             >
               <section.icon className="w-4 h-4" />
@@ -356,18 +374,18 @@ export default function Calculator() {
             </button>
           ))}
           
-          <div className="section-divider" />
+          <div className={`border-t my-4 ${isDarkMode ? 'border-neutral-800' : 'border-slate-200'}`} />
           
           {/* Template Loader */}
-          <div className="px-4">
-            <Label className="text-xs text-neutral-500 uppercase tracking-wider">Load Template</Label>
+          <div className="px-2">
+            <Label className={`text-xs uppercase tracking-wider ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>Load Template</Label>
             <Select onValueChange={loadScopeTemplate}>
-              <SelectTrigger className="mt-2 bg-neutral-900 border-neutral-700 text-neutral-300 text-sm" data-testid="template-select">
+              <SelectTrigger className={`mt-2 text-sm ${isDarkMode ? 'bg-neutral-900 border-neutral-700 text-neutral-300' : 'bg-white border-slate-300 text-slate-700'}`} data-testid="template-select">
                 <SelectValue placeholder="Choose template..." />
               </SelectTrigger>
-              <SelectContent className="bg-neutral-900 border-neutral-700">
+              <SelectContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700' : 'bg-white border-slate-200'}>
                 {scopeTemplates.map(template => (
-                  <SelectItem key={template.id} value={template.id} className="text-neutral-300">
+                  <SelectItem key={template.id} value={template.id} className={isDarkMode ? 'text-neutral-300' : 'text-slate-700'}>
                     {template.name}
                   </SelectItem>
                 ))}
@@ -381,37 +399,37 @@ export default function Calculator() {
           
           {/* Project Info Section */}
           <section id="project" className="animate-fade-in">
-            <Card className="dark-card" data-testid="project-info-section">
+            <Card className={isDarkMode ? 'dark-card' : 'bg-white border border-slate-200 shadow-sm rounded-xl'} data-testid="project-info-section">
               <CardHeader className="pb-4">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-neutral-800 flex items-center justify-center">
-                    <Briefcase className="w-5 h-5 text-neutral-400" />
+                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${isDarkMode ? 'bg-neutral-800' : 'bg-slate-100'}`}>
+                    <Briefcase className={`w-5 h-5 ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`} />
                   </div>
                   <div>
-                    <CardTitle className="text-lg text-white font-['Manrope']">Project Information</CardTitle>
-                    <CardDescription className="text-neutral-500">Basic details about the opportunity</CardDescription>
+                    <CardTitle className={`text-lg font-['Manrope'] ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Project Information</CardTitle>
+                    <CardDescription className={isDarkMode ? 'text-neutral-500' : 'text-slate-500'}>Basic details about the opportunity</CardDescription>
                   </div>
                 </div>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label className="text-neutral-400 text-sm">Client Name</Label>
+                    <Label className={`text-sm ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`}>Client Name</Label>
                     <Input
                       value={projectInfo.client_name}
                       onChange={(e) => setProjectInfo(p => ({ ...p, client_name: e.target.value }))}
                       placeholder="Enter client name"
-                      className="mt-1.5 bg-neutral-950 border-neutral-800 text-white placeholder:text-neutral-600"
+                      className={`mt-1.5 ${isDarkMode ? 'bg-neutral-950 border-neutral-800 text-white placeholder:text-neutral-600' : 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400'}`}
                       data-testid="client-name-input"
                     />
                   </div>
                   <div>
-                    <Label className="text-neutral-400 text-sm">Project Name</Label>
+                    <Label className={`text-sm ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`}>Project Name</Label>
                     <Input
                       value={projectInfo.project_name}
                       onChange={(e) => setProjectInfo(p => ({ ...p, project_name: e.target.value }))}
                       placeholder="Enter project name"
-                      className="mt-1.5 bg-neutral-950 border-neutral-800 text-white placeholder:text-neutral-600"
+                      className={`mt-1.5 ${isDarkMode ? 'bg-neutral-950 border-neutral-800 text-white placeholder:text-neutral-600' : 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400'}`}
                       data-testid="project-name-input"
                     />
                   </div>
@@ -745,21 +763,21 @@ export default function Calculator() {
 
         </main>
 
-        {/* Right Dashboard */}
+        {/* Right Dashboard - Always Light for contrast */}
         <aside className="hidden lg:block sticky top-24 h-[calc(100vh-7rem)]">
-          <div className="dark-card-elevated h-full flex flex-col p-6 overflow-y-auto glow-box" data-testid="dashboard">
+          <div className="bg-white h-full flex flex-col p-6 overflow-y-auto rounded-2xl shadow-xl border border-slate-200" data-testid="dashboard">
             {/* Revenue & Profit */}
             <div className="mb-6">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <p className="text-xs text-neutral-500 uppercase tracking-wider">Revenue</p>
-                  <p className="text-2xl font-bold text-white font-mono mt-1" data-testid="revenue">
+                  <p className="text-xs text-slate-500 uppercase tracking-wider">Revenue</p>
+                  <p className="text-2xl font-bold text-slate-900 font-mono mt-1" data-testid="revenue">
                     {results ? formatCurrency(results.selling_price) : 'SAR 0'}
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs text-neutral-500 uppercase tracking-wider">Net Profit</p>
-                  <p className={`text-2xl font-bold font-mono mt-1 ${results?.contribution_margin >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} data-testid="profit">
+                  <p className="text-xs text-slate-500 uppercase tracking-wider">Net Profit</p>
+                  <p className={`text-2xl font-bold font-mono mt-1 ${results?.contribution_margin >= 0 ? 'text-emerald-600' : 'text-rose-600'}`} data-testid="profit">
                     {results ? formatCurrency(results.contribution_margin) : 'SAR 0'}
                   </p>
                 </div>
@@ -769,17 +787,17 @@ export default function Calculator() {
             {/* Margin Indicator */}
             <div className="mb-6">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-neutral-400">Contribution Margin</span>
+                <span className="text-sm text-slate-600">Contribution Margin</span>
                 <span className={`text-lg font-bold font-mono ${
-                  (results?.contribution_margin_percent || 0) >= 30 ? 'text-emerald-400' : 
-                  (results?.contribution_margin_percent || 0) >= 20 ? 'text-amber-400' : 'text-rose-400'
+                  (results?.contribution_margin_percent || 0) >= 30 ? 'text-emerald-600' : 
+                  (results?.contribution_margin_percent || 0) >= 20 ? 'text-amber-600' : 'text-rose-600'
                 }`} data-testid="margin-percent">
                   {results?.contribution_margin_percent?.toFixed(1) || 0}%
                 </span>
               </div>
-              <div className="progress-bar">
+              <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
                 <div 
-                  className={`progress-bar-fill ${
+                  className={`h-full transition-all duration-500 ease-out ${
                     (results?.contribution_margin_percent || 0) >= 30 ? 'bg-emerald-500' : 
                     (results?.contribution_margin_percent || 0) >= 20 ? 'bg-amber-500' : 'bg-rose-500'
                   }`}
@@ -791,13 +809,13 @@ export default function Calculator() {
             {/* Deal Size Badge */}
             {results?.incentive_breakdown?.deal_size && (
               <div className="flex items-center gap-2 mb-4">
-                <span className="text-xs text-neutral-500">Deal Size:</span>
+                <span className="text-xs text-slate-500">Deal Size:</span>
                 <Badge className={`text-xs uppercase font-mono ${
-                  results.incentive_breakdown.deal_size === 'mega' ? 'badge-info' :
-                  results.incentive_breakdown.deal_size === 'big' ? 'badge-warning' :
-                  results.incentive_breakdown.deal_size === 'standard' ? 'badge-success' :
-                  'badge-neutral'
-                }`}>
+                  results.incentive_breakdown.deal_size === 'mega' ? 'bg-blue-100 text-blue-700 border-blue-200' :
+                  results.incentive_breakdown.deal_size === 'big' ? 'bg-amber-100 text-amber-700 border-amber-200' :
+                  results.incentive_breakdown.deal_size === 'standard' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
+                  'bg-slate-100 text-slate-700 border-slate-200'
+                } border`}>
                   {results.incentive_breakdown.deal_size}
                 </Badge>
               </div>
@@ -805,61 +823,61 @@ export default function Calculator() {
 
             {/* Cost Breakdown */}
             <div className="mb-6">
-              <h4 className="text-xs text-neutral-500 uppercase tracking-wider mb-3">Cost Breakdown</h4>
+              <h4 className="text-xs text-slate-500 uppercase tracking-wider mb-3">Cost Breakdown</h4>
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
-                  <span className="text-neutral-400">Internal Labor</span>
-                  <span className="text-white font-mono">{formatCurrency(results?.internal_labor_cost || 0)}</span>
+                  <span className="text-slate-600">Internal Labor</span>
+                  <span className="text-slate-900 font-mono">{formatCurrency(results?.internal_labor_cost || 0)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-neutral-400">Vendor Cost</span>
-                  <span className="text-white font-mono">{formatCurrency(results?.vendor_cost || 0)}</span>
+                  <span className="text-slate-600">Vendor Cost</span>
+                  <span className="text-slate-900 font-mono">{formatCurrency(results?.vendor_cost || 0)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-neutral-400">Overhead</span>
-                  <span className="text-white font-mono">{formatCurrency(results?.overhead_cost || 0)}</span>
+                  <span className="text-slate-600">Overhead</span>
+                  <span className="text-slate-900 font-mono">{formatCurrency(results?.overhead_cost || 0)}</span>
                 </div>
-                <div className="flex justify-between text-sm pt-2 border-t border-neutral-800">
-                  <span className="text-neutral-300 font-medium">Total COGS</span>
-                  <span className="text-white font-mono font-medium">{formatCurrency(results?.cogs || 0)}</span>
+                <div className="flex justify-between text-sm pt-2 border-t border-slate-200">
+                  <span className="text-slate-700 font-medium">Total COGS</span>
+                  <span className="text-slate-900 font-mono font-medium">{formatCurrency(results?.cogs || 0)}</span>
                 </div>
               </div>
             </div>
 
             {/* Deductions */}
             <div className="mb-6">
-              <h4 className="text-xs text-neutral-500 uppercase tracking-wider mb-3">Deductions</h4>
+              <h4 className="text-xs text-slate-500 uppercase tracking-wider mb-3">Deductions</h4>
               <div className="space-y-2">
                 {results?.incentive_breakdown ? (
                   <>
                     <div className="flex justify-between text-sm">
-                      <span className="text-neutral-400">Sales Rep</span>
-                      <span className="text-rose-400 font-mono">-{formatCurrency(results.incentive_breakdown.sales_rep.capped_value)}</span>
+                      <span className="text-slate-600">Sales Rep</span>
+                      <span className="text-rose-600 font-mono">-{formatCurrency(results.incentive_breakdown.sales_rep.capped_value)}</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-neutral-400">Sales Manager</span>
-                      <span className="text-rose-400 font-mono">-{formatCurrency(results.incentive_breakdown.sales_manager.capped_value)}</span>
+                      <span className="text-slate-600">Sales Manager</span>
+                      <span className="text-rose-600 font-mono">-{formatCurrency(results.incentive_breakdown.sales_manager.capped_value)}</span>
                     </div>
                   </>
                 ) : (
                   <div className="flex justify-between text-sm">
-                    <span className="text-neutral-400">Sales Incentive</span>
-                    <span className="text-rose-400 font-mono">-{formatCurrency(results?.sales_incentive || 0)}</span>
+                    <span className="text-slate-600">Sales Incentive</span>
+                    <span className="text-rose-600 font-mono">-{formatCurrency(results?.sales_incentive || 0)}</span>
                   </div>
                 )}
                 {results?.financing_cost > 0 && (
                   <div className="flex justify-between text-sm">
-                    <span className="text-neutral-400">Financing Cost</span>
-                    <span className="text-rose-400 font-mono">-{formatCurrency(results.financing_cost)}</span>
+                    <span className="text-slate-600">Financing Cost</span>
+                    <span className="text-rose-600 font-mono">-{formatCurrency(results.financing_cost)}</span>
                   </div>
                 )}
               </div>
             </div>
 
             {/* Final Price */}
-            <div className="p-4 bg-neutral-800/50 rounded-lg mb-6">
+            <div className="p-4 bg-slate-900 rounded-xl mb-6">
               <div className="flex justify-between items-center">
-                <span className="text-neutral-300">Selling Price</span>
+                <span className="text-slate-300">Selling Price</span>
                 <span className="text-2xl font-bold text-white font-mono" data-testid="selling-price">
                   {formatCurrency(results?.selling_price || 0)}
                 </span>
@@ -873,8 +891,8 @@ export default function Calculator() {
                   <div 
                     key={idx}
                     className={`p-3 rounded-lg text-sm flex items-start gap-2 ${
-                      warning.severity === 'error' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : 
-                      'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                      warning.severity === 'error' ? 'bg-rose-50 text-rose-700 border border-rose-200' : 
+                      'bg-amber-50 text-amber-700 border border-amber-200'
                     }`}
                     data-testid={`warning-${warning.type}`}
                   >
@@ -887,20 +905,20 @@ export default function Calculator() {
 
             {/* Risk Summary */}
             {results?.risk_level && results.total_risk_multiplier > 1 && (
-              <div className="p-4 bg-neutral-800/50 rounded-lg">
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-neutral-500 uppercase tracking-wider">Risk Assessment</span>
-                  <Badge className={`text-xs ${
-                    results.risk_level === 'High' ? 'badge-danger' :
-                    results.risk_level === 'Medium' ? 'badge-warning' :
-                    'badge-success'
+                  <span className="text-xs text-slate-500 uppercase tracking-wider">Risk Assessment</span>
+                  <Badge className={`text-xs border ${
+                    results.risk_level === 'High' ? 'bg-rose-100 text-rose-700 border-rose-200' :
+                    results.risk_level === 'Medium' ? 'bg-amber-100 text-amber-700 border-amber-200' :
+                    'bg-emerald-100 text-emerald-700 border-emerald-200'
                   }`}>
                     {results.risk_level}
                   </Badge>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-neutral-400">Risk Multiplier</span>
-                  <span className="text-white font-mono">×{results.total_risk_multiplier?.toFixed(3)}</span>
+                  <span className="text-slate-600">Risk Multiplier</span>
+                  <span className="text-slate-900 font-mono">×{results.total_risk_multiplier?.toFixed(3)}</span>
                 </div>
               </div>
             )}
