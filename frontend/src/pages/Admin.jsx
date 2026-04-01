@@ -70,32 +70,33 @@ export default function Admin() {
 
   if (!authenticated) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center" data-testid="admin-login">
-        <Card className="w-full max-w-md">
-          <CardHeader className="text-center">
-            <div className="w-16 h-16 bg-slate-900 rounded-xl flex items-center justify-center mx-auto mb-4">
-              <span className="text-white font-bold text-xl font-['Manrope']">OPE</span>
+      <div className="min-h-screen bg-white flex items-center justify-center" data-testid="admin-login">
+        <Card className="w-full max-w-md bg-white border-slate-200 shadow-xl">
+          <CardHeader className="text-center pb-2">
+            <div className="w-14 h-14 bg-gradient-to-br from-indigo-600 to-indigo-700 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-indigo-200">
+              <span className="text-white font-bold text-lg font-['Manrope']">ZAN</span>
             </div>
-            <CardTitle className="text-2xl font-bold">Admin Access</CardTitle>
-            <CardDescription>Enter password to access admin panel</CardDescription>
+            <CardTitle className="text-2xl font-bold text-slate-900">Admin Access</CardTitle>
+            <CardDescription className="text-slate-500">Enter password to access admin panel</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleLogin} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password" className="text-slate-700">Password</Label>
                 <Input
                   id="password"
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Enter admin password"
+                  className="bg-white border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:ring-indigo-500"
                   data-testid="admin-password-input"
                 />
               </div>
-              <Button type="submit" className="w-full" data-testid="admin-login-btn">
+              <Button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white" data-testid="admin-login-btn">
                 Login
               </Button>
-              <Link to="/" className="block text-center text-sm text-slate-500 hover:text-slate-700">
+              <Link to="/" className="block text-center text-sm text-indigo-600 hover:text-indigo-700 font-medium">
                 Back to Calculator
               </Link>
             </form>
@@ -123,22 +124,22 @@ export default function Admin() {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-50 flex" data-testid="admin-panel">
+    <div className="min-h-screen bg-white flex" data-testid="admin-panel">
       {/* Sidebar */}
-      <aside className="w-64 bg-slate-900 text-white flex flex-col" data-testid="admin-sidebar">
-        <div className="p-6 border-b border-slate-800">
+      <aside className="w-64 bg-slate-50 border-r border-slate-200 flex flex-col" data-testid="admin-sidebar">
+        <div className="p-5 border-b border-slate-200">
           <Link to="/" className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-indigo-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-sm font-['Manrope']">OPE</span>
+            <div className="w-10 h-10 bg-gradient-to-br from-indigo-600 to-indigo-700 rounded-xl flex items-center justify-center shadow-md shadow-indigo-100">
+              <span className="text-white font-bold text-sm font-['Manrope']">ZAN</span>
             </div>
             <div>
-              <h1 className="font-bold text-white">Admin Panel</h1>
-              <p className="text-xs text-slate-400">Configuration</p>
+              <h1 className="font-bold text-slate-900">Admin Panel</h1>
+              <p className="text-xs text-slate-500">Configuration</p>
             </div>
           </Link>
         </div>
 
-        <nav className="flex-1 py-4" data-testid="admin-nav">
+        <nav className="flex-1 py-4 overflow-y-auto" data-testid="admin-nav">
           {navItems.map(item => {
             const Icon = item.icon;
             const isActive = location.pathname === item.path;
@@ -146,10 +147,10 @@ export default function Admin() {
               <Link
                 key={item.path}
                 to={item.path}
-                className={`flex items-center gap-3 px-6 py-3 text-sm transition-colors ${
+                className={`flex items-center gap-3 px-5 py-2.5 text-sm transition-colors mx-2 rounded-lg ${
                   isActive 
-                    ? 'text-white bg-indigo-600' 
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                    ? 'text-white bg-indigo-600 shadow-md shadow-indigo-100' 
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                 }`}
                 data-testid={`nav-${item.path.split('/').pop()}`}
               >
@@ -161,10 +162,10 @@ export default function Admin() {
           })}
         </nav>
 
-        <div className="p-4 border-t border-slate-800">
+        <div className="p-4 border-t border-slate-200">
           <Button 
             variant="ghost" 
-            className="w-full justify-start text-slate-400 hover:text-white hover:bg-slate-800"
+            className="w-full justify-start text-slate-600 hover:text-slate-900 hover:bg-slate-100"
             onClick={handleLogout}
             data-testid="logout-btn"
           >
@@ -175,7 +176,7 @@ export default function Admin() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 p-8 overflow-y-auto" data-testid="admin-content">
+      <main className="flex-1 p-8 overflow-y-auto bg-white" data-testid="admin-content">
         <Routes>
           <Route path="/" element={<AdminWelcome />} />
           <Route path="/roles" element={<RolesManager />} />
@@ -203,32 +204,40 @@ function AdminWelcome() {
   return (
     <div className="max-w-2xl" data-testid="admin-welcome">
       <h1 className="text-3xl font-bold text-slate-900 font-['Manrope'] mb-2">Welcome to Admin</h1>
-      <p className="text-slate-600 mb-8">Manage your pricing engine configuration</p>
+      <p className="text-slate-500 mb-8">Manage your pricing engine configuration</p>
       <div className="grid grid-cols-2 gap-4">
-        <Card className="hover:shadow-lg transition-shadow">
+        <Card className="hover:shadow-lg transition-shadow border-slate-200 bg-white">
           <CardContent className="pt-6">
-            <Users className="w-8 h-8 text-indigo-600 mb-3" />
+            <div className="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center mb-3">
+              <Users className="w-6 h-6 text-indigo-600" />
+            </div>
             <h3 className="font-semibold text-slate-900">Roles & Rates</h3>
             <p className="text-sm text-slate-500 mt-1">Manage team roles and hourly rates</p>
           </CardContent>
         </Card>
-        <Card className="hover:shadow-lg transition-shadow">
+        <Card className="hover:shadow-lg transition-shadow border-slate-200 bg-white">
           <CardContent className="pt-6">
-            <Package className="w-8 h-8 text-indigo-600 mb-3" />
+            <div className="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center mb-3">
+              <Package className="w-6 h-6 text-indigo-600" />
+            </div>
             <h3 className="font-semibold text-slate-900">Templates</h3>
             <p className="text-sm text-slate-500 mt-1">Configure product and scope templates</p>
           </CardContent>
         </Card>
-        <Card className="hover:shadow-lg transition-shadow">
+        <Card className="hover:shadow-lg transition-shadow border-slate-200 bg-white">
           <CardContent className="pt-6">
-            <Gauge className="w-8 h-8 text-indigo-600 mb-3" />
+            <div className="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center mb-3">
+              <Gauge className="w-6 h-6 text-indigo-600" />
+            </div>
             <h3 className="font-semibold text-slate-900">Overhead & Incentives</h3>
             <p className="text-sm text-slate-500 mt-1">Set overhead rates and sales commissions</p>
           </CardContent>
         </Card>
-        <Card className="hover:shadow-lg transition-shadow">
+        <Card className="hover:shadow-lg transition-shadow border-slate-200 bg-white">
           <CardContent className="pt-6">
-            <Palette className="w-8 h-8 text-indigo-600 mb-3" />
+            <div className="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center mb-3">
+              <Palette className="w-6 h-6 text-indigo-600" />
+            </div>
             <h3 className="font-semibold text-slate-900">Theme</h3>
             <p className="text-sm text-slate-500 mt-1">Customize colors and branding</p>
           </CardContent>
