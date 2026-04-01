@@ -28,6 +28,8 @@ import {
   getThemeSettings
 } from '@/lib/api';
 
+import DepartmentRolePicker from '@/components/DepartmentRolePicker';
+
 import TeamMemberRow from '@/components/TeamMemberRow';
 import VendorRow from '@/components/VendorRow';
 import ExportPDF from '@/components/ExportPDF';
@@ -512,40 +514,64 @@ export default function Calculator() {
                     </div>
                     <div>
                       <CardTitle className={`text-lg  ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Internal Team</CardTitle>
-                      <CardDescription className={isDarkMode ? 'text-neutral-500' : 'text-slate-500'}>Add roles and configure hours or utilization</CardDescription>
+                      <CardDescription className={isDarkMode ? 'text-neutral-500' : 'text-slate-500'}>اختر الموظفين حسب الإدارة</CardDescription>
                     </div>
                   </div>
-                  <Button 
-                    onClick={addTeamMember} 
-                    className={`font-semibold ${isDarkMode ? 'bg-white text-neutral-900 hover:bg-neutral-200' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}
-                    data-testid="add-team-member-btn"
-                  >
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add Role
-                  </Button>
                 </div>
               </CardHeader>
               <CardContent>
-                {calcData.team_members.length === 0 ? (
-                  <div className={`text-center py-12 ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>
-                    <Users className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                    <p className="text-sm">No team members added yet</p>
-                    <p className="text-xs mt-1">Click "Add Role" or load a template</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {calcData.team_members.map((member, index) => (
-                      <TeamMemberRow
-                        key={member.id}
-                        member={member}
-                        index={index}
-                        roles={roles}
-                        onUpdate={(field, value) => updateTeamMember(index, field, value)}
-                        onRemove={() => removeTeamMember(index)}
-                        onRolesRefresh={refreshRoles}
-                        darkMode={isDarkMode}
-                      />
-                    ))}
+                {/* Department Selection Grid */}
+                <DepartmentRolePicker 
+                  roles={roles}
+                  selectedMembers={calcData.team_members}
+                  onAddMember={addTeamMember}
+                  onAddMemberWithRole={(roleId) => {
+                    const role = roles.find(r => r.id === roleId);
+                    if (role) {
+                      const newMember = {
+                        id: Date.now().toString(),
+                        role_id: roleId,
+                        employee_type: 'internal',
+                        calc_mode: 'hours',
+                        hours: 0,
+                        utilization_percent: 0,
+                        duration_months: 1,
+                        hourly_rate: role.hourly_rate || 0,
+                        custom_salary: 0,
+                        custom_allowance: 0,
+                        admin_fee_percent: 0
+                      };
+                      setCalcData(prev => ({
+                        ...prev,
+                        team_members: [...prev.team_members, newMember]
+                      }));
+                    }
+                  }}
+                  isDarkMode={isDarkMode}
+                />
+                
+                {/* Added Team Members */}
+                {calcData.team_members.length > 0 && (
+                  <div className={`mt-6 pt-6 border-t ${isDarkMode ? 'border-neutral-800' : 'border-slate-200'}`}>
+                    <div className="flex items-center justify-between mb-4">
+                      <h4 className={`font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                        الفريق المحدد ({calcData.team_members.length})
+                      </h4>
+                    </div>
+                    <div className="space-y-3">
+                      {calcData.team_members.map((member, index) => (
+                        <TeamMemberRow
+                          key={member.id}
+                          member={member}
+                          index={index}
+                          roles={roles}
+                          onUpdate={(field, value) => updateTeamMember(index, field, value)}
+                          onRemove={() => removeTeamMember(index)}
+                          onRolesRefresh={refreshRoles}
+                          darkMode={isDarkMode}
+                        />
+                      ))}
+                    </div>
                   </div>
                 )}
                 
