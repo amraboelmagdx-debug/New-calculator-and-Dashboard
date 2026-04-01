@@ -200,56 +200,55 @@ export default function TeamMemberRow({
                 <Label className={labelClass}>Monthly Salary</Label>
                 <Input
                   type="number"
-                  className={inputClass}
+                  className={`mt-1 ${inputClass}`}
                   value={member.custom_salary || ''}
                   onChange={(e) => onUpdate('custom_salary', parseFloat(e.target.value) || 0)}
                   placeholder="Salary"
-                  className="mt-1"
                 />
               </div>
               <div className="col-span-2">
-                <Label className="text-xs text-slate-500">Allowance</Label>
+                <Label className={labelClass}>Allowance</Label>
                 <Input
                   type="number"
+                  className={`mt-1 ${inputClass}`}
                   value={member.custom_allowance || ''}
                   onChange={(e) => onUpdate('custom_allowance', parseFloat(e.target.value) || 0)}
                   placeholder="Allowance"
-                  className="mt-1"
                 />
               </div>
               <div className="col-span-2">
-                <Label className="text-xs text-slate-500">Admin Fee %</Label>
+                <Label className={labelClass}>Admin Fee %</Label>
                 <Input
                   type="number"
+                  className={`mt-1 ${inputClass}`}
                   value={member.admin_fee_percent || ''}
                   onChange={(e) => onUpdate('admin_fee_percent', parseFloat(e.target.value) || 0)}
                   placeholder="%"
-                  className="mt-1"
                 />
               </div>
               <div className="col-span-2">
-                <Label className="text-xs text-slate-500">Utilization %</Label>
+                <Label className={labelClass}>Utilization %</Label>
                 <Input
                   type="number"
+                  className={`mt-1 ${inputClass}`}
                   value={member.utilization_percent || ''}
                   onChange={(e) => onUpdate('utilization_percent', parseFloat(e.target.value) || 0)}
                   placeholder="%"
-                  className="mt-1"
                 />
               </div>
               <div className="col-span-2">
-                <Label className="text-xs text-slate-500">Duration (months)</Label>
+                <Label className={labelClass}>Duration (months)</Label>
                 <Input
                   type="number"
+                  className={`mt-1 ${inputClass}`}
                   value={member.duration_months || ''}
                   onChange={(e) => onUpdate('duration_months', parseInt(e.target.value) || 1)}
                   placeholder="Months"
-                  className="mt-1"
                 />
               </div>
               <div className="col-span-2">
-                <Label className="text-xs text-slate-500">Total Cost</Label>
-                <div className="text-lg font-bold font-mono text-slate-900 mt-1">
+                <Label className={labelClass}>Total Cost</Label>
+                <div className={`text-lg font-bold font-mono mt-1 ${resultTextClass}`}>
                   {formatCurrency(cost, false)}
                 </div>
               </div>
@@ -258,42 +257,42 @@ export default function TeamMemberRow({
             // Utilization mode for internal employee
             <>
               <div className="col-span-3">
-                <Label className="text-xs text-slate-500">Monthly Cost (incl. benefits)</Label>
-                <div className="text-sm font-mono text-slate-600 px-3 py-2 bg-white rounded-md border mt-1">
+                <Label className={labelClass}>Monthly Cost (incl. benefits)</Label>
+                <div className={`text-sm font-mono px-3 py-2 rounded-md border mt-1 ${darkMode ? 'bg-neutral-900 border-neutral-700 text-neutral-300' : 'bg-white border-slate-200 text-slate-600'}`}>
                   {formatCurrency(roles.find(r => r.id === member.role_id)?.total_monthly_cost || roles.find(r => r.id === member.role_id)?.monthly_salary || 0, false)}
                 </div>
               </div>
               <div className="col-span-2">
-                <Label className="text-xs text-slate-500">Utilization %</Label>
+                <Label className={labelClass}>Utilization %</Label>
                 <Input
                   type="number"
+                  className={`mt-1 ${inputClass}`}
                   value={member.utilization_percent || ''}
                   onChange={(e) => onUpdate('utilization_percent', parseFloat(e.target.value) || 0)}
                   placeholder="e.g., 50"
-                  className="mt-1"
                   data-testid={`util-input-${index}`}
                 />
               </div>
               <div className="col-span-2">
-                <Label className="text-xs text-slate-500">Duration (months)</Label>
+                <Label className={labelClass}>Duration (months)</Label>
                 <Input
                   type="number"
+                  className={`mt-1 ${inputClass}`}
                   value={member.duration_months || ''}
                   onChange={(e) => onUpdate('duration_months', parseInt(e.target.value) || 1)}
                   placeholder="Months"
-                  className="mt-1"
                   data-testid={`duration-input-${index}`}
                 />
               </div>
               <div className="col-span-2">
-                <Label className="text-xs text-slate-500">Calc Preview</Label>
-                <div className="text-xs text-slate-400 mt-1">
+                <Label className={labelClass}>Calc Preview</Label>
+                <div className={`text-xs mt-1 ${subtextClass}`}>
                   {formatCurrency(roles.find(r => r.id === member.role_id)?.total_monthly_cost || 0, false)} × {member.utilization_percent || 0}% × {member.duration_months || 1}m
                 </div>
               </div>
               <div className="col-span-3">
-                <Label className="text-xs text-slate-500">Total Cost</Label>
-                <div className="text-lg font-bold font-mono text-slate-900 mt-1">
+                <Label className={labelClass}>Total Cost</Label>
+                <div className={`text-lg font-bold font-mono mt-1 ${resultTextClass}`}>
                   {formatCurrency(cost, false)}
                 </div>
               </div>
@@ -302,31 +301,31 @@ export default function TeamMemberRow({
             // Hours mode for internal employee
             <>
               <div className="col-span-3">
-                <Label className="text-xs text-slate-500">Hours</Label>
+                <Label className={labelClass}>Hours</Label>
                 <Input
                   type="number"
+                  className={`mt-1 ${inputClass}`}
                   value={member.hours || ''}
                   onChange={(e) => onUpdate('hours', parseFloat(e.target.value) || 0)}
                   placeholder="Hours"
-                  className="mt-1"
                   data-testid={`hours-input-${index}`}
                 />
               </div>
               <div className="col-span-3">
-                <Label className="text-xs text-slate-500">Hourly Rate</Label>
-                <div className="text-sm font-mono text-slate-600 px-3 py-2 bg-white rounded-md border mt-1">
+                <Label className={labelClass}>Hourly Rate</Label>
+                <div className={`text-sm font-mono px-3 py-2 rounded-md border mt-1 ${darkMode ? 'bg-neutral-900 border-neutral-700 text-neutral-300' : 'bg-white border-slate-200 text-slate-600'}`}>
                   {formatCurrency(member.hourly_rate || 0, false)} / hr
                 </div>
               </div>
               <div className="col-span-3">
-                <Label className="text-xs text-slate-500">Calc Preview</Label>
-                <div className="text-xs text-slate-400 mt-1">
+                <Label className={labelClass}>Calc Preview</Label>
+                <div className={`text-xs mt-1 ${subtextClass}`}>
                   {member.hours || 0} hrs × {formatCurrency(member.hourly_rate || 0, false)}
                 </div>
               </div>
               <div className="col-span-3">
-                <Label className="text-xs text-slate-500">Total Cost</Label>
-                <div className="text-lg font-bold font-mono text-slate-900 mt-1">
+                <Label className={labelClass}>Total Cost</Label>
+                <div className={`text-lg font-bold font-mono mt-1 ${resultTextClass}`}>
                   {formatCurrency(cost, false)}
                 </div>
               </div>

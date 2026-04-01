@@ -11,11 +11,18 @@ A modern web application for creative agencies to calculate project pricing, pro
 
 ## What's Been Implemented
 
+### Completed (2025-12) - Dark/Light Mode Toggle ✅
+- [x] **Theme Toggle** - Sun/Moon button to switch between Dark and Light modes
+- [x] **White Dashboard** - Right panel always stays white for maximum readability
+- [x] **Full Theme Support** - All sections (Project Info, Team, Vendors, Pricing) adapt to selected theme
+- [x] **Consistent Styling** - Inputs, labels, cards, and navigation all theme-aware
+
 ### Completed (2026-03-27) - Major UI Overhaul ✅
 **NEW UNIFIED INTERFACE - DARK SWISS THEME**
 
 - [x] **Merged Simple + Structured** - All features now in ONE unified calculator
 - [x] **Dark Swiss Theme** - Professional dark UI with neutral-950 background
+- [x] **Light Mode Option** - Clean slate-100 background with white cards
 - [x] **3-Column Layout** - Left nav (220px), Center content (flex), Right dashboard (380px)
 - [x] **Project Information Section** - Client Name, Project Name, Sales Owner, Payment Terms
 - [x] **Client Type & Lead Source** - New/Existing Customer, Direct/Referral dropdowns
@@ -71,7 +78,10 @@ A modern web application for creative agencies to calculate project pricing, pro
 - **Frontend**: React 19, Tailwind CSS, Shadcn/UI
 - **Backend**: FastAPI, Motor (async MongoDB)
 - **Database**: MongoDB
-- **Theme**: Dark Swiss (neutral-950, white text, emerald/amber/rose status)
+- **Theme**: Dark/Light Mode Toggle (Dark default, Light available)
+  - Dark: neutral-950 background, white text
+  - Light: slate-100 background, dark text
+  - Dashboard: Always white for readability
 - **Fonts**: Manrope (headings), Inter (body), JetBrains Mono (numbers)
 
 ## Admin Access
@@ -91,15 +101,19 @@ A modern web application for creative agencies to calculate project pricing, pro
 
 ### P0 - Critical
 - [x] ~~Merge Simple + Structured into unified interface~~ DONE
+- [x] ~~Dark/Light Mode Toggle with White Dashboard~~ DONE
 - [ ] Add ability to save/load opportunities
 - [ ] Opportunity list view
 
 ### P1 - High Priority
+- [ ] Refactor Calculator.jsx (~1000 lines) into smaller components
+- [ ] Refactor server.py (~1900 lines) into proper FastAPI structure
 - [ ] Multi-currency support
 - [ ] User accounts with roles
 - [ ] Approval workflow
 
 ### P2 - Nice to Have
+- [ ] Auto-format Imgur URLs in Theme Settings
 - [ ] Dashboard analytics
 - [ ] CRM integration
 - [ ] Mobile app

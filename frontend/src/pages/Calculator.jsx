@@ -434,27 +434,27 @@ export default function Calculator() {
                     />
                   </div>
                   <div>
-                    <Label className="text-neutral-400 text-sm">Sales Owner</Label>
+                    <Label className={`text-sm ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`}>Sales Owner</Label>
                     <Input
                       value={projectInfo.sales_owner}
                       onChange={(e) => setProjectInfo(p => ({ ...p, sales_owner: e.target.value }))}
                       placeholder="Enter sales owner"
-                      className="mt-1.5 bg-neutral-950 border-neutral-800 text-white placeholder:text-neutral-600"
+                      className={`mt-1.5 ${isDarkMode ? 'bg-neutral-950 border-neutral-800 text-white placeholder:text-neutral-600' : 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400'}`}
                       data-testid="sales-owner-input"
                     />
                   </div>
                   <div>
-                    <Label className="text-neutral-400 text-sm">Payment Terms</Label>
+                    <Label className={`text-sm ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`}>Payment Terms</Label>
                     <Select 
                       value={projectInfo.payment_term_id} 
                       onValueChange={(v) => setProjectInfo(p => ({ ...p, payment_term_id: v }))}
                     >
-                      <SelectTrigger className="mt-1.5 bg-neutral-950 border-neutral-800 text-white" data-testid="payment-terms-select">
+                      <SelectTrigger className={`mt-1.5 ${isDarkMode ? 'bg-neutral-950 border-neutral-800 text-white' : 'bg-white border-slate-300 text-slate-700'}`} data-testid="payment-terms-select">
                         <SelectValue placeholder="Select payment terms" />
                       </SelectTrigger>
-                      <SelectContent className="bg-neutral-900 border-neutral-700">
+                      <SelectContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700' : 'bg-white border-slate-200'}>
                         {paymentTerms.map(term => (
-                          <SelectItem key={term.id} value={term.id} className="text-neutral-300">
+                          <SelectItem key={term.id} value={term.id} className={isDarkMode ? 'text-neutral-300' : 'text-slate-700'}>
                             {term.name}
                           </SelectItem>
                         ))}
@@ -464,34 +464,34 @@ export default function Calculator() {
                 </div>
                 
                 {/* Client Type & Lead Source */}
-                <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-neutral-800">
+                <div className={`grid grid-cols-2 gap-4 mt-4 pt-4 border-t ${isDarkMode ? 'border-neutral-800' : 'border-slate-200'}`}>
                   <div>
-                    <Label className="text-neutral-400 text-sm">Client Type</Label>
+                    <Label className={`text-sm ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`}>Client Type</Label>
                     <Select 
                       value={calcData.client_type} 
                       onValueChange={(v) => setCalcData(p => ({ ...p, client_type: v }))}
                     >
-                      <SelectTrigger className="mt-1.5 bg-neutral-950 border-neutral-800 text-white" data-testid="client-type-select">
+                      <SelectTrigger className={`mt-1.5 ${isDarkMode ? 'bg-neutral-950 border-neutral-800 text-white' : 'bg-white border-slate-300 text-slate-700'}`} data-testid="client-type-select">
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent className="bg-neutral-900 border-neutral-700">
-                        <SelectItem value="new" className="text-neutral-300">New Customer</SelectItem>
-                        <SelectItem value="existing" className="text-neutral-300">Existing Customer</SelectItem>
+                      <SelectContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700' : 'bg-white border-slate-200'}>
+                        <SelectItem value="new" className={isDarkMode ? 'text-neutral-300' : 'text-slate-700'}>New Customer</SelectItem>
+                        <SelectItem value="existing" className={isDarkMode ? 'text-neutral-300' : 'text-slate-700'}>Existing Customer</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   <div>
-                    <Label className="text-neutral-400 text-sm">Lead Source</Label>
+                    <Label className={`text-sm ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`}>Lead Source</Label>
                     <Select 
                       value={calcData.lead_source} 
                       onValueChange={(v) => setCalcData(p => ({ ...p, lead_source: v }))}
                     >
-                      <SelectTrigger className="mt-1.5 bg-neutral-950 border-neutral-800 text-white" data-testid="lead-source-select">
+                      <SelectTrigger className={`mt-1.5 ${isDarkMode ? 'bg-neutral-950 border-neutral-800 text-white' : 'bg-white border-slate-300 text-slate-700'}`} data-testid="lead-source-select">
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent className="bg-neutral-900 border-neutral-700">
-                        <SelectItem value="direct" className="text-neutral-300">Direct (Sales Generated)</SelectItem>
-                        <SelectItem value="referral" className="text-neutral-300">Referral</SelectItem>
+                      <SelectContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700' : 'bg-white border-slate-200'}>
+                        <SelectItem value="direct" className={isDarkMode ? 'text-neutral-300' : 'text-slate-700'}>Direct (Sales Generated)</SelectItem>
+                        <SelectItem value="referral" className={isDarkMode ? 'text-neutral-300' : 'text-slate-700'}>Referral</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -502,21 +502,21 @@ export default function Calculator() {
 
           {/* Internal Team Section */}
           <section id="team" className="animate-fade-in">
-            <Card className="dark-card" data-testid="team-section">
+            <Card className={isDarkMode ? 'dark-card' : 'bg-white border border-slate-200 shadow-sm rounded-xl'} data-testid="team-section">
               <CardHeader className="pb-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                      <Users className="w-5 h-5 text-blue-400" />
+                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${isDarkMode ? 'bg-blue-500/10' : 'bg-blue-50'}`}>
+                      <Users className={`w-5 h-5 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} />
                     </div>
                     <div>
-                      <CardTitle className="text-lg text-white font-['Manrope']">Internal Team</CardTitle>
-                      <CardDescription className="text-neutral-500">Add roles and configure hours or utilization</CardDescription>
+                      <CardTitle className={`text-lg font-['Manrope'] ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Internal Team</CardTitle>
+                      <CardDescription className={isDarkMode ? 'text-neutral-500' : 'text-slate-500'}>Add roles and configure hours or utilization</CardDescription>
                     </div>
                   </div>
                   <Button 
                     onClick={addTeamMember} 
-                    className="bg-white text-neutral-900 hover:bg-neutral-200 font-semibold"
+                    className={`font-semibold ${isDarkMode ? 'bg-white text-neutral-900 hover:bg-neutral-200' : 'bg-slate-900 text-white hover:bg-slate-800'}`}
                     data-testid="add-team-member-btn"
                   >
                     <Plus className="w-4 h-4 mr-2" />
@@ -526,7 +526,7 @@ export default function Calculator() {
               </CardHeader>
               <CardContent>
                 {calcData.team_members.length === 0 ? (
-                  <div className="text-center py-12 text-neutral-500">
+                  <div className={`text-center py-12 ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>
                     <Users className="w-12 h-12 mx-auto mb-3 opacity-30" />
                     <p className="text-sm">No team members added yet</p>
                     <p className="text-xs mt-1">Click "Add Role" or load a template</p>
@@ -542,7 +542,7 @@ export default function Calculator() {
                         onUpdate={(field, value) => updateTeamMember(index, field, value)}
                         onRemove={() => removeTeamMember(index)}
                         onRolesRefresh={refreshRoles}
-                        darkMode={true}
+                        darkMode={isDarkMode}
                       />
                     ))}
                   </div>
@@ -550,13 +550,13 @@ export default function Calculator() {
                 
                 {/* Internal Risk Factors */}
                 {calcData.team_members.length > 0 && (
-                  <Collapsible className="mt-4 pt-4 border-t border-neutral-800">
-                    <CollapsibleTrigger className="flex items-center justify-between w-full py-2 text-sm text-neutral-400 hover:text-neutral-200">
+                  <Collapsible className={`mt-4 pt-4 border-t ${isDarkMode ? 'border-neutral-800' : 'border-slate-200'}`}>
+                    <CollapsibleTrigger className={`flex items-center justify-between w-full py-2 text-sm ${isDarkMode ? 'text-neutral-400 hover:text-neutral-200' : 'text-slate-600 hover:text-slate-900'}`}>
                       <div className="flex items-center gap-2">
                         <Shield className="w-4 h-4" />
                         <span>Internal Risk Factors</span>
                       </div>
-                      <Badge className="badge-neutral text-xs">
+                      <Badge className={`text-xs ${isDarkMode ? 'badge-neutral' : 'bg-slate-100 text-slate-600'}`}>
                         {calcData.internal_risk.complexity === 'none' && calcData.internal_risk.rush === 'none' && calcData.internal_risk.execution === 'none' 
                           ? 'None' 
                           : `${[calcData.internal_risk.complexity, calcData.internal_risk.rush, calcData.internal_risk.execution].filter(r => r !== 'none').length} factors`}
@@ -566,7 +566,7 @@ export default function Calculator() {
                       <div className="grid grid-cols-3 gap-4">
                         {['complexity', 'rush', 'execution'].map(factor => (
                           <div key={factor}>
-                            <Label className="text-neutral-500 text-xs capitalize">{factor}</Label>
+                            <Label className={`text-xs capitalize ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>{factor}</Label>
                             <Select 
                               value={calcData.internal_risk[factor]} 
                               onValueChange={(v) => setCalcData(p => ({ 
@@ -574,14 +574,14 @@ export default function Calculator() {
                                 internal_risk: { ...p.internal_risk, [factor]: v } 
                               }))}
                             >
-                              <SelectTrigger className="mt-1 bg-neutral-950 border-neutral-800 text-neutral-300 text-sm">
+                              <SelectTrigger className={`mt-1 text-sm ${isDarkMode ? 'bg-neutral-950 border-neutral-800 text-neutral-300' : 'bg-white border-slate-300 text-slate-700'}`}>
                                 <SelectValue />
                               </SelectTrigger>
-                              <SelectContent className="bg-neutral-900 border-neutral-700">
-                                <SelectItem value="none" className="text-neutral-300">None</SelectItem>
-                                <SelectItem value="low" className="text-neutral-300">Low</SelectItem>
-                                <SelectItem value="medium" className="text-neutral-300">Medium</SelectItem>
-                                <SelectItem value="high" className="text-neutral-300">High</SelectItem>
+                              <SelectContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700' : 'bg-white border-slate-200'}>
+                                <SelectItem value="none" className={isDarkMode ? 'text-neutral-300' : 'text-slate-700'}>None</SelectItem>
+                                <SelectItem value="low" className={isDarkMode ? 'text-neutral-300' : 'text-slate-700'}>Low</SelectItem>
+                                <SelectItem value="medium" className={isDarkMode ? 'text-neutral-300' : 'text-slate-700'}>Medium</SelectItem>
+                                <SelectItem value="high" className={isDarkMode ? 'text-neutral-300' : 'text-slate-700'}>High</SelectItem>
                               </SelectContent>
                             </Select>
                           </div>
@@ -596,21 +596,21 @@ export default function Calculator() {
 
           {/* Vendors Section */}
           <section id="vendors" className="animate-fade-in">
-            <Card className="dark-card" data-testid="vendor-section">
+            <Card className={isDarkMode ? 'dark-card' : 'bg-white border border-slate-200 shadow-sm rounded-xl'} data-testid="vendor-section">
               <CardHeader className="pb-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
-                      <Truck className="w-5 h-5 text-amber-400" />
+                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${isDarkMode ? 'bg-amber-500/10' : 'bg-amber-50'}`}>
+                      <Truck className={`w-5 h-5 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
                     </div>
                     <div>
-                      <CardTitle className="text-lg text-white font-['Manrope']">Vendors</CardTitle>
-                      <CardDescription className="text-neutral-500">External services and costs</CardDescription>
+                      <CardTitle className={`text-lg font-['Manrope'] ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Vendors</CardTitle>
+                      <CardDescription className={isDarkMode ? 'text-neutral-500' : 'text-slate-500'}>External services and costs</CardDescription>
                     </div>
                   </div>
                   <Button 
                     onClick={addVendor} 
-                    className="bg-white text-neutral-900 hover:bg-neutral-200 font-semibold"
+                    className={`font-semibold ${isDarkMode ? 'bg-white text-neutral-900 hover:bg-neutral-200' : 'bg-slate-900 text-white hover:bg-slate-800'}`}
                     data-testid="add-vendor-btn"
                   >
                     <Plus className="w-4 h-4 mr-2" />
@@ -620,7 +620,7 @@ export default function Calculator() {
               </CardHeader>
               <CardContent>
                 {calcData.vendors.length === 0 ? (
-                  <div className="text-center py-12 text-neutral-500">
+                  <div className={`text-center py-12 ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>
                     <Truck className="w-12 h-12 mx-auto mb-3 opacity-30" />
                     <p className="text-sm">No vendors added yet</p>
                     <p className="text-xs mt-1">Click "Add Vendor" to add external services</p>
@@ -636,7 +636,7 @@ export default function Calculator() {
                         onUpdate={(field, value) => updateVendor(index, field, value)}
                         onRemove={() => removeVendor(index)}
                         onServicesRefresh={refreshVendorServices}
-                        darkMode={true}
+                        darkMode={isDarkMode}
                       />
                     ))}
                   </div>
@@ -644,13 +644,13 @@ export default function Calculator() {
                 
                 {/* Vendor Risk Factors */}
                 {calcData.vendors.length > 0 && (
-                  <Collapsible className="mt-4 pt-4 border-t border-neutral-800">
-                    <CollapsibleTrigger className="flex items-center justify-between w-full py-2 text-sm text-neutral-400 hover:text-neutral-200">
+                  <Collapsible className={`mt-4 pt-4 border-t ${isDarkMode ? 'border-neutral-800' : 'border-slate-200'}`}>
+                    <CollapsibleTrigger className={`flex items-center justify-between w-full py-2 text-sm ${isDarkMode ? 'text-neutral-400 hover:text-neutral-200' : 'text-slate-600 hover:text-slate-900'}`}>
                       <div className="flex items-center gap-2">
                         <Shield className="w-4 h-4" />
                         <span>Vendor Risk Factors</span>
                       </div>
-                      <Badge className="badge-neutral text-xs">
+                      <Badge className={`text-xs ${isDarkMode ? 'badge-neutral' : 'bg-slate-100 text-slate-600'}`}>
                         {calcData.vendor_risk.complexity === 'none' && calcData.vendor_risk.rush === 'none' && calcData.vendor_risk.execution === 'none' 
                           ? 'None' 
                           : `${[calcData.vendor_risk.complexity, calcData.vendor_risk.rush, calcData.vendor_risk.execution].filter(r => r !== 'none').length} factors`}
@@ -660,7 +660,7 @@ export default function Calculator() {
                       <div className="grid grid-cols-3 gap-4">
                         {['complexity', 'rush', 'execution'].map(factor => (
                           <div key={factor}>
-                            <Label className="text-neutral-500 text-xs capitalize">{factor}</Label>
+                            <Label className={`text-xs capitalize ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>{factor}</Label>
                             <Select 
                               value={calcData.vendor_risk[factor]} 
                               onValueChange={(v) => setCalcData(p => ({ 
@@ -668,14 +668,14 @@ export default function Calculator() {
                                 vendor_risk: { ...p.vendor_risk, [factor]: v } 
                               }))}
                             >
-                              <SelectTrigger className="mt-1 bg-neutral-950 border-neutral-800 text-neutral-300 text-sm">
+                              <SelectTrigger className={`mt-1 text-sm ${isDarkMode ? 'bg-neutral-950 border-neutral-800 text-neutral-300' : 'bg-white border-slate-300 text-slate-700'}`}>
                                 <SelectValue />
                               </SelectTrigger>
-                              <SelectContent className="bg-neutral-900 border-neutral-700">
-                                <SelectItem value="none" className="text-neutral-300">None</SelectItem>
-                                <SelectItem value="low" className="text-neutral-300">Low</SelectItem>
-                                <SelectItem value="medium" className="text-neutral-300">Medium</SelectItem>
-                                <SelectItem value="high" className="text-neutral-300">High</SelectItem>
+                              <SelectContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700' : 'bg-white border-slate-200'}>
+                                <SelectItem value="none" className={isDarkMode ? 'text-neutral-300' : 'text-slate-700'}>None</SelectItem>
+                                <SelectItem value="low" className={isDarkMode ? 'text-neutral-300' : 'text-slate-700'}>Low</SelectItem>
+                                <SelectItem value="medium" className={isDarkMode ? 'text-neutral-300' : 'text-slate-700'}>Medium</SelectItem>
+                                <SelectItem value="high" className={isDarkMode ? 'text-neutral-300' : 'text-slate-700'}>High</SelectItem>
                               </SelectContent>
                             </Select>
                           </div>
@@ -690,24 +690,24 @@ export default function Calculator() {
 
           {/* Pricing Settings Section */}
           <section id="pricing" className="animate-fade-in">
-            <Card className="dark-card" data-testid="pricing-section">
+            <Card className={isDarkMode ? 'dark-card' : 'bg-white border border-slate-200 shadow-sm rounded-xl'} data-testid="pricing-section">
               <CardHeader className="pb-4">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
-                    <Target className="w-5 h-5 text-emerald-400" />
+                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${isDarkMode ? 'bg-emerald-500/10' : 'bg-emerald-50'}`}>
+                    <Target className={`w-5 h-5 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`} />
                   </div>
                   <div>
-                    <CardTitle className="text-lg text-white font-['Manrope']">Pricing Settings</CardTitle>
-                    <CardDescription className="text-neutral-500">Configure margins and pricing strategy</CardDescription>
+                    <CardTitle className={`text-lg font-['Manrope'] ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Pricing Settings</CardTitle>
+                    <CardDescription className={isDarkMode ? 'text-neutral-500' : 'text-slate-500'}>Configure margins and pricing strategy</CardDescription>
                   </div>
                 </div>
               </CardHeader>
               <CardContent>
                 {/* Split Margins Toggle */}
-                <div className="flex items-center justify-between p-4 bg-neutral-800/50 rounded-lg mb-4">
+                <div className={`flex items-center justify-between p-4 rounded-lg mb-4 ${isDarkMode ? 'bg-neutral-800/50' : 'bg-slate-50 border border-slate-200'}`}>
                   <div>
-                    <Label className="text-white font-medium">Split Margins</Label>
-                    <p className="text-xs text-neutral-500 mt-0.5">Separate margins for internal vs vendor costs</p>
+                    <Label className={`font-medium ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Split Margins</Label>
+                    <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>Separate margins for internal vs vendor costs</p>
                   </div>
                   <Switch
                     checked={calcData.use_split_margins}
@@ -719,7 +719,7 @@ export default function Calculator() {
                 {calcData.use_split_margins ? (
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label className="text-neutral-400 text-sm flex items-center gap-2">
+                      <Label className={`text-sm flex items-center gap-2 ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`}>
                         <div className="w-2 h-2 rounded-full bg-blue-500"></div>
                         Internal Margin %
                       </Label>
@@ -727,12 +727,12 @@ export default function Calculator() {
                         type="number"
                         value={calcData.internal_margin_percent}
                         onChange={(e) => setCalcData(p => ({ ...p, internal_margin_percent: parseFloat(e.target.value) || 0 }))}
-                        className="mt-1.5 bg-neutral-950 border-neutral-800 text-white font-mono"
+                        className={`mt-1.5 font-mono ${isDarkMode ? 'bg-neutral-950 border-neutral-800 text-white' : 'bg-white border-slate-300 text-slate-900'}`}
                         data-testid="internal-margin-input"
                       />
                     </div>
                     <div>
-                      <Label className="text-neutral-400 text-sm flex items-center gap-2">
+                      <Label className={`text-sm flex items-center gap-2 ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`}>
                         <div className="w-2 h-2 rounded-full bg-amber-500"></div>
                         Vendor Margin %
                       </Label>
@@ -740,19 +740,19 @@ export default function Calculator() {
                         type="number"
                         value={calcData.vendor_margin_percent}
                         onChange={(e) => setCalcData(p => ({ ...p, vendor_margin_percent: parseFloat(e.target.value) || 0 }))}
-                        className="mt-1.5 bg-neutral-950 border-neutral-800 text-white font-mono"
+                        className={`mt-1.5 font-mono ${isDarkMode ? 'bg-neutral-950 border-neutral-800 text-white' : 'bg-white border-slate-300 text-slate-900'}`}
                         data-testid="vendor-margin-input"
                       />
                     </div>
                   </div>
                 ) : (
                   <div>
-                    <Label className="text-neutral-400 text-sm">Target Margin %</Label>
+                    <Label className={`text-sm ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`}>Target Margin %</Label>
                     <Input
                       type="number"
                       value={calcData.target_margin_percent}
                       onChange={(e) => setCalcData(p => ({ ...p, target_margin_percent: parseFloat(e.target.value) || 0 }))}
-                      className="mt-1.5 bg-neutral-950 border-neutral-800 text-white font-mono max-w-xs"
+                      className={`mt-1.5 font-mono max-w-xs ${isDarkMode ? 'bg-neutral-950 border-neutral-800 text-white' : 'bg-white border-slate-300 text-slate-900'}`}
                       data-testid="target-margin-input"
                     />
                   </div>
