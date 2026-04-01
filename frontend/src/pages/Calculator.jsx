@@ -517,7 +517,7 @@ export default function Calculator() {
                   </div>
                   <Button 
                     onClick={addTeamMember} 
-                    className={`font-semibold ${isDarkMode ? 'bg-white text-neutral-900 hover:bg-neutral-200' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
+                    className={`font-semibold ${isDarkMode ? 'bg-white text-neutral-900 hover:bg-neutral-200' : 'bg-slate-900 text-white hover:bg-slate-800'}`}
                     data-testid="add-team-member-btn"
                   >
                     <Plus className="w-4 h-4 mr-2" />
@@ -611,7 +611,7 @@ export default function Calculator() {
                   </div>
                   <Button 
                     onClick={addVendor} 
-                    className={`font-semibold ${isDarkMode ? 'bg-white text-neutral-900 hover:bg-neutral-200' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
+                    className={`font-semibold ${isDarkMode ? 'bg-white text-neutral-900 hover:bg-neutral-200' : 'bg-slate-900 text-white hover:bg-slate-800'}`}
                     data-testid="add-vendor-btn"
                   >
                     <Plus className="w-4 h-4 mr-2" />
@@ -879,9 +879,9 @@ export default function Calculator() {
             </div>
 
             {/* Final Price */}
-            <div className="p-4 bg-indigo-600 rounded-xl mb-6">
+            <div className={`p-4 rounded-xl mb-6 ${isDarkMode ? 'bg-emerald-600' : 'bg-emerald-600'}`}>
               <div className="flex justify-between items-center">
-                <span className="text-indigo-100">Selling Price</span>
+                <span className="text-emerald-100">Selling Price</span>
                 <span className="text-2xl font-bold text-white font-mono" data-testid="selling-price">
                   {formatCurrency(results?.selling_price || 0)}
                 </span>
