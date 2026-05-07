@@ -17,7 +17,8 @@ export default function TeamMemberRow({
   onUpdate, 
   onRemove,
   onRolesRefresh,
-  darkMode = false
+  darkMode = false,
+  secondedMarkupPercent = 20  // Default 20% markup for seconded employees
 }) {
   const [showAddRole, setShowAddRole] = useState(false);
   const [newRole, setNewRole] = useState({ name: '', hourly_rate: 0, monthly_salary: 0 });
@@ -49,12 +50,12 @@ export default function TeamMemberRow({
     const quantity = member.quantity || 1;
     
     if (member.employee_type === 'seconded') {
-      // Seconded: (custom_salary + allowance) * (1 + admin_fee%) * utilization * duration
-      const baseCost = (member.custom_salary || 0) + (member.custom_allowance || 0);
-      const withAdminFee = baseCost * (1 + (member.admin_fee_percent || 10) / 100);
-      const utilization = (member.utilization_percent || 100) / 100;
+      // Seconded/Per-Project: Use role's monthly salary * (1 + markup%) * duration
+      const role = roles.find(r => r.id === member.role_id);
+      const baseMonthlyCost = role?.total_monthly_cost || role?.monthly_salary || member.monthly_salary || 0;
+      const withMarkup = baseMonthlyCost * (1 + secondedMarkupPercent / 100);
       const duration = member.duration_months || 1;
-      return withAdminFee * utilization * duration * quantity;
+      return withMarkup * duration * quantity;
     } else {
       // Internal employee
       if (member.calc_mode === 'utilization') {
@@ -161,7 +162,7 @@ export default function TeamMemberRow({
                 <SelectItem value="seconded" className={darkMode ? "text-neutral-300" : "text-slate-700"}>
                   <div className="flex items-center gap-2">
                     <UserPlus className="w-4 h-4" />
-                    Seconded / Project
+                    منتدب - Per Project
                   </div>
                 </SelectItem>
               </SelectContent>
@@ -200,62 +201,49 @@ export default function TeamMemberRow({
         {/* Row 2: Input fields based on mode */}
         <div className="grid grid-cols-12 gap-3 items-end">
           {isSeconded ? (
-            // Seconded employee fields
+            // Seconded/Per-Project employee: Use role's monthly salary + markup
             <>
               <div className="col-span-2">
-                <Label className={labelClass}>Monthly Salary</Label>
+                <Label className={labelClass}>Qty</Label>
                 <Input
                   type="number"
+                  min="1"
                   className={`mt-1 ${inputClass}`}
-                  value={member.custom_salary || ''}
-                  onChange={(e) => onUpdate('custom_salary', parseFloat(e.target.value) || 0)}
-                  placeholder="Salary"
+                  value={member.quantity || 1}
+                  onChange={(e) => onUpdate('quantity', parseInt(e.target.value) || 1)}
+                  placeholder="1"
                 />
               </div>
-              <div className="col-span-2">
-                <Label className={labelClass}>Allowance</Label>
-                <Input
-                  type="number"
-                  className={`mt-1 ${inputClass}`}
-                  value={member.custom_allowance || ''}
-                  onChange={(e) => onUpdate('custom_allowance', parseFloat(e.target.value) || 0)}
-                  placeholder="Allowance"
-                />
+              <div className="col-span-3">
+                <Label className={labelClass}>Base Monthly (from DB)</Label>
+                <div className={`text-sm font-mono px-3 py-2 rounded-md border mt-1 ${darkMode ? 'bg-neutral-900 border-neutral-700 text-neutral-300' : 'bg-white border-slate-200 text-slate-600'}`}>
+                  {formatCurrency(roles.find(r => r.id === member.role_id)?.total_monthly_cost || roles.find(r => r.id === member.role_id)?.monthly_salary || 0, false)}
+                </div>
               </div>
               <div className="col-span-2">
-                <Label className={labelClass}>Admin Fee %</Label>
-                <Input
-                  type="number"
-                  className={`mt-1 ${inputClass}`}
-                  value={member.admin_fee_percent || ''}
-                  onChange={(e) => onUpdate('admin_fee_percent', parseFloat(e.target.value) || 0)}
-                  placeholder="%"
-                />
-              </div>
-              <div className="col-span-2">
-                <Label className={labelClass}>Utilization %</Label>
-                <Input
-                  type="number"
-                  className={`mt-1 ${inputClass}`}
-                  value={member.utilization_percent || ''}
-                  onChange={(e) => onUpdate('utilization_percent', parseFloat(e.target.value) || 0)}
-                  placeholder="%"
-                />
+                <Label className={labelClass}>Markup +{secondedMarkupPercent}%</Label>
+                <div className={`text-sm font-mono px-3 py-2 rounded-md border mt-1 ${darkMode ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>
+                  {formatCurrency((roles.find(r => r.id === member.role_id)?.total_monthly_cost || roles.find(r => r.id === member.role_id)?.monthly_salary || 0) * (1 + secondedMarkupPercent / 100), false)}
+                </div>
               </div>
               <div className="col-span-2">
                 <Label className={labelClass}>Duration (months)</Label>
                 <Input
                   type="number"
+                  min="1"
                   className={`mt-1 ${inputClass}`}
-                  value={member.duration_months || ''}
+                  value={member.duration_months || 1}
                   onChange={(e) => onUpdate('duration_months', parseInt(e.target.value) || 1)}
                   placeholder="Months"
                 />
               </div>
-              <div className="col-span-2">
+              <div className="col-span-3">
                 <Label className={labelClass}>Total Cost</Label>
                 <div className={`text-lg font-bold font-mono mt-1 ${resultTextClass}`}>
                   {formatCurrency(cost, false)}
+                </div>
+                <div className={`text-xs ${subtextClass}`}>
+                  {member.quantity || 1} × {member.duration_months || 1} mo × +{secondedMarkupPercent}%
                 </div>
               </div>
             </>

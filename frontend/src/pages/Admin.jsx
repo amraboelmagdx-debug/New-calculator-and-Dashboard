@@ -266,7 +266,8 @@ function RolesHRManager() {
   const [hrConfig, setHrConfig] = useState({
     google_sheets_enabled: false,
     google_sheets_url: '',
-    google_sheets_tab: 'Average Emp. Salary'
+    google_sheets_tab: 'Average Emp. Salary',
+    seconded_markup_percent: 20
   });
   const [savingConfig, setSavingConfig] = useState(false);
   

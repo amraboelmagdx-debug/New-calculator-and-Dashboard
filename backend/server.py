@@ -55,6 +55,8 @@ class HRConfigModel(BaseModel):
     social_insurance_percent: float = 0
     medical_insurance_percent: float = 0
     end_of_service_divisor: float = 0
+    # Seconded/Per-Project markup percentage
+    seconded_markup_percent: float = 20  # Default 20% increase for seconded employees
     # Active fields - Google Sheets Integration
     google_sheets_enabled: bool = False
     google_sheets_url: str = ""
@@ -66,6 +68,8 @@ class HRConfigUpdate(BaseModel):
     social_insurance_percent: Optional[float] = 0
     medical_insurance_percent: Optional[float] = 0
     end_of_service_divisor: Optional[float] = 0
+    # Seconded markup
+    seconded_markup_percent: float = 20
     # Active fields
     google_sheets_enabled: bool = False
     google_sheets_url: str = ""
