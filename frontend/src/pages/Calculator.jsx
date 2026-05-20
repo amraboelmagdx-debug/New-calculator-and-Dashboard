@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,7 +14,7 @@ import {
   Plus, Trash2, Settings, FileText, ChevronDown, ChevronRight,
   Users, Truck, AlertTriangle, TrendingUp, DollarSign, Clock,
   Briefcase, User, Building2, CreditCard, Target, Shield, Zap,
-  LayoutTemplate, Calculator as CalcIcon, Download, Sun, Moon, Save
+  LayoutTemplate, Calculator as CalcIcon, Download, Sun, Moon, Save, BarChart3
 } from 'lucide-react';
 
 import { 
@@ -27,7 +28,8 @@ import {
   calculateSimple, 
   seedDatabase,
   setAdminPassword,
-  getThemeSettings
+  getThemeSettings,
+  fetchProductsPricing
 } from '@/lib/api';
 
 import DepartmentRolePicker from '@/components/DepartmentRolePicker';
@@ -38,6 +40,7 @@ import ExportPDF from '@/components/ExportPDF';
 import { formatCurrency } from '@/lib/utils';
 
 export default function Calculator() {
+  const navigate = useNavigate();
   // Theme state
   const [isDarkMode, setIsDarkMode] = useState(true);
   
@@ -45,6 +48,12 @@ export default function Calculator() {
   const [roles, setRoles] = useState([]);
   const [vendorServices, setVendorServices] = useState([]);
   const [scopeTemplates, setScopeTemplates] = useState([]);
+  const [productsPricingCatalog, setProductsPricingCatalog] = useState([]);
+  const [selectedSection, setSelectedSection] = useState('all');
+  const [selectedProducts, setSelectedProducts] = useState([{ id: `pp-${Date.now()}`, product_name: '', size: 'tiny', quantity: 1 }]);
+  const [productsPricingLoading, setProductsPricingLoading] = useState(false);
+  const [applyProductsDialogOpen, setApplyProductsDialogOpen] = useState(false);
+  const [pendingTeamMembers, setPendingTeamMembers] = useState([]);
   const [paymentTerms, setPaymentTerms] = useState([]);
   const [themeSettings, setThemeSettings] = useState({ company_name: 'ZAN', logo_url: '' });
   const [loading, setLoading] = useState(true);
@@ -102,6 +111,7 @@ export default function Calculator() {
       setScopeTemplates(scopesData);
       setPaymentTerms(termsData);
       setThemeSettings(themeData);
+      await loadProductsPricingCatalog();
 
       if (rolesData.length === 0) {
         toast.info('Seeding sample data...', { duration: 2000 });
@@ -115,6 +125,102 @@ export default function Calculator() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadProductsPricingCatalog = async (forceRefresh = false) => {
+    try {
+      setProductsPricingLoading(true);
+      const result = await fetchProductsPricing(forceRefresh);
+      if (result?.status === 'success') {
+        setProductsPricingCatalog(result.data || []);
+      } else {
+        setProductsPricingCatalog([]);
+      }
+    } catch {
+      setProductsPricingCatalog([]);
+    } finally {
+      setProductsPricingLoading(false);
+    }
+  };
+
+  const normalizeRoleName = (value) => String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+  const findRoleMatch = (sheetRoleName) => {
+    const target = normalizeRoleName(sheetRoleName);
+    const targetCore = target.split(' - ')[0].trim();
+    return roles.find(role => {
+      const roleName = normalizeRoleName(role.name);
+      const roleCore = roleName.split(' - ')[0].trim();
+      return roleName === target || roleCore === targetCore || roleName.includes(targetCore) || target.includes(roleCore);
+    });
+  };
+
+  const buildTeamMembersFromProducts = () => {
+    const validSelections = selectedProducts.filter(item => item.product_name && item.size && (item.quantity || 0) > 0);
+    const roleHoursMap = new Map();
+
+    validSelections.forEach(item => {
+      const product = productsPricingCatalog.find(p => p.product_name === item.product_name);
+      if (!product?.sizes?.[item.size]) return;
+      const qty = Number(item.quantity) || 1;
+      product.sizes[item.size].forEach(roleItem => {
+        const key = normalizeRoleName(roleItem.role_name);
+        const prev = roleHoursMap.get(key) || { role_name: roleItem.role_name, hours: 0 };
+        prev.hours += (Number(roleItem.hours) || 0) * qty;
+        roleHoursMap.set(key, prev);
+      });
+    });
+
+    const unmatched = [];
+    const members = [...roleHoursMap.values()].map(roleData => {
+      const matched = findRoleMatch(roleData.role_name);
+      if (!matched) {
+        unmatched.push(roleData.role_name);
+        return null;
+      }
+      return {
+        id: `tm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        role_id: matched.id,
+        role_name: matched.name,
+        hours: Math.round(roleData.hours * 100) / 100,
+        hourly_rate: matched.hourly_rate || 0,
+        monthly_salary: matched.monthly_salary || 0,
+        utilization_percent: 0,
+        duration_months: 1,
+        calc_mode: 'hours',
+        employee_type: 'internal',
+        quantity: 1,
+      };
+    }).filter(Boolean);
+
+    return { members, unmatched };
+  };
+
+  const sectionOptions = ['all', ...Array.from(new Set((productsPricingCatalog || []).map(p => p.section_name || 'General')))];
+  const filteredProductsCatalog = selectedSection === 'all'
+    ? productsPricingCatalog
+    : productsPricingCatalog.filter(p => (p.section_name || 'General') === selectedSection);
+
+  const applyGeneratedTeam = (mode, generatedMembers) => {
+    setCalcData(prev => ({
+      ...prev,
+      team_members: mode === 'replace'
+        ? generatedMembers
+        : [...prev.team_members, ...generatedMembers]
+    }));
+  };
+
+  const handleApplyProducts = () => {
+    const { members, unmatched } = buildTeamMembersFromProducts();
+    if (members.length === 0) {
+      toast.error('No matching roles were found for selected products.');
+      return;
+    }
+    if (unmatched.length > 0) {
+      toast.warning(`${unmatched.length} roles were not matched and were skipped.`);
+    }
+    setPendingTeamMembers(members);
+    setApplyProductsDialogOpen(true);
   };
 
   // Calculate pricing
@@ -131,12 +237,14 @@ export default function Calculator() {
       // Add financing cost if payment term selected
       if (projectInfo.payment_term_id) {
         const term = paymentTerms.find(t => t.id === projectInfo.payment_term_id);
-        if (term && term.uncovered_percent > 0) {
+        const uncoveredPercent = term?.uncovered_percent ?? Math.max(0, 100 - (term?.advance_percent ?? 0));
+        if (term && uncoveredPercent > 0) {
           const sellingPrice = result.selling_price;
-          const uncoveredAmount = sellingPrice * (term.uncovered_percent / 100);
-          const interestRate = term.interest_rate || 8;
-          const days = term.days_to_payment || 30;
-          const financingCost = uncoveredAmount * (interestRate / 100) * (days / 365);
+          const uncoveredAmount = sellingPrice * (uncoveredPercent / 100);
+          const rawInterestRate = term.interest_rate ?? 0.08;
+          const annualInterestRate = rawInterestRate > 1 ? rawInterestRate / 100 : rawInterestRate;
+          const days = term.days_to_payment ?? term.payment_days ?? 30;
+          const financingCost = uncoveredAmount * annualInterestRate * (days / 365);
           result.financing_cost = Math.round(financingCost * 100) / 100;
           result.contribution_margin -= financingCost;
           result.contribution_margin_percent = (result.contribution_margin / result.selling_price * 100);
@@ -419,10 +527,15 @@ export default function Calculator() {
     }
   };
 
-  // Refresh roles
-  const refreshRoles = async () => {
-    const data = await getRoles();
-    setRoles(data);
+  // Refresh roles from Google Sheets (via /roles when sheets enabled)
+  const refreshRoles = async (forceRefresh = true) => {
+    try {
+      const data = await getRoles(forceRefresh);
+      setRoles(data);
+      toast.success(`Refreshed ${data.length} roles`);
+    } catch {
+      toast.error('Failed to refresh roles');
+    }
   };
 
   // Refresh vendor services
@@ -434,6 +547,7 @@ export default function Calculator() {
   // Navigation sections
   const navSections = [
     { id: 'project', label: 'Project Info', icon: Briefcase },
+    { id: 'products', label: 'Products Builder', icon: LayoutTemplate },
     { id: 'team', label: 'Internal Team', icon: Users },
     { id: 'vendors', label: 'Vendors', icon: Truck },
     { id: 'pricing', label: 'Pricing Settings', icon: Target },
@@ -451,7 +565,7 @@ export default function Calculator() {
   }
 
   return (
-    <div className={`min-h-screen ${isDarkMode ? 'bg-neutral-950' : 'bg-slate-100'}`}>
+    <div className={`min-h-screen ${isDarkMode ? 'bg-neutral-950' : 'light-theme bg-slate-100'}`}>
       {/* Header */}
       <header className={`sticky top-0 z-50 px-6 py-4 ${isDarkMode ? 'glass-header' : 'bg-white border-b border-slate-200 shadow-sm'}`} data-testid="header">
         <div className="max-w-[1600px] mx-auto flex items-center justify-between">
@@ -482,7 +596,7 @@ export default function Calculator() {
               variant="ghost"
               size="sm"
               onClick={() => setIsDarkMode(!isDarkMode)}
-              className={`${isDarkMode ? 'text-neutral-400 hover:text-white hover:bg-neutral-800' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'}`}
+              className={`${isDarkMode ? 'text-neutral-300 hover:text-white hover:bg-neutral-800' : 'text-slate-700 hover:text-slate-950 hover:bg-slate-100'}`}
               data-testid="theme-toggle"
             >
               {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
@@ -498,8 +612,18 @@ export default function Calculator() {
             <Button 
               variant="ghost" 
               size="sm" 
-              className={`${isDarkMode ? 'text-neutral-400 hover:text-white hover:bg-neutral-800' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'}`}
-              onClick={() => window.location.href = '/admin'}
+              className={`${isDarkMode ? 'text-neutral-300 hover:text-white hover:bg-neutral-800' : 'text-slate-700 hover:text-slate-950 hover:bg-slate-100'}`}
+              onClick={() => navigate('/sales-dashboard')}
+              data-testid="sales-dashboard-btn"
+            >
+              <BarChart3 className="w-4 h-4 mr-2" />
+              Sales Dashboard
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className={`${isDarkMode ? 'text-neutral-300 hover:text-white hover:bg-neutral-800' : 'text-slate-700 hover:text-slate-950 hover:bg-slate-100'}`}
+              onClick={() => navigate('/admin')}
               data-testid="admin-btn"
             >
               <Settings className="w-4 h-4 mr-2" />
@@ -559,7 +683,7 @@ export default function Calculator() {
               size="sm"
               onClick={() => setSaveTemplateDialogOpen(true)}
               disabled={calcData.team_members.length === 0 && calcData.vendors.length === 0}
-              className={`w-full gap-2 ${isDarkMode ? 'border-neutral-700 text-neutral-300 hover:bg-neutral-800' : 'border-slate-300 text-slate-700 hover:bg-slate-50'}`}
+              className={`w-full gap-2 ${isDarkMode ? 'border-neutral-700 bg-neutral-900 text-neutral-200 hover:bg-neutral-800 hover:text-white' : 'border-slate-300 bg-white text-slate-800 hover:bg-slate-50 hover:text-slate-950'}`}
               data-testid="save-template-btn"
             >
               <Save className="w-4 h-4" />
@@ -674,6 +798,129 @@ export default function Calculator() {
             </Card>
           </section>
 
+          <section id="products" className="animate-fade-in">
+            <Card className={isDarkMode ? 'dark-card' : 'bg-white border border-slate-200 shadow-sm rounded-xl'}>
+              <CardHeader className="pb-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${isDarkMode ? 'bg-violet-500/10' : 'bg-violet-50'}`}>
+                      <LayoutTemplate className={`w-5 h-5 ${isDarkMode ? 'text-violet-300' : 'text-violet-700'}`} />
+                    </div>
+                    <div>
+                      <CardTitle className={`text-lg ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Products Pricing Builder</CardTitle>
+                      <CardDescription className={isDarkMode ? 'text-neutral-500' : 'text-slate-500'}>
+                        Select product, size, and quantity to auto-generate delivery team hours.
+                      </CardDescription>
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    onClick={() => loadProductsPricingCatalog(true)}
+                    className={isDarkMode ? 'border-neutral-700 text-neutral-200 hover:bg-neutral-800' : 'border-slate-300 text-slate-700 hover:bg-slate-50'}
+                  >
+                    Refresh Sheet
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {selectedProducts.map((item) => {
+                  const product = productsPricingCatalog.find(p => p.product_name === item.product_name);
+                  const sizeOptions = Object.keys(product?.sizes || {});
+                  return (
+                    <div key={item.id} className={`grid grid-cols-12 gap-3 rounded-lg border p-3 ${isDarkMode ? 'border-neutral-700 bg-neutral-900/40' : 'border-slate-200 bg-slate-50/60'}`}>
+                      <div className="col-span-5">
+                        <Label className={isDarkMode ? 'text-neutral-400' : 'text-slate-600'}>Product</Label>
+                        <Select
+                          value={item.product_name}
+                          onValueChange={(value) => setSelectedProducts(prev => prev.map(p => p.id === item.id ? { ...p, product_name: value, size: 'tiny' } : p))}
+                        >
+                          <SelectTrigger className={`mt-1 ${isDarkMode ? 'bg-neutral-950 border-neutral-700 text-white' : 'bg-white border-slate-300 text-slate-800'}`}>
+                            <SelectValue placeholder="Select product" />
+                          </SelectTrigger>
+                          <SelectContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700' : 'bg-white border-slate-200'}>
+                            {filteredProductsCatalog.map(productItem => (
+                              <SelectItem key={`${productItem.section_name}-${productItem.product_name}`} value={productItem.product_name}>
+                                {productItem.product_name} ({productItem.section_name || 'General'})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="col-span-3">
+                        <Label className={isDarkMode ? 'text-neutral-400' : 'text-slate-600'}>Size</Label>
+                        <Select
+                          value={item.size}
+                          onValueChange={(value) => setSelectedProducts(prev => prev.map(p => p.id === item.id ? { ...p, size: value } : p))}
+                        >
+                          <SelectTrigger className={`mt-1 ${isDarkMode ? 'bg-neutral-950 border-neutral-700 text-white' : 'bg-white border-slate-300 text-slate-800'}`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700' : 'bg-white border-slate-200'}>
+                            {(sizeOptions.length ? sizeOptions : ['tiny', 'standard', 'big', 'mega']).map(size => (
+                              <SelectItem key={size} value={size}>{size.toUpperCase()}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="col-span-2">
+                        <Label className={isDarkMode ? 'text-neutral-400' : 'text-slate-600'}>Qty</Label>
+                        <Input
+                          type="number"
+                          min="1"
+                          value={item.quantity}
+                          onChange={(e) => setSelectedProducts(prev => prev.map(p => p.id === item.id ? { ...p, quantity: Math.max(1, parseInt(e.target.value) || 1) } : p))}
+                          className={`mt-1 ${isDarkMode ? 'bg-neutral-950 border-neutral-700 text-white' : 'bg-white border-slate-300 text-slate-800'}`}
+                        />
+                      </div>
+                      <div className="col-span-2 flex items-end justify-end">
+                        <Button
+                          variant="ghost"
+                          onClick={() => setSelectedProducts(prev => prev.length === 1 ? prev : prev.filter(p => p.id !== item.id))}
+                          className={isDarkMode ? 'text-neutral-400 hover:text-red-400' : 'text-slate-500 hover:text-red-600'}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <div className="w-[260px]">
+                    <Select value={selectedSection} onValueChange={setSelectedSection}>
+                      <SelectTrigger className={isDarkMode ? 'border-neutral-700 bg-neutral-900 text-neutral-100' : 'border-slate-300 bg-white text-slate-700'}>
+                        <SelectValue placeholder="Filter by section" />
+                      </SelectTrigger>
+                      <SelectContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700' : 'bg-white border-slate-200'}>
+                        {sectionOptions.map(section => (
+                          <SelectItem key={section} value={section}>
+                            {section === 'all' ? 'All Sections' : section}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button
+                    variant="outline"
+                    onClick={() => setSelectedProducts(prev => [...prev, { id: `pp-${Date.now()}-${prev.length}`, product_name: '', size: 'tiny', quantity: 1 }])}
+                    className={isDarkMode ? 'border-neutral-700 text-neutral-200 hover:bg-neutral-800' : 'border-slate-300 text-slate-700 hover:bg-slate-50'}
+                  >
+                    <Plus className="w-4 h-4 mr-1" />
+                    Add Product
+                  </Button>
+                  <Button
+                    onClick={handleApplyProducts}
+                    disabled={productsPricingLoading || productsPricingCatalog.length === 0}
+                    className="bg-violet-600 hover:bg-violet-700 text-white"
+                  >
+                    Apply to Team
+                  </Button>
+                  {productsPricingLoading && <p className={`text-sm ${isDarkMode ? 'text-neutral-400' : 'text-slate-500'}`}>Loading products pricing...</p>}
+                </div>
+              </CardContent>
+            </Card>
+          </section>
+
           {/* Internal Team Section */}
           <section id="team" className="animate-fade-in">
             <Card className={isDarkMode ? 'dark-card' : 'bg-white border border-slate-200 shadow-sm rounded-xl'} data-testid="team-section">
@@ -688,6 +935,13 @@ export default function Calculator() {
                       <CardDescription className={isDarkMode ? 'text-neutral-500' : 'text-slate-500'}>اختر الموظفين حسب الإدارة</CardDescription>
                     </div>
                   </div>
+                  <Button
+                    variant="outline"
+                    onClick={() => refreshRoles(true)}
+                    className={isDarkMode ? 'border-neutral-700 text-neutral-200 hover:bg-neutral-800' : 'border-slate-300 text-slate-700 hover:bg-slate-50'}
+                  >
+                    Refresh Sheet
+                  </Button>
                 </div>
               </CardHeader>
               <CardContent>
@@ -808,7 +1062,7 @@ export default function Calculator() {
                   </div>
                   <Button 
                     onClick={addVendor} 
-                    className={`font-semibold ${isDarkMode ? 'bg-white text-neutral-900 hover:bg-neutral-200' : 'bg-amber-600 text-white hover:bg-amber-700'}`}
+                    className={`font-semibold shadow-sm ${isDarkMode ? 'bg-amber-400 text-neutral-950 hover:bg-amber-300' : 'bg-amber-600 text-white hover:bg-amber-700'}`}
                     data-testid="add-vendor-btn"
                   >
                     <Plus className="w-4 h-4 mr-2" />
@@ -963,17 +1217,17 @@ export default function Calculator() {
 
         {/* Right Dashboard */}
         <aside className="hidden lg:block sticky top-24 h-[calc(100vh-7rem)]">
-          <div className={`h-full flex flex-col p-6 overflow-y-auto rounded-2xl shadow-xl border ${isDarkMode ? 'bg-neutral-900 border-neutral-800' : 'bg-white border-slate-200'}`} data-testid="dashboard">
+          <div className={`h-full flex flex-col p-6 overflow-y-auto rounded-2xl shadow-xl border ${isDarkMode ? 'bg-neutral-900 border-neutral-800 shadow-black/30' : 'bg-white border-slate-200 shadow-slate-200/70'}`} data-testid="dashboard">
             {/* Revenue & Profit */}
             <div className="mb-6">
               <div className="grid grid-cols-2 gap-4">
-                <div>
+                <div className={`rounded-xl border p-4 ${isDarkMode ? 'bg-neutral-950/60 border-neutral-800' : 'bg-slate-50 border-slate-200'}`}>
                   <p className={`text-xs uppercase tracking-wider ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>Revenue</p>
                   <p className={`text-2xl font-bold font-mono mt-1 ${isDarkMode ? 'text-white' : 'text-slate-900'}`} data-testid="revenue">
                     {results ? formatCurrency(results.selling_price) : 'SAR 0'}
                   </p>
                 </div>
-                <div>
+                <div className={`rounded-xl border p-4 ${isDarkMode ? 'bg-neutral-950/60 border-neutral-800' : 'bg-slate-50 border-slate-200'}`}>
                   <p className={`text-xs uppercase tracking-wider ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>Net Profit</p>
                   <p className={`text-2xl font-bold font-mono mt-1 ${results?.contribution_margin >= 0 ? 'text-emerald-500' : 'text-rose-500'}`} data-testid="profit">
                     {results ? formatCurrency(results.contribution_margin) : 'SAR 0'}
@@ -1076,10 +1330,10 @@ export default function Calculator() {
             </div>
 
             {/* Final Price */}
-            <div className={`p-4 rounded-xl mb-6 ${isDarkMode ? 'bg-emerald-600' : 'bg-emerald-600'}`}>
+            <div className={`p-4 rounded-xl mb-6 border shadow-sm ${isDarkMode ? 'bg-emerald-500/15 border-emerald-500/30' : 'bg-emerald-50 border-emerald-200'}`}>
               <div className="flex justify-between items-center">
-                <span className="text-emerald-100">Selling Price</span>
-                <span className="text-2xl font-bold text-white font-mono" data-testid="selling-price">
+                <span className={isDarkMode ? 'text-emerald-300' : 'text-emerald-800'}>Selling Price</span>
+                <span className={`text-2xl font-bold font-mono ${isDarkMode ? 'text-emerald-100' : 'text-emerald-900'}`} data-testid="selling-price">
                   {formatCurrency(results?.selling_price || 0)}
                 </span>
               </div>
@@ -1186,6 +1440,40 @@ export default function Calculator() {
               data-testid="save-template-confirm-btn"
             >
               {savingTemplate ? 'Saving...' : 'Save Template'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={applyProductsDialogOpen} onOpenChange={setApplyProductsDialogOpen}>
+        <DialogContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700 text-white' : 'bg-white border-slate-200'}>
+          <DialogHeader>
+            <DialogTitle className={isDarkMode ? 'text-white' : 'text-slate-900'}>Apply Generated Team</DialogTitle>
+            <DialogDescription className={isDarkMode ? 'text-neutral-400' : 'text-slate-500'}>
+              Do you want to replace current team members or append generated members?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                applyGeneratedTeam('append', pendingTeamMembers);
+                setApplyProductsDialogOpen(false);
+                toast.success(`Appended ${pendingTeamMembers.length} team members from products pricing.`);
+              }}
+              className={isDarkMode ? 'border-neutral-700 text-neutral-200' : 'border-slate-300 text-slate-700'}
+            >
+              Append
+            </Button>
+            <Button
+              onClick={() => {
+                applyGeneratedTeam('replace', pendingTeamMembers);
+                setApplyProductsDialogOpen(false);
+                toast.success(`Replaced team with ${pendingTeamMembers.length} generated members.`);
+              }}
+              className="bg-violet-600 hover:bg-violet-700 text-white"
+            >
+              Replace
             </Button>
           </DialogFooter>
         </DialogContent>

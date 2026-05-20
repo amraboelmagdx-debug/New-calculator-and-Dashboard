@@ -28,8 +28,8 @@ const adminConfig = () => ({
 });
 
 // ==================== ROLES ====================
-export const getRoles = async () => {
-  const response = await apiClient.get('/roles');
+export const getRoles = async (forceRefresh = false) => {
+  const response = await apiClient.get(`/roles?force_refresh=${forceRefresh}`);
   return response.data;
 };
 
@@ -232,6 +232,11 @@ export const clearSheetsCache = async () => {
   return response.data;
 };
 
+export const fetchProductsPricing = async (forceRefresh = false) => {
+  const response = await apiClient.get(`/sheets/products-pricing?force_refresh=${forceRefresh}`);
+  return response.data;
+};
+
 // Get unique departments from roles
 export const getDepartments = async () => {
   const response = await apiClient.get('/departments');
@@ -358,6 +363,12 @@ export const updateDealSizeRanges = async (ranges) => {
 // ==================== SEED DATA ====================
 export const seedDatabase = async () => {
   const response = await apiClient.post('/seed-data', {}, adminConfig());
+  return response.data;
+};
+
+// ==================== SALES OPERATIONS DASHBOARD ====================
+export const getSalesDashboardData = async (forceRefresh = false) => {
+  const response = await apiClient.get(`/sales-dashboard/data?force_refresh=${forceRefresh}`);
   return response.data;
 };
 

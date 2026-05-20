@@ -4,11 +4,16 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
+import csv
+import io
+import re
+import urllib.parse
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime, timezone
+import httpx
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -39,6 +44,7 @@ class RoleModel(BaseModel):
     end_of_service: float = 0    # Calculated from salary
     medical_insurance: float = 0  # Calculated from salary
     total_monthly_cost: float = 0  # Salary + benefits
+    department: str = ""
     description: str = ""
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -46,6 +52,7 @@ class RoleCreate(BaseModel):
     name: str
     hourly_rate: float
     monthly_salary: float = 0
+    department: str = ""
     description: str = ""
 
 class HRConfigModel(BaseModel):
@@ -61,6 +68,7 @@ class HRConfigModel(BaseModel):
     google_sheets_enabled: bool = False
     google_sheets_url: str = ""
     google_sheets_tab: str = "Average Emp. Salary"  # Tab name in sheet
+    google_sheets_products_tab: str = "Products Pricing"  # New field
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class HRConfigUpdate(BaseModel):
@@ -74,6 +82,7 @@ class HRConfigUpdate(BaseModel):
     google_sheets_enabled: bool = False
     google_sheets_url: str = ""
     google_sheets_tab: str = "Average Emp. Salary"
+    google_sheets_products_tab: str = "Products Pricing"
 
 # Google Sheets cache
 sheets_cache = {
@@ -82,6 +91,529 @@ sheets_cache = {
     "url": None
 }
 CACHE_TTL_SECONDS = 300  # 5 minutes cache
+
+
+def _extract_spreadsheet_id(sheet_url: str) -> str:
+    parts = sheet_url.split("/d/")
+    if len(parts) < 2:
+        raise ValueError("Invalid Google Sheets URL format")
+    return parts[1].split("/")[0].split("#")[0].split("?")[0]
+
+
+def _extract_spreadsheet_gid(sheet_url: str) -> Optional[str]:
+    match = re.search(r"[#?&]gid=(\d+)", sheet_url)
+    return match.group(1) if match else None
+
+
+def _hr_config_from_env() -> Dict[str, Any]:
+    sheet_url = os.environ.get("GOOGLE_SHEETS_URL", "").strip()
+    enabled_raw = os.environ.get("GOOGLE_SHEETS_ENABLED", "").strip().lower()
+    enabled = enabled_raw in ("1", "true", "yes")
+    if sheet_url and enabled_raw == "":
+        enabled = True
+    return {
+        "id": "hr_config",
+        "google_sheets_enabled": enabled,
+        "google_sheets_url": sheet_url,
+        "google_sheets_tab": os.environ.get("GOOGLE_SHEETS_TAB", "Average Emp. Salary"),
+        "google_sheets_products_tab": os.environ.get(
+            "GOOGLE_SHEETS_PRODUCTS_TAB", "Products Pricing"
+        ),
+    }
+
+
+async def _get_hr_config() -> Dict[str, Any]:
+    try:
+        config = await db.hr_config.find_one({}, {"_id": 0})
+        if config:
+            return config
+    except Exception as exc:
+        logger.warning("Could not read hr_config from database: %s", exc)
+    return _hr_config_from_env()
+
+
+async def _fetch_google_sheet_csv(
+    sheet_url: str, tab_name: str = "", gid: str = ""
+) -> str:
+    sheet_id = _extract_spreadsheet_id(sheet_url)
+    gid = (gid or _extract_spreadsheet_gid(sheet_url) or "").strip()
+    tab_name = (tab_name or "").strip()
+
+    urls: List[str] = []
+    if tab_name:
+        encoded_tab = urllib.parse.quote(tab_name)
+        urls.append(
+            f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={encoded_tab}"
+        )
+    if gid:
+        urls.append(
+            f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
+        )
+    if not urls:
+        urls.append(
+            f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv"
+        )
+
+    last_error: Optional[Exception] = None
+    async with httpx.AsyncClient() as client:
+        for csv_url in urls:
+            try:
+                response = await client.get(csv_url, follow_redirects=True, timeout=30)
+                response.raise_for_status()
+                if response.text and response.text.strip():
+                    return response.text
+            except Exception as exc:
+                last_error = exc
+    raise last_error or RuntimeError("Failed to fetch Google Sheet")
+
+
+def _parse_average_salary_rows(content: str) -> List[Dict[str, Any]]:
+    all_rows = list(csv.reader(io.StringIO(content)))
+    data_rows = all_rows[5:] if len(all_rows) > 5 else all_rows
+
+    roles_data: List[Dict[str, Any]] = []
+    for row in data_rows:
+        if not row or len(row) < 4:
+            continue
+
+        role_name = (row[0] or "").strip()
+        department = (row[1] or "").strip() if len(row) > 1 else ""
+        hourly_rate_str = (row[2] or "").strip() if len(row) > 2 else "0"
+        total_monthly_str = (row[3] or "").strip() if len(row) > 3 else "0"
+
+        if not role_name or role_name.lower().startswith("job title"):
+            continue
+
+        try:
+            hourly_rate = float(
+                "".join(c for c in hourly_rate_str if c.isdigit() or c == ".") or "0"
+            )
+            total_monthly = float(
+                "".join(c for c in total_monthly_str if c.isdigit() or c == ".") or "0"
+            )
+        except (ValueError, TypeError):
+            hourly_rate = 0
+            total_monthly = 0
+
+        roles_data.append(
+            {
+                "role_name": role_name,
+                "department": department,
+                "hourly_rate": round(hourly_rate, 2),
+                "total_monthly": round(total_monthly, 2),
+            }
+        )
+
+    return roles_data
+
+
+def _stable_role_id(role_name: str) -> str:
+    normalized = (role_name or "").strip()
+    return str(uuid.uuid5(uuid.NAMESPACE_DNS, f"sheet-role:{normalized}"))
+
+
+def _map_sheet_rows_to_api_roles(
+    sheet_rows: List[Dict[str, Any]], mongo_name_to_id: Dict[str, str]
+) -> List[Dict[str, Any]]:
+    api_roles: List[Dict[str, Any]] = []
+    for row in sheet_rows:
+        role_name = (row.get("role_name") or "").strip()
+        if not role_name:
+            continue
+
+        total_monthly = float(row.get("total_monthly") or 0)
+        hourly_rate = float(row.get("hourly_rate") or 0)
+        if hourly_rate == 0 and total_monthly > 0:
+            hourly_rate = round(total_monthly / 176, 2)
+
+        api_roles.append(
+            {
+                "id": mongo_name_to_id.get(role_name) or _stable_role_id(role_name),
+                "name": role_name,
+                "department": (row.get("department") or "").strip(),
+                "hourly_rate": hourly_rate,
+                "monthly_salary": total_monthly,
+                "total_monthly_cost": total_monthly,
+                "social_insurance": 0,
+                "medical_insurance": 0,
+                "end_of_service": 0,
+                "description": "",
+                "source": "google_sheet",
+            }
+        )
+    return api_roles
+
+
+# ==================== SALES DASHBOARD DATA ====================
+
+SALES_DASHBOARD_SHEET_ID = "1tmeFdbc887Bn7UpsWFLvZpGYnC8huGe8qBetSWYkQYA"
+SALES_DASHBOARD_TABS = {
+    "intake": {"sheet": "Intake_Record", "header_row": 2, "data_row": 3},
+    "qualification": {"sheet": "Opportunities_Qualification", "header_row": 2, "data_row": 3},
+    "pipeline": {"sheet": "BDsMastersheet", "header_row": 0, "data_row": 1},
+    "validation": {"sheet": "Lists_Validation", "header_row": 0, "data_row": 1},
+}
+
+sales_dashboard_cache = {
+    "data": None,
+    "timestamp": None,
+}
+
+
+def _clean_sales_header(header: str) -> str:
+    header = (header or "").replace("\r", " ").replace("\n", " ").strip()
+    header = re.sub(r"^[xyz]\s+", "", header, flags=re.IGNORECASE).strip()
+    if "/" in header:
+        header = header.split("/")[-1].strip()
+    header = re.sub(r"\s+", " ", header)
+    return header
+
+
+def _cell(row: List[str], index: int) -> str:
+    return row[index].strip() if index < len(row) and row[index] is not None else ""
+
+
+def _parse_sales_number(value: Any) -> float:
+    if value is None:
+        return 0.0
+    text = str(value).strip()
+    if not text:
+        return 0.0
+    text = text.replace(",", "").replace("SAR", "").replace("%", "")
+    text = re.sub(r"[^\d.\-]", "", text)
+    try:
+        return float(text) if text else 0.0
+    except ValueError:
+        return 0.0
+
+
+def _extract_products_pricing_rows(content: str) -> List[Dict[str, Any]]:
+    parsed_rows: List[Dict[str, Any]] = []
+    reader = csv.reader(io.StringIO(content))
+    current_section_name = ""
+    current_product_name = ""
+
+    for row in reader:
+        cells = [(cell or "").strip() for cell in row]
+        if not any(cells):
+            continue
+
+        # Section usually appears in column B (index 1)
+        if len(cells) > 1 and cells[1]:
+            section_candidate = re.sub(r"\s+", " ", cells[1]).strip()
+            compact_section = re.sub(r"[^a-zA-Z]", "", section_candidate).lower()
+            if "section" in compact_section:
+                current_section_name = section_candidate
+            elif len(section_candidate) > 4 and not re.search(r"(tiny|standard|big|mega|نطاق)", section_candidate, re.IGNORECASE):
+                # Fallback for sheets where section header is plain text without explicit "section"
+                current_section_name = section_candidate
+
+        # Product title usually appears in column C (index 2)
+        if len(cells) > 2 and cells[2]:
+            product_candidate = re.sub(r"\s+", " ", cells[2]).strip()
+            if not re.search(r"\b(tiny|standard|big|mega)\b", product_candidate, re.IGNORECASE):
+                current_product_name = product_candidate
+
+        size_idx = -1
+        size_value = ""
+        for idx, cell in enumerate(cells):
+            match = re.search(r"\b(tiny|standard|big|mega)\b", cell, re.IGNORECASE)
+            if match:
+                size_idx = idx
+                size_value = match.group(1).lower()
+                break
+
+        if size_idx == -1 or not current_product_name:
+            continue
+
+        roles: List[Dict[str, Any]] = []
+        i = size_idx + 1
+        while i < len(cells) - 1:
+            role_name = re.sub(r"\s+", " ", cells[i]).strip()
+            raw_hours = (cells[i + 1] or "").replace(",", "").strip()
+
+            if role_name:
+                try:
+                    hours = float(raw_hours) if raw_hours else 0.0
+                except ValueError:
+                    hours = 0.0
+                normalized_role = re.sub(r"\s+", " ", role_name).strip().lower()
+                if hours > 0 and "sar" not in normalized_role and role_name != "0":
+                    roles.append({"role_name": role_name, "hours": round(hours, 2)})
+            i += 2
+
+        if roles:
+            parsed_rows.append({
+                "section_name": current_section_name or "General",
+                "product_name": current_product_name,
+                "size": size_value,
+                "roles": roles,
+            })
+
+    return parsed_rows
+
+
+def _derive_section_from_product_name(product_name: str) -> str:
+    text = re.sub(r"\s+", " ", (product_name or "")).strip()
+    if not text:
+        return "General"
+    if ":" in text:
+        left = text.split(":", 1)[0].strip()
+        if left:
+            return left
+    if "-" in text:
+        left = text.split("-", 1)[0].strip()
+        if left and len(left) > 3:
+            return left
+    words = [w for w in text.split(" ") if w]
+    if words:
+        return " ".join(words[:3]).strip()
+    return "General"
+
+
+def _normalize_probability(value: Any) -> float:
+    probability = _parse_sales_number(value)
+    if probability > 1:
+        probability = probability / 100
+    return max(0.0, min(probability, 1.0))
+
+
+def _is_blank_sales_row(row: List[str]) -> bool:
+    return not any((cell or "").strip() for cell in row)
+
+
+def _normalize_sales_rows(kind: str, rows: List[List[str]], header_row: int, data_row: int) -> List[Dict[str, Any]]:
+    headers = rows[header_row] if len(rows) > header_row else []
+    normalized = []
+
+    for row_number, row in enumerate(rows[data_row:], start=data_row + 1):
+        if _is_blank_sales_row(row):
+            continue
+
+        raw = {}
+        for index, value in enumerate(row):
+            if index >= len(headers):
+                continue
+            header = _clean_sales_header(headers[index])
+            if header:
+                raw[header] = value.strip() if value is not None else ""
+
+        if kind == "intake":
+            record = {
+                "row_number": row_number,
+                "intake_id": _cell(row, 0),
+                "creation_date": _cell(row, 1),
+                "created_by": _cell(row, 2),
+                "received_date": _cell(row, 3),
+                "portfolio_name": _cell(row, 4),
+                "entry_type": _cell(row, 5),
+                "lifecycle_stage": _cell(row, 6),
+                "source_category": _cell(row, 7),
+                "referral_name": _cell(row, 8),
+                "organization_name": _cell(row, 9),
+                "person_name": _cell(row, 10),
+                "job_title": _cell(row, 11),
+                "email": _cell(row, 12),
+                "mobile": _cell(row, 13),
+                "country": _cell(row, 14),
+                "followup_status": _cell(row, 15),
+                "next_followup_date": _cell(row, 16),
+                "next_action": _cell(row, 17),
+                "current_outcome": _cell(row, 18),
+                "notes": _cell(row, 19),
+                "converted_date": _cell(row, 20),
+                "raw": raw,
+            }
+            if record["intake_id"]:
+                normalized.append(record)
+
+        elif kind == "qualification":
+            record = {
+                "row_number": row_number,
+                "opportunity_id": _cell(row, 0),
+                "intake_id": _cell(row, 1),
+                "creation_date": _cell(row, 2),
+                "created_by": _cell(row, 3),
+                "portfolio_name": _cell(row, 4),
+                "opportunity_source": _cell(row, 5),
+                "opportunity_type": _cell(row, 6),
+                "person_name": _cell(row, 7),
+                "email": _cell(row, 8),
+                "mobile": _cell(row, 9),
+                "doc_no": _cell(row, 10),
+                "customer_segment": _cell(row, 11),
+                "occasion": _cell(row, 12),
+                "industry": _cell(row, 13),
+                "organization_name": _cell(row, 14),
+                "opportunity_name": _cell(row, 15),
+                "project_services": _cell(row, 16),
+                "scope": _cell(row, 17),
+                "creative_proposal_required": _cell(row, 18),
+                "customer_due_date": _cell(row, 19),
+                "qualification_status": _cell(row, 22),
+                "priority": _cell(row, 23),
+                "bd_rep": _cell(row, 24) or _cell(row, 31),
+                "proposal_deadline": _cell(row, 25) or _cell(row, 26),
+                "notes": _cell(row, 27),
+                "disqualification_reason": _cell(row, 29),
+                "disqualification_reason_description": _cell(row, 30),
+                "assign_opportunity_to_team": _cell(row, 32),
+                "bd_rep_email": _cell(row, 33),
+                "data_audit": _cell(row, 37),
+                "raw": raw,
+            }
+            if record["opportunity_id"] or record["intake_id"]:
+                normalized.append(record)
+
+        elif kind == "pipeline":
+            probability = _normalize_probability(_cell(row, 23))
+            expected_revenue = _parse_sales_number(_cell(row, 22))
+            service_cost = _parse_sales_number(_cell(row, 29))
+            actual_revenue = _parse_sales_number(_cell(row, 39))
+            record = {
+                "row_number": row_number,
+                "opportunity_id": _cell(row, 0),
+                "bd_rep": _cell(row, 1),
+                "qualification_date": _cell(row, 2),
+                "opportunity_source": _cell(row, 3),
+                "person_name": _cell(row, 4),
+                "email": _cell(row, 5),
+                "mobile": _cell(row, 6),
+                "doc_no": _cell(row, 7),
+                "package_link": _cell(row, 8),
+                "customer_segment": _cell(row, 9),
+                "occasion": _cell(row, 10),
+                "industry": _cell(row, 11),
+                "organization_name": _cell(row, 12),
+                "opportunity_name": _cell(row, 13),
+                "project_services": _cell(row, 14),
+                "scope": _cell(row, 15),
+                "creative_proposal_required": _cell(row, 16),
+                "due_date": _cell(row, 17),
+                "proposal_deadline": _cell(row, 18),
+                "award_date": _cell(row, 19),
+                "notes": _cell(row, 20),
+                "opportunity_description": _cell(row, 21),
+                "expected_revenue": expected_revenue,
+                "probability": probability,
+                "opportunity_stage": _cell(row, 24),
+                "proposal_status": _cell(row, 25),
+                "completed_progress": _cell(row, 26),
+                "approval_status": _cell(row, 27),
+                "approval_comments": _cell(row, 28),
+                "service_cost": service_cost,
+                "proposed_project_price": _parse_sales_number(_cell(row, 30)),
+                "expected_profit_margin": _parse_sales_number(_cell(row, 31)),
+                "submission_date": _cell(row, 32),
+                "work_done_today": _cell(row, 33),
+                "planned_next_action": _cell(row, 34),
+                "next_step_date": _cell(row, 35),
+                "support_needed": _cell(row, 36),
+                "close_date": _cell(row, 37),
+                "win_reason": _cell(row, 38),
+                "actual_revenue": actual_revenue,
+                "lost_reason": _cell(row, 40) or _cell(row, 41),
+                "lost_reason_description": _cell(row, 41),
+                "competing_company": _cell(row, 42),
+                "competitor_price": _parse_sales_number(_cell(row, 43)),
+                "blocked_by": _cell(row, 44),
+                "days_on_opportunity": _parse_sales_number(_cell(row, 45)),
+                "last_update_date": _cell(row, 46),
+                "portfolio_name": _cell(row, 47),
+                "weighted_revenue": round(expected_revenue * probability, 2),
+                "raw": raw,
+            }
+            if record["opportunity_id"]:
+                normalized.append(record)
+
+        elif kind == "validation":
+            normalized.append(raw)
+
+    return normalized
+
+
+async def _fetch_sales_dashboard_sheet(kind: str, config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    encoded_sheet = urllib.parse.quote(config["sheet"])
+    url = (
+        f"https://docs.google.com/spreadsheets/d/{SALES_DASHBOARD_SHEET_ID}/gviz/tq"
+        f"?tqx=out:csv&sheet={encoded_sheet}"
+    )
+    async with httpx.AsyncClient() as http_client:
+        response = await http_client.get(url, follow_redirects=True, timeout=30)
+        response.raise_for_status()
+
+    rows = list(csv.reader(io.StringIO(response.text)))
+    return _normalize_sales_rows(kind, rows, config["header_row"], config["data_row"])
+
+
+def _unique_sorted(values: List[str]) -> List[str]:
+    cleaned = sorted({value.strip() for value in values if value and value.strip()})
+    return cleaned
+
+
+@api_router.get("/sales-dashboard/data", response_model=Dict)
+async def get_sales_dashboard_data(force_refresh: bool = False):
+    current_time = datetime.now(timezone.utc)
+    if (
+        not force_refresh
+        and sales_dashboard_cache["data"] is not None
+        and sales_dashboard_cache["timestamp"] is not None
+        and (current_time - sales_dashboard_cache["timestamp"]).total_seconds() < CACHE_TTL_SECONDS
+    ):
+        return sales_dashboard_cache["data"]
+
+    try:
+        data = {}
+        for kind, config in SALES_DASHBOARD_TABS.items():
+            data[kind] = await _fetch_sales_dashboard_sheet(kind, config)
+
+        options = {
+            "portfolio_names": _unique_sorted(
+                [r.get("portfolio_name", "") for r in data["intake"]]
+                + [r.get("portfolio_name", "") for r in data["qualification"]]
+                + [r.get("portfolio_name", "") for r in data["pipeline"]]
+            ),
+            "bd_reps": _unique_sorted(
+                [r.get("bd_rep", "") for r in data["qualification"]]
+                + [r.get("bd_rep", "") for r in data["pipeline"]]
+            ),
+            "opportunity_stages": _unique_sorted([r.get("opportunity_stage", "") for r in data["pipeline"]]),
+            "source_categories": _unique_sorted(
+                [r.get("source_category", "") for r in data["intake"]]
+                + [r.get("opportunity_source", "") for r in data["qualification"]]
+                + [r.get("opportunity_source", "") for r in data["pipeline"]]
+            ),
+            "customer_segments": _unique_sorted(
+                [r.get("customer_segment", "") for r in data["qualification"]]
+                + [r.get("customer_segment", "") for r in data["pipeline"]]
+            ),
+            "industries": _unique_sorted(
+                [r.get("industry", "") for r in data["qualification"]]
+                + [r.get("industry", "") for r in data["pipeline"]]
+            ),
+            "priorities": _unique_sorted([r.get("priority", "") for r in data["qualification"]]),
+        }
+
+        payload = {
+            **data,
+            "options": options,
+            "source": "google_sheet",
+            "sheet_id": SALES_DASHBOARD_SHEET_ID,
+            "fetched_at": current_time.isoformat(),
+            "counts": {
+                "intake": len(data["intake"]),
+                "qualification": len(data["qualification"]),
+                "pipeline": len(data["pipeline"]),
+                "validation": len(data["validation"]),
+            },
+        }
+        sales_dashboard_cache["data"] = payload
+        sales_dashboard_cache["timestamp"] = current_time
+        return payload
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=400, detail=f"Failed to fetch sales dashboard sheet: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to prepare sales dashboard data: {str(e)}")
 
 # ==================== PRICING GUIDELINES MODELS ====================
 
@@ -336,7 +868,7 @@ class TeamMemberInput(BaseModel):
     # Seconded employee fields
     custom_salary: float = 0
     custom_allowance: float = 0
-    admin_fee_percent: float = 10
+    admin_fee_percent: float = 0
 
 class VendorInput(BaseModel):
     service_id: str = ""
@@ -698,8 +1230,20 @@ async def calculate_simple(data: SimpleCalculationInput):
         member_hours = 0
         
         if member.employee_type == 'seconded':
-            base_cost = (member.custom_salary or 0) + (member.custom_allowance or 0)
-            with_admin_fee = base_cost * (1 + (member.admin_fee_percent or 10) / 100)
+            role = await db.roles.find_one({"id": member.role_id}, {"_id": 0})
+            role_monthly_cost = 0
+            if role:
+                role_monthly_cost = (
+                    role.get('total_monthly_cost')
+                    or role.get('monthly_salary')
+                    or 0
+                )
+
+            base_salary = member.custom_salary or role_monthly_cost or member.monthly_salary or 0
+            base_cost = base_salary + (member.custom_allowance or 0)
+            default_seconded_markup = hr_config.get('seconded_markup_percent', 20)
+            admin_fee_percent = member.admin_fee_percent if member.admin_fee_percent > 0 else default_seconded_markup
+            with_admin_fee = base_cost * (1 + admin_fee_percent / 100)
             utilization = (member.utilization_percent or 100) / 100
             duration = member.duration_months or 1
             member_cost = with_admin_fee * utilization * duration
@@ -1218,22 +1762,45 @@ async def root():
 
 # ---------- ROLES ----------
 @api_router.get("/roles", response_model=List[Dict])
-async def get_roles():
-    # Get HR config for benefit calculations
-    hr_config = await db.hr_config.find_one({}, {"_id": 0})
+async def get_roles(force_refresh: bool = False):
+    hr_config = await _get_hr_config()
+    if hr_config.get("google_sheets_enabled") and hr_config.get("google_sheets_url", "").strip():
+        sheets_result = await fetch_roles_from_sheet(force_refresh=force_refresh)
+        if sheets_result.get("status") == "success" and sheets_result.get("data"):
+            mongo_roles = await db.roles.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(1000)
+            name_to_id = {
+                (r.get("name") or "").strip(): r.get("id")
+                for r in mongo_roles
+                if r.get("name")
+            }
+            return _map_sheet_rows_to_api_roles(sheets_result["data"], name_to_id)
+
     if not hr_config:
         hr_config = {"social_insurance_percent": 12, "medical_insurance_percent": 3, "end_of_service_divisor": 2}
-    
+
     roles = await db.roles.find({}, {"_id": 0}).to_list(1000)
-    
-    # Calculate benefits for each role
+
     for role in roles:
-        salary = role.get('monthly_salary', 0)
-        role['social_insurance'] = round(salary * hr_config['social_insurance_percent'] / 100, 2)
-        role['medical_insurance'] = round(salary * hr_config['medical_insurance_percent'] / 100, 2)
-        role['end_of_service'] = round(salary / hr_config['end_of_service_divisor'], 2) if hr_config['end_of_service_divisor'] > 0 else 0
-        role['total_monthly_cost'] = round(salary + role['social_insurance'] + role['medical_insurance'] + role['end_of_service'], 2)
-    
+        salary = role.get("monthly_salary", 0)
+        role["social_insurance"] = round(
+            salary * hr_config.get("social_insurance_percent", 0) / 100, 2
+        )
+        role["medical_insurance"] = round(
+            salary * hr_config.get("medical_insurance_percent", 0) / 100, 2
+        )
+        divisor = hr_config.get("end_of_service_divisor", 0)
+        role["end_of_service"] = (
+            round(salary / divisor, 2) if divisor > 0 else 0
+        )
+        if not role.get("total_monthly_cost"):
+            role["total_monthly_cost"] = round(
+                salary
+                + role["social_insurance"]
+                + role["medical_insurance"]
+                + role["end_of_service"],
+                2,
+            )
+
     return roles
 
 @api_router.post("/roles", response_model=Dict)
@@ -1504,22 +2071,21 @@ async def update_theme_settings(data: ThemeSettingsUpdate, _: bool = Depends(ver
     return await db.theme_settings.find_one({}, {"_id": 0})
 
 # ---------- HR CONFIG ----------
-@api_router.get("/hr-config", response_model=Dict)
+@api_router.get("/hr-config", response_model=HRConfigModel)
 async def get_hr_config():
     config = await db.hr_config.find_one({}, {"_id": 0})
     if not config:
         default = HRConfigModel()
         doc = default.model_dump()
-        doc['updated_at'] = doc['updated_at'].isoformat()
         await db.hr_config.insert_one(doc)
-        return serialize_doc(doc)
+        return doc
     return config
 
-@api_router.put("/hr-config", response_model=Dict)
+@api_router.put("/hr-config", response_model=HRConfigModel)
 async def update_hr_config(data: HRConfigUpdate, _: bool = Depends(verify_admin)):
     update_data = {
         **data.model_dump(),
-        "updated_at": datetime.now(timezone.utc).isoformat()
+        "updated_at": datetime.now(timezone.utc)
     }
     await db.hr_config.update_one({}, {"$set": update_data}, upsert=True)
     return await db.hr_config.find_one({}, {"_id": 0})
@@ -1607,110 +2173,113 @@ async def import_google_sheet(url: str, _: bool = Depends(verify_admin)):
 async def fetch_roles_from_sheet(force_refresh: bool = False):
     """Fetch roles from Google Sheets with caching"""
     global sheets_cache
-    
-    # Get HR config for sheet URL
-    hr_config = await db.hr_config.find_one({"id": "hr_config"}, {"_id": 0})
-    if not hr_config or not hr_config.get("google_sheets_enabled"):
+
+    hr_config = await _get_hr_config()
+    if not hr_config.get("google_sheets_enabled"):
         return {"status": "disabled", "data": [], "source": "sheets_disabled"}
-    
+
     sheet_url = hr_config.get("google_sheets_url", "")
     sheet_tab = hr_config.get("google_sheets_tab", "Average Emp. Salary")
-    
+
     if not sheet_url:
         return {"status": "error", "message": "No Google Sheets URL configured", "data": []}
-    
-    # Check cache
+
     current_time = datetime.now(timezone.utc)
-    if not force_refresh and sheets_cache["data"] is not None and sheets_cache["url"] == sheet_url:
-        if sheets_cache["timestamp"] and (current_time - sheets_cache["timestamp"]).total_seconds() < CACHE_TTL_SECONDS:
-            return {
-                "status": "success", 
-                "data": sheets_cache["data"], 
-                "source": "cache",
-                "cached_at": sheets_cache["timestamp"].isoformat()
-            }
-    
+    cache_key = f"{sheet_url}|{sheet_tab}"
+    if (
+        not force_refresh
+        and sheets_cache["data"] is not None
+        and sheets_cache["url"] == cache_key
+        and sheets_cache["timestamp"]
+        and (current_time - sheets_cache["timestamp"]).total_seconds() < CACHE_TTL_SECONDS
+    ):
+        return {
+            "status": "success",
+            "data": sheets_cache["data"],
+            "source": "cache",
+            "cached_at": sheets_cache["timestamp"].isoformat(),
+        }
+
     try:
-        # Convert Google Sheets URL to CSV export format with specific tab (gid)
-        # URL format: https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit#gid={GID}
-        
-        # Extract sheet ID
-        parts = sheet_url.split('/d/')
-        if len(parts) < 2:
-            raise HTTPException(status_code=400, detail="Invalid Google Sheets URL format")
-        
-        sheet_id = parts[1].split('/')[0].split('#')[0].split('?')[0]
-        
-        # Extract gid from URL if present
-        gid = "912485061"  # Default gid for "Average Emp. Salary" tab
-        if '#gid=' in sheet_url:
-            gid = sheet_url.split('#gid=')[1].split('&')[0]
-        
-        csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
-        
-        async with httpx.AsyncClient() as client:
-            response = await client.get(csv_url, follow_redirects=True, timeout=30)
-            response.raise_for_status()
-        
-        # Parse CSV
-        import csv
-        import io
-        
-        content = response.text
-        lines = content.strip().split('\n')
-        
-        # Skip header rows (rows 1-5), data starts from row 6
-        data_lines = lines[5:] if len(lines) > 5 else []
-        
-        # Parse manually since first rows are headers
-        roles_data = []
-        for line in data_lines:
-            # Parse CSV line
-            reader = csv.reader(io.StringIO(line))
-            row = next(reader, None)
-            if not row or len(row) < 4:
-                continue
-            
-            role_name = row[0].strip() if row[0] else ""
-            department = row[1].strip() if len(row) > 1 and row[1] else ""
-            hourly_rate_str = row[2].strip() if len(row) > 2 and row[2] else "0"
-            total_monthly_str = row[3].strip() if len(row) > 3 and row[3] else "0"
-            
-            if not role_name:
-                continue
-            
-            # Clean and parse numbers
-            try:
-                hourly_rate = float(''.join(c for c in hourly_rate_str if c.isdigit() or c == '.') or '0')
-                total_monthly = float(''.join(c for c in total_monthly_str if c.isdigit() or c == '.') or '0')
-            except (ValueError, TypeError):
-                hourly_rate = 0
-                total_monthly = 0
-            
-            roles_data.append({
-                "role_name": role_name,
-                "department": department,
-                "hourly_rate": round(hourly_rate, 2),
-                "total_monthly": round(total_monthly, 2)
-            })
-        
-        # Update cache
+        content = await _fetch_google_sheet_csv(sheet_url, tab_name=sheet_tab)
+        roles_data = _parse_average_salary_rows(content)
+        if not roles_data:
+            return {
+                "status": "error",
+                "message": f"No role rows found in tab '{sheet_tab}'",
+                "data": [],
+            }
+
         sheets_cache["data"] = roles_data
         sheets_cache["timestamp"] = current_time
-        sheets_cache["url"] = sheet_url
-        
+        sheets_cache["url"] = cache_key
+
         return {
             "status": "success",
             "data": roles_data,
             "source": "live",
             "fetched_at": current_time.isoformat(),
-            "count": len(roles_data)
+            "count": len(roles_data),
+            "tab": sheet_tab,
         }
-        
+
     except httpx.HTTPError as e:
         return {"status": "error", "message": f"Failed to fetch sheet: {str(e)}", "data": []}
     except Exception as e:
         return {"status": "error", "message": f"Error: {str(e)}", "data": []}
+
+
+@api_router.get("/sheets/products-pricing", response_model=Dict)
+async def fetch_products_pricing_from_sheet(force_refresh: bool = False):
+    """Fetch Products Pricing matrix from Google Sheets tab by name."""
+    hr_config = await _get_hr_config()
+    if not hr_config.get("google_sheets_enabled"):
+        return {"status": "disabled", "data": [], "source": "sheets_disabled"}
+
+    sheet_url = hr_config.get("google_sheets_url", "")
+    if not sheet_url:
+        return {"status": "error", "message": "No Google Sheets URL configured", "data": []}
+
+    try:
+        raw_tab_name = hr_config.get("google_sheets_products_tab", "Products Pricing")
+        content = await _fetch_google_sheet_csv(sheet_url, tab_name=raw_tab_name)
+        parsed_rows = _extract_products_pricing_rows(content)
+        if not parsed_rows:
+            return {
+                "status": "error",
+                "message": "No product pricing rows found in Products Pricing tab",
+                "data": [],
+            }
+
+        grouped: Dict[str, Dict[str, Any]] = {}
+        for item in parsed_rows:
+            section_name = item.get("section_name") or "General"
+            if section_name == "General":
+                section_name = _derive_section_from_product_name(item["product_name"])
+            if not section_name or section_name == "General":
+                section_name = "Branding"
+            product_key = f"{section_name}||{item['product_name']}"
+
+            if product_key not in grouped:
+                grouped[product_key] = {
+                    "section_name": section_name,
+                    "product_name": item["product_name"],
+                    "sizes": {},
+                }
+            grouped[product_key]["sizes"][item["size"]] = item["roles"]
+
+        data = sorted(grouped.values(), key=lambda x: x["product_name"].lower())
+        return {
+            "status": "success",
+            "data": data,
+            "source": "live" if force_refresh else "live",
+            "count": len(data),
+        }
+    except httpx.HTTPError as e:
+        return {"status": "error", "message": f"Failed to fetch sheet: {str(e)}", "data": []}
+    except Exception as e:
+        return {"status": "error", "message": f"Error: {str(e)}", "data": []}
+
 
 @api_router.post("/sheets/sync-to-db", response_model=Dict)
 async def sync_sheets_to_database(_: bool = Depends(verify_admin)):

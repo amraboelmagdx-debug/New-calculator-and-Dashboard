@@ -61,6 +61,11 @@ let webpackConfig = {
 };
 
 webpackConfig.devServer = (devServerConfig) => {
+  devServerConfig.historyApiFallback = {
+    disableDotRule: true,
+    index: "/index.html",
+  };
+
   // Add health check endpoints if enabled
   if (config.enableHealthCheck && setupHealthEndpoints && healthPluginInstance) {
     const originalSetupMiddlewares = devServerConfig.setupMiddlewares;
@@ -77,6 +82,22 @@ webpackConfig.devServer = (devServerConfig) => {
       return middlewares;
     };
   }
+
+  const originalSetupMiddlewares = devServerConfig.setupMiddlewares;
+  devServerConfig.setupMiddlewares = (middlewares, devServer) => {
+    if (originalSetupMiddlewares) {
+      middlewares = originalSetupMiddlewares(middlewares, devServer);
+    }
+
+    if (devServer && devServer.app) {
+      const indexPath = path.join(__dirname, "public", "index.html");
+      devServer.app.get(["/sales-dashboard", "/admin", "/admin/*"], (_req, res) => {
+        res.sendFile(indexPath);
+      });
+    }
+
+    return middlewares;
+  };
 
   return devServerConfig;
 };
@@ -96,5 +117,15 @@ if (isDevServer) {
     }
   }
 }
+
+const baseDevServer = webpackConfig.devServer;
+webpackConfig.devServer = (devServerConfig) => {
+  const nextConfig = baseDevServer ? baseDevServer(devServerConfig) : devServerConfig;
+  nextConfig.historyApiFallback = {
+    disableDotRule: true,
+    index: "/index.html",
+  };
+  return nextConfig;
+};
 
 module.exports = webpackConfig;

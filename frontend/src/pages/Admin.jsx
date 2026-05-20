@@ -254,10 +254,12 @@ function RolesHRManager() {
   const [activeTab, setActiveTab] = useState('roles');
   const [roles, setRoles] = useState([]);
   const [sheetsData, setSheetsData] = useState([]);
+  const [productsPricingData, setProductsPricingData] = useState([]);
   const [sheetsStatus, setSheetsStatus] = useState({ source: 'none', fetched_at: null });
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshingProducts, setRefreshingProducts] = useState(false);
   const [editingRole, setEditingRole] = useState(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [formData, setFormData] = useState({ name: '', hourly_rate: 0, monthly_salary: 0, department: '', description: '' });
@@ -267,6 +269,7 @@ function RolesHRManager() {
     google_sheets_enabled: false,
     google_sheets_url: '',
     google_sheets_tab: 'Average Emp. Salary',
+    google_sheets_products_tab: 'Products Pricing',
     seconded_markup_percent: 20
   });
   const [savingConfig, setSavingConfig] = useState(false);
@@ -292,7 +295,8 @@ function RolesHRManager() {
         end_of_service_divisor: config.end_of_service_divisor || 2,
         google_sheets_enabled: config.google_sheets_enabled || false,
         google_sheets_url: config.google_sheets_url || '',
-        google_sheets_tab: config.google_sheets_tab || 'Average Emp. Salary'
+        google_sheets_tab: config.google_sheets_tab || 'Average Emp. Salary',
+        google_sheets_products_tab: config.google_sheets_products_tab || 'Products Pricing'
       });
       
       // Load roles from database
@@ -306,11 +310,34 @@ function RolesHRManager() {
           setSheetsData(sheetsResult.data || []);
           setSheetsStatus({ source: sheetsResult.source, fetched_at: sheetsResult.fetched_at || sheetsResult.cached_at });
         }
+
+        // Also fetch products pricing
+        const productsResult = await fetchProductsPricing(false);
+        if (productsResult.status === 'success') {
+          setProductsPricingData(productsResult.data || []);
+        }
       }
     } catch (error) {
       toast.error('Failed to load data');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRefreshProducts = async () => {
+    setRefreshingProducts(true);
+    try {
+      const result = await fetchProductsPricing(true);
+      if (result.status === 'success') {
+        setProductsPricingData(result.data || []);
+        toast.success(`Refreshed ${result.count} products from Google Sheets`);
+      } else {
+        toast.error(result.message || 'Failed to fetch products');
+      }
+    } catch (error) {
+      toast.error('Failed to refresh products');
+    } finally {
+      setRefreshingProducts(false);
     }
   };
 
@@ -489,7 +516,7 @@ function RolesHRManager() {
                 variant="outline" 
                 onClick={handleRefreshSheets} 
                 disabled={refreshing}
-                className="gap-2"
+                className="gap-2 border-slate-300 bg-white text-slate-700 shadow-sm hover:bg-slate-50 hover:text-slate-950 disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-500"
                 data-testid="refresh-sheets-btn"
               >
                 <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
@@ -499,7 +526,7 @@ function RolesHRManager() {
                 variant="outline" 
                 onClick={handleSyncToDb} 
                 disabled={syncing}
-                className="gap-2"
+                className="gap-2 border-slate-300 bg-white text-slate-700 shadow-sm hover:bg-slate-50 hover:text-slate-950 disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-500"
                 data-testid="sync-to-db-btn"
               >
                 <CloudDownload className={`w-4 h-4 ${syncing ? 'animate-pulse' : ''}`} />
@@ -507,7 +534,7 @@ function RolesHRManager() {
               </Button>
             </>
           )}
-          <Button onClick={openCreate} className="gap-2" data-testid="add-role-btn">
+          <Button onClick={openCreate} className="gap-2 bg-indigo-600 text-white shadow-sm hover:bg-indigo-700" data-testid="add-role-btn">
             <Plus className="w-4 h-4" />
             Add Role
           </Button>
@@ -522,7 +549,11 @@ function RolesHRManager() {
           </TabsTrigger>
           <TabsTrigger value="sheets" className="data-[state=active]:bg-white" disabled={!hrConfig.google_sheets_enabled}>
             <FileSpreadsheet className="w-4 h-4 mr-2" />
-            Google Sheets ({filteredSheetsData.length})
+            Roles Sheet ({filteredSheetsData.length})
+          </TabsTrigger>
+          <TabsTrigger value="products" className="data-[state=active]:bg-white" disabled={!hrConfig.google_sheets_enabled}>
+            <Package className="w-4 h-4 mr-2" />
+            Products Sheet ({productsPricingData.length})
           </TabsTrigger>
           <TabsTrigger value="config" className="data-[state=active]:bg-white">
             <Settings2 className="w-4 h-4 mr-2" />
@@ -670,6 +701,69 @@ function RolesHRManager() {
           </Card>
         </TabsContent>
 
+        {/* Products Pricing Sheet Tab */}
+        <TabsContent value="products">
+          <div className="flex items-center justify-between mb-4">
+            <div className="text-sm text-slate-500">
+              Showing products and role hours from <strong>{hrConfig.google_sheets_products_tab}</strong> tab.
+            </div>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={handleRefreshProducts} 
+              disabled={refreshingProducts}
+              className="gap-2"
+            >
+              <RefreshCw className={`w-3 h-3 ${refreshingProducts ? 'animate-spin' : ''}`} />
+              Refresh Products
+            </Button>
+          </div>
+          <Card>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Section</TableHead>
+                  <TableHead>Product Name</TableHead>
+                  <TableHead>Sizes & Roles</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {productsPricingData.map((product, idx) => (
+                  <TableRow key={idx}>
+                    <TableCell>
+                      <Badge variant="outline">{product.section_name}</Badge>
+                    </TableCell>
+                    <TableCell className="font-medium">{product.product_name}</TableCell>
+                    <TableCell>
+                      <div className="space-y-4">
+                        {Object.entries(product.sizes).map(([size, roles]) => (
+                          <div key={size} className="space-y-1">
+                            <div className="text-xs font-bold uppercase text-slate-400">{size}</div>
+                            <div className="flex flex-wrap gap-1">
+                              {roles.map((r, ridx) => (
+                                <Badge key={ridx} variant="secondary" className="text-[10px] bg-indigo-50 text-indigo-700 border-indigo-100">
+                                  {r.role_name}: {r.hours}h
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {productsPricingData.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={3} className="text-center py-8 text-slate-500">
+                      No products found. Check the tab name and refresh.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </Card>
+        </TabsContent>
+
         {/* Configuration Tab */}
         <TabsContent value="config">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -711,12 +805,22 @@ function RolesHRManager() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label>Tab Name</Label>
+                      <Label>Roles Tab Name</Label>
                       <Input
                         value={hrConfig.google_sheets_tab}
                         onChange={(e) => setHrConfig(prev => ({ ...prev, google_sheets_tab: e.target.value }))}
                         placeholder="Average Emp. Salary"
                         data-testid="google-sheets-tab-input"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Products Pricing Tab Name</Label>
+                      <Input
+                        value={hrConfig.google_sheets_products_tab}
+                        onChange={(e) => setHrConfig(prev => ({ ...prev, google_sheets_products_tab: e.target.value }))}
+                        placeholder="Products Pricing"
+                        data-testid="google-sheets-products-tab-input"
                       />
                     </div>
 
@@ -802,8 +906,8 @@ function RolesHRManager() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSaveRole} data-testid="save-role-btn">Save</Button>
+            <Button variant="outline" onClick={() => setIsDialogOpen(false)} className="border-slate-300 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-950">Cancel</Button>
+            <Button onClick={handleSaveRole} className="bg-indigo-600 text-white hover:bg-indigo-700" data-testid="save-role-btn">Save</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
