@@ -237,6 +237,11 @@ export const fetchProductsPricing = async (forceRefresh = false) => {
   return response.data;
 };
 
+export const syncProductsPricingToDb = async () => {
+  const response = await apiClient.post('/sheets/sync-products-to-db', {}, adminConfig());
+  return response.data;
+};
+
 // Get unique departments from roles
 export const getDepartments = async () => {
   const response = await apiClient.get('/departments');

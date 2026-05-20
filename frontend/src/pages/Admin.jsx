@@ -269,7 +269,7 @@ function RolesHRManager() {
     google_sheets_enabled: false,
     google_sheets_url: '',
     google_sheets_tab: 'Average Emp. Salary',
-    google_sheets_products_tab: 'Products Pricing',
+    google_sheets_products_tab: 'Products Pricing Full-DB-V1',
     seconded_markup_percent: 20
   });
   const [savingConfig, setSavingConfig] = useState(false);
@@ -296,7 +296,7 @@ function RolesHRManager() {
         google_sheets_enabled: config.google_sheets_enabled || false,
         google_sheets_url: config.google_sheets_url || '',
         google_sheets_tab: config.google_sheets_tab || 'Average Emp. Salary',
-        google_sheets_products_tab: config.google_sheets_products_tab || 'Products Pricing'
+        google_sheets_products_tab: config.google_sheets_products_tab || 'Products Pricing Full-DB-V1'
       });
       
       // Load roles from database
@@ -819,7 +819,7 @@ function RolesHRManager() {
                       <Input
                         value={hrConfig.google_sheets_products_tab}
                         onChange={(e) => setHrConfig(prev => ({ ...prev, google_sheets_products_tab: e.target.value }))}
-                        placeholder="Products Pricing"
+                        placeholder="Products Pricing Full-DB-V1"
                         data-testid="google-sheets-products-tab-input"
                       />
                     </div>

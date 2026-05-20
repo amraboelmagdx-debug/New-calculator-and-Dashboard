@@ -14,7 +14,7 @@ import {
   Plus, Trash2, Settings, FileText, ChevronDown, ChevronRight,
   Users, Truck, AlertTriangle, TrendingUp, DollarSign, Clock,
   Briefcase, User, Building2, CreditCard, Target, Shield, Zap,
-  LayoutTemplate, Calculator as CalcIcon, Download, Sun, Moon, Save, BarChart3
+  LayoutTemplate, Calculator as CalcIcon, Download, Sun, Moon, Save, BarChart3, Pencil
 } from 'lucide-react';
 
 import { 
@@ -23,6 +23,8 @@ import {
   getProductTemplates, 
   getScopeTemplates,
   createScopeTemplate,
+  updateScopeTemplate,
+  deleteScopeTemplate,
   getPaymentTerms,
   getRiskMultipliers,
   calculateSimple, 
@@ -33,11 +35,32 @@ import {
 } from '@/lib/api';
 
 import DepartmentRolePicker from '@/components/DepartmentRolePicker';
+import ServicePricingDetail from '@/components/ServicePricingDetail';
 
 import TeamMemberRow from '@/components/TeamMemberRow';
 import VendorRow from '@/components/VendorRow';
 import ExportPDF from '@/components/ExportPDF';
 import { formatCurrency } from '@/lib/utils';
+
+function metricAmountSizeClass(formatted) {
+  const len = String(formatted || '').length;
+  if (len > 18) return 'text-sm';
+  if (len > 14) return 'text-base';
+  if (len > 11) return 'text-lg';
+  return 'text-xl';
+}
+
+function DashboardMetricAmount({ value, className = '' }) {
+  const formatted = formatCurrency(value);
+  return (
+    <p
+      className={`font-bold font-mono tabular-nums leading-tight break-words mt-1 min-w-0 ${metricAmountSizeClass(formatted)} ${className}`}
+      title={formatted}
+    >
+      {formatted}
+    </p>
+  );
+}
 
 export default function Calculator() {
   const navigate = useNavigate();
@@ -52,8 +75,12 @@ export default function Calculator() {
   const [selectedSection, setSelectedSection] = useState('all');
   const [selectedProducts, setSelectedProducts] = useState([{ id: `pp-${Date.now()}`, product_name: '', size: 'tiny', quantity: 1 }]);
   const [productsPricingLoading, setProductsPricingLoading] = useState(false);
+  const [productsPricingSyncedAt, setProductsPricingSyncedAt] = useState(null);
+  const [sheetPriceFloorWarning, setSheetPriceFloorWarning] = useState(null);
   const [applyProductsDialogOpen, setApplyProductsDialogOpen] = useState(false);
   const [pendingTeamMembers, setPendingTeamMembers] = useState([]);
+  /** When 'replace', team hours stay in sync with product qty/selection changes */
+  const [productsTeamLink, setProductsTeamLink] = useState(null);
   const [paymentTerms, setPaymentTerms] = useState([]);
   const [themeSettings, setThemeSettings] = useState({ company_name: 'ZAN', logo_url: '' });
   const [loading, setLoading] = useState(true);
@@ -86,9 +113,63 @@ export default function Calculator() {
   
   // Save Template Dialog State
   const [saveTemplateDialogOpen, setSaveTemplateDialogOpen] = useState(false);
+  const [templateDialogMode, setTemplateDialogMode] = useState('create'); // 'create' | 'edit'
+  const [activeTemplateId, setActiveTemplateId] = useState('');
+  const [deleteTemplateDialogOpen, setDeleteTemplateDialogOpen] = useState(false);
+  const [deletingTemplate, setDeletingTemplate] = useState(false);
   const [newTemplateName, setNewTemplateName] = useState('');
   const [newTemplateDescription, setNewTemplateDescription] = useState('');
   const [savingTemplate, setSavingTemplate] = useState(false);
+
+  const hasTemplateSaveContent =
+    calcData.team_members.length > 0 ||
+    calcData.vendors.length > 0 ||
+    selectedProducts.some(p => p.product_name && p.size);
+
+  const buildTemplatePayload = () => {
+    const savedPricingProducts = selectedProducts.filter(p => p.product_name && p.size);
+    return {
+      name: newTemplateName.trim(),
+      description: newTemplateDescription.trim(),
+      scope_type: 'standard',
+      default_products: [],
+      default_roles: calcData.team_members.map(tm => ({
+        role_id: tm.role_id,
+        role_name: tm.role_name,
+        default_hours: tm.hours,
+        hourly_rate: tm.hourly_rate
+      })),
+      default_vendors: calcData.vendors.map(v => ({
+        service_name: v.service_name,
+        default_markup: v.markup_percent
+      })),
+      default_pricing_products: savedPricingProducts.map(p => ({
+        id: p.id,
+        product_name: p.product_name,
+        size: p.size,
+        quantity: p.quantity
+      }))
+    };
+  };
+
+  const openCreateTemplateDialog = () => {
+    setTemplateDialogMode('create');
+    setNewTemplateName('');
+    setNewTemplateDescription('');
+    setSaveTemplateDialogOpen(true);
+  };
+
+  const openEditTemplateDialog = () => {
+    const template = scopeTemplates.find(t => t.id === activeTemplateId);
+    if (!template) {
+      toast.error('اختر قالباً أولاً');
+      return;
+    }
+    setTemplateDialogMode('edit');
+    setNewTemplateName(template.name || '');
+    setNewTemplateDescription(template.description || '');
+    setSaveTemplateDialogOpen(true);
+  };
 
   // Load initial data
   useEffect(() => {
@@ -133,14 +214,47 @@ export default function Calculator() {
       const result = await fetchProductsPricing(forceRefresh);
       if (result?.status === 'success') {
         setProductsPricingCatalog(result.data || []);
+        setProductsPricingSyncedAt(result.synced_at || new Date().toISOString());
+        if (forceRefresh) {
+          const synced = result.synced ?? result.count ?? result.data?.length ?? 0;
+          toast.success(`Synced ${synced} service groups from Google Sheet`);
+        }
       } else {
         setProductsPricingCatalog([]);
+        if (forceRefresh) {
+          toast.error(result?.message || 'Failed to sync products pricing');
+        }
       }
     } catch {
       setProductsPricingCatalog([]);
+      if (forceRefresh) toast.error('Failed to refresh sheet');
     } finally {
       setProductsPricingLoading(false);
     }
+  };
+
+  const findCatalogProduct = (serviceName) => {
+    return productsPricingCatalog.find(
+      p => p.service_name === serviceName || p.product_name === serviceName
+    );
+  };
+
+  const getSegmentPayload = (product, segment) => {
+    if (!product || !segment) return null;
+    return product.segments?.[segment] || null;
+  };
+
+  const getSheetMinimumTotal = () => {
+    let sum = 0;
+    selectedProducts.forEach(item => {
+      if (!item.product_name || !item.size) return;
+      const product = findCatalogProduct(item.product_name);
+      const seg = getSegmentPayload(product, item.size);
+      if (!seg) return;
+      const qty = Number(item.quantity) || 1;
+      sum += (Number(seg.base_minimum_selling_price) || 0) * qty;
+    });
+    return sum;
   };
 
   const normalizeRoleName = (value) => String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -155,15 +269,22 @@ export default function Calculator() {
     });
   };
 
-  const buildTeamMembersFromProducts = () => {
+  const buildTeamMembersFromProducts = useCallback((existingMembers = []) => {
     const validSelections = selectedProducts.filter(item => item.product_name && item.size && (item.quantity || 0) > 0);
     const roleHoursMap = new Map();
+    const existingByRoleId = new Map(
+      (existingMembers || []).filter(tm => tm.role_id).map(tm => [tm.role_id, tm])
+    );
 
     validSelections.forEach(item => {
-      const product = productsPricingCatalog.find(p => p.product_name === item.product_name);
-      if (!product?.sizes?.[item.size]) return;
+      const product = findCatalogProduct(item.product_name);
+      const seg = getSegmentPayload(product, item.size);
+      const roleList = seg?.internal_roles?.length
+        ? seg.internal_roles
+        : (product?.sizes?.[item.size] || []);
+      if (!roleList.length) return;
       const qty = Number(item.quantity) || 1;
-      product.sizes[item.size].forEach(roleItem => {
+      roleList.forEach(roleItem => {
         const key = normalizeRoleName(roleItem.role_name);
         const prev = roleHoursMap.get(key) || { role_name: roleItem.role_name, hours: 0 };
         prev.hours += (Number(roleItem.hours) || 0) * qty;
@@ -178,28 +299,61 @@ export default function Calculator() {
         unmatched.push(roleData.role_name);
         return null;
       }
+      const hours = Math.round(roleData.hours * 100) / 100;
+      const prior = existingByRoleId.get(matched.id);
       return {
-        id: `tm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        id: prior?.id || `tm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         role_id: matched.id,
         role_name: matched.name,
-        hours: Math.round(roleData.hours * 100) / 100,
+        hours,
         hourly_rate: matched.hourly_rate || 0,
         monthly_salary: matched.monthly_salary || 0,
-        utilization_percent: 0,
-        duration_months: 1,
-        calc_mode: 'hours',
-        employee_type: 'internal',
+        utilization_percent: prior?.utilization_percent ?? 0,
+        duration_months: prior?.duration_months ?? 1,
+        calc_mode: prior?.calc_mode || 'hours',
+        employee_type: prior?.employee_type || 'internal',
         quantity: 1,
       };
     }).filter(Boolean);
 
     return { members, unmatched };
-  };
+  }, [selectedProducts, productsPricingCatalog, roles]);
 
-  const sectionOptions = ['all', ...Array.from(new Set((productsPricingCatalog || []).map(p => p.section_name || 'General')))];
+  const hasValidProductSelections = selectedProducts.some(
+    item => item.product_name && item.size && (Number(item.quantity) || 0) > 0
+  );
+
+  // Auto-sync team from products when qty / service / segment changes (like Internal Team hours)
+  useEffect(() => {
+    if (!hasValidProductSelections) return;
+
+    const timer = setTimeout(() => {
+      setProductsTeamLink('replace');
+      setCalcData(prev => {
+        const { members } = buildTeamMembersFromProducts(prev.team_members);
+        if (members.length === 0) return prev;
+
+        const sameHours =
+          prev.team_members.length === members.length &&
+          members.every(m =>
+            prev.team_members.some(tm => tm.role_id === m.role_id && tm.hours === m.hours)
+          );
+        if (sameHours) return prev;
+        return { ...prev, team_members: members };
+      });
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [selectedProducts, hasValidProductSelections, buildTeamMembersFromProducts]);
+
+  const sectionOptions = ['all', ...Array.from(new Set((productsPricingCatalog || []).map(
+    p => p.service_family || p.section_name || 'General'
+  )))];
   const filteredProductsCatalog = selectedSection === 'all'
     ? productsPricingCatalog
-    : productsPricingCatalog.filter(p => (p.section_name || 'General') === selectedSection);
+    : productsPricingCatalog.filter(
+        p => (p.service_family || p.section_name || 'General') === selectedSection
+      );
 
   const applyGeneratedTeam = (mode, generatedMembers) => {
     setCalcData(prev => ({
@@ -252,13 +406,28 @@ export default function Calculator() {
       }
       
       setResults(result);
+
+      const sheetFloor = getSheetMinimumTotal();
+      if (sheetFloor > 0 && result.selling_price < sheetFloor) {
+        setSheetPriceFloorWarning({
+          selling: result.selling_price,
+          floor: sheetFloor,
+          gap: sheetFloor - result.selling_price,
+        });
+        toast.warning(
+          `Calculated price (${formatCurrency(result.selling_price)}) is below sheet minimum (${formatCurrency(sheetFloor)})`
+        );
+      } else {
+        setSheetPriceFloorWarning(null);
+      }
     } catch (error) {
       console.error('Calculation error:', error);
       toast.error('Calculation failed');
+      setSheetPriceFloorWarning(null);
     } finally {
       setCalculating(false);
     }
-  }, [calcData, projectInfo.payment_term_id, paymentTerms]);
+  }, [calcData, projectInfo.payment_term_id, paymentTerms, selectedProducts, productsPricingCatalog]);
 
   // Auto-calculate on data change
   useEffect(() => {
@@ -270,6 +439,7 @@ export default function Calculator() {
 
   // Team member functions
   const addTeamMember = () => {
+    setProductsTeamLink(null);
     setCalcData(prev => ({
       ...prev,
       team_members: [...prev.team_members, {
@@ -288,6 +458,9 @@ export default function Calculator() {
   };
 
   const updateTeamMember = (index, field, value) => {
+    if (field === 'hours' || field === 'role_id') {
+      setProductsTeamLink(null);
+    }
     setCalcData(prev => {
       const updated = [...prev.team_members];
       updated[index] = { ...updated[index], [field]: value };
@@ -306,6 +479,7 @@ export default function Calculator() {
   };
 
   const removeTeamMember = (index) => {
+    setProductsTeamLink(null);
     setCalcData(prev => ({
       ...prev,
       team_members: prev.team_members.filter((_, i) => i !== index)
@@ -354,6 +528,7 @@ export default function Calculator() {
   const loadScopeTemplate = async (templateId) => {
     const template = scopeTemplates.find(t => t.id === templateId);
     if (!template) return;
+    setActiveTemplateId(templateId);
 
     try {
       let newTeamMembers = [];
@@ -453,18 +628,41 @@ export default function Calculator() {
         risk: { complexity: 'none', rush: 'none', execution: 'none', custom_multiplier: 0 }
       }));
 
-      if (newTeamMembers.length === 0 && newVendors.length === 0) {
+      const pricingProducts = template.default_pricing_products || [];
+      if (newTeamMembers.length === 0 && newVendors.length === 0 && pricingProducts.length === 0) {
         toast.info('لم يتم العثور على وظائف مطابقة في هذا القالب');
         return;
       }
 
+      if (pricingProducts.length > 0) {
+        const restored = pricingProducts.map((p, idx) => ({
+          id: p.id || `pp-${Date.now()}-${idx}`,
+          product_name: p.product_name || '',
+          size: p.size || 'standard',
+          quantity: Math.max(1, Number(p.quantity) || 1),
+        }));
+        setSelectedProducts(restored);
+        const firstName = restored[0]?.product_name;
+        if (firstName) {
+          const catProduct = findCatalogProduct(firstName);
+          const family = catProduct?.service_family || catProduct?.section_name;
+          if (family) setSelectedSection(family);
+        }
+        setProductsTeamLink('replace');
+      }
+
       setCalcData(prev => ({
         ...prev,
-        team_members: [...prev.team_members, ...newTeamMembers],
+        team_members: pricingProducts.length > 0
+          ? (newTeamMembers.length > 0 ? newTeamMembers : [])
+          : [...prev.team_members, ...newTeamMembers],
         vendors: [...prev.vendors, ...newVendors]
       }));
 
-      toast.success(`تم تحميل القالب: ${template.name} (${newTeamMembers.length} وظيفة)`);
+      const parts = [];
+      if (pricingProducts.length > 0) parts.push(`${pricingProducts.length} منتج`);
+      if (newTeamMembers.length > 0) parts.push(`${newTeamMembers.length} وظيفة`);
+      toast.success(`تم تحميل القالب: ${template.name} (${parts.join('، ')})`);
     } catch (error) {
       console.error('Error loading template:', error);
       toast.error('فشل تحميل القالب');
@@ -472,58 +670,62 @@ export default function Calculator() {
   };
 
   // Save current configuration as new template
-  const handleSaveAsTemplate = async () => {
+  const handleSaveTemplate = async () => {
     if (!newTemplateName.trim()) {
       toast.error('يرجى إدخال اسم القالب');
       return;
     }
-    
-    if (calcData.team_members.length === 0 && calcData.vendors.length === 0) {
-      toast.error('يرجى إضافة فريق أو موردين قبل حفظ القالب');
+    if (!hasTemplateSaveContent) {
+      toast.error('يرجى إضافة فريق أو موردين أو منتجات قبل حفظ القالب');
       return;
     }
 
     setSavingTemplate(true);
     try {
-      // Set admin password for API call
       setAdminPassword('Amr123');
-      
-      // Create template with current team members and vendors
-      const templateData = {
-        name: newTemplateName.trim(),
-        description: newTemplateDescription.trim(),
-        scope_type: 'standard',
-        // Store team members as embedded roles data
-        default_products: [],
-        default_roles: calcData.team_members.map(tm => ({
-          role_id: tm.role_id,
-          role_name: tm.role_name,
-          default_hours: tm.hours,
-          hourly_rate: tm.hourly_rate
-        })),
-        default_vendors: calcData.vendors.map(v => ({
-          service_name: v.service_name,
-          default_markup: v.markup_percent
-        }))
-      };
+      const templateData = buildTemplatePayload();
+      const isEdit = templateDialogMode === 'edit' && activeTemplateId;
 
-      await createScopeTemplate(templateData);
-      
-      // Refresh templates list
+      if (isEdit) {
+        await updateScopeTemplate(activeTemplateId, templateData);
+      } else {
+        const created = await createScopeTemplate(templateData);
+        if (created?.id) setActiveTemplateId(created.id);
+      }
+
       const updatedTemplates = await getScopeTemplates();
       setScopeTemplates(updatedTemplates);
-      
-      // Reset dialog
+
       setSaveTemplateDialogOpen(false);
       setNewTemplateName('');
       setNewTemplateDescription('');
-      
-      toast.success(`تم حفظ القالب: ${newTemplateName}`);
+
+      toast.success(isEdit ? `تم تحديث القالب: ${templateData.name}` : `تم حفظ القالب: ${templateData.name}`);
     } catch (error) {
       console.error('Error saving template:', error);
-      toast.error('فشل حفظ القالب');
+      toast.error(templateDialogMode === 'edit' ? 'فشل تحديث القالب' : 'فشل حفظ القالب');
     } finally {
       setSavingTemplate(false);
+    }
+  };
+
+  const handleDeleteTemplate = async () => {
+    if (!activeTemplateId) return;
+    const template = scopeTemplates.find(t => t.id === activeTemplateId);
+    setDeletingTemplate(true);
+    try {
+      setAdminPassword('Amr123');
+      await deleteScopeTemplate(activeTemplateId);
+      const updatedTemplates = await getScopeTemplates();
+      setScopeTemplates(updatedTemplates);
+      setActiveTemplateId('');
+      setDeleteTemplateDialogOpen(false);
+      toast.success(`تم حذف القالب: ${template?.name || ''}`);
+    } catch (error) {
+      console.error('Error deleting template:', error);
+      toast.error('فشل حذف القالب');
+    } finally {
+      setDeletingTemplate(false);
     }
   };
 
@@ -660,10 +862,13 @@ export default function Calculator() {
           <div className={`border-t my-4 ${isDarkMode ? 'border-neutral-800' : 'border-slate-200'}`} />
           
           {/* Template Loader */}
-          <div className="px-2">
-            <Label className={`text-xs uppercase tracking-wider ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>Load Template</Label>
-            <Select onValueChange={loadScopeTemplate}>
-              <SelectTrigger className={`mt-2 text-sm ${isDarkMode ? 'bg-neutral-900 border-neutral-700 text-neutral-300' : 'bg-white border-slate-300 text-slate-700'}`} data-testid="template-select">
+          <div className="px-2 space-y-2">
+            <Label className={`text-xs uppercase tracking-wider ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>Templates</Label>
+            <Select
+              value={activeTemplateId || undefined}
+              onValueChange={loadScopeTemplate}
+            >
+              <SelectTrigger className={`text-sm ${isDarkMode ? 'bg-neutral-900 border-neutral-700 text-neutral-300' : 'bg-white border-slate-300 text-slate-700'}`} data-testid="template-select">
                 <SelectValue placeholder="Choose template..." />
               </SelectTrigger>
               <SelectContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700' : 'bg-white border-slate-200'}>
@@ -674,6 +879,30 @@ export default function Calculator() {
                 ))}
               </SelectContent>
             </Select>
+            {activeTemplateId && (
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={openEditTemplateDialog}
+                  disabled={!hasTemplateSaveContent}
+                  className={`flex-1 gap-1.5 text-xs ${isDarkMode ? 'border-neutral-700 bg-neutral-900 text-neutral-200 hover:bg-neutral-800' : 'border-slate-300 bg-white text-slate-800 hover:bg-slate-50'}`}
+                  data-testid="update-template-btn"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  Update
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setDeleteTemplateDialogOpen(true)}
+                  className={`gap-1.5 text-xs text-rose-500 hover:text-rose-600 ${isDarkMode ? 'border-neutral-700 bg-neutral-900 hover:bg-rose-950/40' : 'border-slate-300 bg-white hover:bg-rose-50'}`}
+                  data-testid="delete-template-btn"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+            )}
           </div>
           
           {/* Save as Template Button */}
@@ -681,8 +910,8 @@ export default function Calculator() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setSaveTemplateDialogOpen(true)}
-              disabled={calcData.team_members.length === 0 && calcData.vendors.length === 0}
+              onClick={openCreateTemplateDialog}
+              disabled={!hasTemplateSaveContent}
               className={`w-full gap-2 ${isDarkMode ? 'border-neutral-700 bg-neutral-900 text-neutral-200 hover:bg-neutral-800 hover:text-white' : 'border-slate-300 bg-white text-slate-800 hover:bg-slate-50 hover:text-slate-950'}`}
               data-testid="save-template-btn"
             >
@@ -809,13 +1038,19 @@ export default function Calculator() {
                     <div>
                       <CardTitle className={`text-lg ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Products Pricing Builder</CardTitle>
                       <CardDescription className={isDarkMode ? 'text-neutral-500' : 'text-slate-500'}>
-                        Select product, size, and quantity to auto-generate delivery team hours.
+                        Select service, segment, and quantity. Refresh syncs Full-DB-V1 from Google Sheet.
                       </CardDescription>
+                      {productsPricingSyncedAt && (
+                        <p className={`text-xs mt-1 ${isDarkMode ? 'text-neutral-500' : 'text-slate-400'}`}>
+                          Last synced: {new Date(productsPricingSyncedAt).toLocaleString()}
+                        </p>
+                      )}
                     </div>
                   </div>
                   <Button
                     variant="outline"
                     onClick={() => loadProductsPricingCatalog(true)}
+                    disabled={productsPricingLoading}
                     className={isDarkMode ? 'border-neutral-700 text-neutral-200 hover:bg-neutral-800' : 'border-slate-300 text-slate-700 hover:bg-slate-50'}
                   >
                     Refresh Sheet
@@ -824,30 +1059,39 @@ export default function Calculator() {
               </CardHeader>
               <CardContent className="space-y-3">
                 {selectedProducts.map((item) => {
-                  const product = productsPricingCatalog.find(p => p.product_name === item.product_name);
-                  const sizeOptions = Object.keys(product?.sizes || {});
+                  const product = findCatalogProduct(item.product_name);
+                  const segmentKeys = Object.keys(product?.segments || product?.sizes || {});
+                  const segmentPayload = getSegmentPayload(product, item.size);
                   return (
                     <div key={item.id} className={`grid grid-cols-12 gap-3 rounded-lg border p-3 ${isDarkMode ? 'border-neutral-700 bg-neutral-900/40' : 'border-slate-200 bg-slate-50/60'}`}>
                       <div className="col-span-5">
-                        <Label className={isDarkMode ? 'text-neutral-400' : 'text-slate-600'}>Product</Label>
+                        <Label className={isDarkMode ? 'text-neutral-400' : 'text-slate-600'}>Service Name</Label>
                         <Select
                           value={item.product_name}
-                          onValueChange={(value) => setSelectedProducts(prev => prev.map(p => p.id === item.id ? { ...p, product_name: value, size: 'tiny' } : p))}
+                          onValueChange={(value) => {
+                            const p = findCatalogProduct(value);
+                            const firstSeg = Object.keys(p?.segments || p?.sizes || {})[0] || 'standard';
+                            setSelectedProducts(prev => prev.map(row => row.id === item.id ? { ...row, product_name: value, size: firstSeg } : row));
+                          }}
                         >
                           <SelectTrigger className={`mt-1 ${isDarkMode ? 'bg-neutral-950 border-neutral-700 text-white' : 'bg-white border-slate-300 text-slate-800'}`}>
-                            <SelectValue placeholder="Select product" />
+                            <SelectValue placeholder="Select service" />
                           </SelectTrigger>
                           <SelectContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700' : 'bg-white border-slate-200'}>
-                            {filteredProductsCatalog.map(productItem => (
-                              <SelectItem key={`${productItem.section_name}-${productItem.product_name}`} value={productItem.product_name}>
-                                {productItem.product_name} ({productItem.section_name || 'General'})
-                              </SelectItem>
-                            ))}
+                            {filteredProductsCatalog.map(productItem => {
+                              const name = productItem.service_name || productItem.product_name;
+                              const fam = productItem.service_family || productItem.section_name || 'General';
+                              return (
+                                <SelectItem key={`${fam}-${name}`} value={name}>
+                                  {name} ({fam})
+                                </SelectItem>
+                              );
+                            })}
                           </SelectContent>
                         </Select>
                       </div>
                       <div className="col-span-3">
-                        <Label className={isDarkMode ? 'text-neutral-400' : 'text-slate-600'}>Size</Label>
+                        <Label className={isDarkMode ? 'text-neutral-400' : 'text-slate-600'}>Segment</Label>
                         <Select
                           value={item.size}
                           onValueChange={(value) => setSelectedProducts(prev => prev.map(p => p.id === item.id ? { ...p, size: value } : p))}
@@ -856,7 +1100,7 @@ export default function Calculator() {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700' : 'bg-white border-slate-200'}>
-                            {(sizeOptions.length ? sizeOptions : ['tiny', 'standard', 'big', 'mega']).map(size => (
+                            {(segmentKeys.length ? segmentKeys : ['tiny', 'standard', 'big', 'mega']).map(size => (
                               <SelectItem key={size} value={size}>{size.toUpperCase()}</SelectItem>
                             ))}
                           </SelectContent>
@@ -881,6 +1125,13 @@ export default function Calculator() {
                           <Trash2 className="w-4 h-4" />
                         </Button>
                       </div>
+                      {item.product_name && item.size && (
+                        <ServicePricingDetail
+                          segmentData={segmentPayload}
+                          quantity={item.quantity}
+                          isDarkMode={isDarkMode}
+                        />
+                      )}
                     </div>
                   );
                 })}
@@ -889,12 +1140,12 @@ export default function Calculator() {
                   <div className="w-[260px]">
                     <Select value={selectedSection} onValueChange={setSelectedSection}>
                       <SelectTrigger className={isDarkMode ? 'border-neutral-700 bg-neutral-900 text-neutral-100' : 'border-slate-300 bg-white text-slate-700'}>
-                        <SelectValue placeholder="Filter by section" />
+                        <SelectValue placeholder="Filter by family" />
                       </SelectTrigger>
                       <SelectContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700' : 'bg-white border-slate-200'}>
                         {sectionOptions.map(section => (
                           <SelectItem key={section} value={section}>
-                            {section === 'all' ? 'All Sections' : section}
+                            {section === 'all' ? 'All Service Families' : section}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -1220,18 +1471,34 @@ export default function Calculator() {
           <div className={`h-full flex flex-col p-6 overflow-y-auto rounded-2xl shadow-xl border ${isDarkMode ? 'bg-neutral-900 border-neutral-800 shadow-black/30' : 'bg-white border-slate-200 shadow-slate-200/70'}`} data-testid="dashboard">
             {/* Revenue & Profit */}
             <div className="mb-6">
-              <div className="grid grid-cols-2 gap-4">
-                <div className={`rounded-xl border p-4 ${isDarkMode ? 'bg-neutral-950/60 border-neutral-800' : 'bg-slate-50 border-slate-200'}`}>
+              <div className="grid grid-cols-1 gap-3">
+                <div className={`rounded-xl border p-4 min-w-0 overflow-hidden ${isDarkMode ? 'bg-neutral-950/60 border-neutral-800' : 'bg-slate-50 border-slate-200'}`}>
                   <p className={`text-xs uppercase tracking-wider ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>Revenue</p>
-                  <p className={`text-2xl font-bold font-mono mt-1 ${isDarkMode ? 'text-white' : 'text-slate-900'}`} data-testid="revenue">
-                    {results ? formatCurrency(results.selling_price) : 'SAR 0'}
-                  </p>
+                  {results ? (
+                    <div data-testid="revenue">
+                      <DashboardMetricAmount value={results.selling_price} className={isDarkMode ? 'text-white' : 'text-slate-900'} />
+                    </div>
+                  ) : (
+                    <p className={`text-xl font-bold font-mono mt-1 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>SAR 0</p>
+                  )}
+                  {sheetPriceFloorWarning && (
+                    <Badge className="mt-2 max-w-full whitespace-normal text-left bg-amber-500/20 text-amber-600 border-amber-500/40">
+                      Below sheet min (O): {formatCurrency(sheetPriceFloorWarning.floor)}
+                    </Badge>
+                  )}
                 </div>
-                <div className={`rounded-xl border p-4 ${isDarkMode ? 'bg-neutral-950/60 border-neutral-800' : 'bg-slate-50 border-slate-200'}`}>
+                <div className={`rounded-xl border p-4 min-w-0 overflow-hidden ${isDarkMode ? 'bg-neutral-950/60 border-neutral-800' : 'bg-slate-50 border-slate-200'}`}>
                   <p className={`text-xs uppercase tracking-wider ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>Net Profit</p>
-                  <p className={`text-2xl font-bold font-mono mt-1 ${results?.contribution_margin >= 0 ? 'text-emerald-500' : 'text-rose-500'}`} data-testid="profit">
-                    {results ? formatCurrency(results.contribution_margin) : 'SAR 0'}
-                  </p>
+                  {results ? (
+                    <div data-testid="profit">
+                      <DashboardMetricAmount
+                        value={results.contribution_margin}
+                        className={results.contribution_margin >= 0 ? 'text-emerald-500' : 'text-rose-500'}
+                      />
+                    </div>
+                  ) : (
+                    <p className="text-xl font-bold font-mono mt-1 text-emerald-500">SAR 0</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -1280,21 +1547,21 @@ export default function Calculator() {
             <div className="mb-6">
               <h4 className={`text-xs uppercase tracking-wider mb-3 ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>Cost Breakdown</h4>
               <div className="space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className={isDarkMode ? 'text-neutral-400' : 'text-slate-600'}>Internal Labor</span>
-                  <span className={`font-mono ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{formatCurrency(results?.internal_labor_cost || 0)}</span>
+                <div className="flex justify-between gap-2 text-sm min-w-0">
+                  <span className={`shrink-0 ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`}>Internal Labor</span>
+                  <span className={`font-mono text-right break-words min-w-0 max-w-[58%] tabular-nums ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{formatCurrency(results?.internal_labor_cost || 0)}</span>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className={isDarkMode ? 'text-neutral-400' : 'text-slate-600'}>Vendor Cost</span>
-                  <span className={`font-mono ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{formatCurrency(results?.vendor_cost || 0)}</span>
+                <div className="flex justify-between gap-2 text-sm min-w-0">
+                  <span className={`shrink-0 ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`}>Vendor Cost</span>
+                  <span className={`font-mono text-right break-words min-w-0 max-w-[58%] tabular-nums ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{formatCurrency(results?.vendor_cost || 0)}</span>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className={isDarkMode ? 'text-neutral-400' : 'text-slate-600'}>Overhead</span>
-                  <span className={`font-mono ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{formatCurrency(results?.overhead_cost || 0)}</span>
+                <div className="flex justify-between gap-2 text-sm min-w-0">
+                  <span className={`shrink-0 ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`}>Overhead</span>
+                  <span className={`font-mono text-right break-words min-w-0 max-w-[58%] tabular-nums ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{formatCurrency(results?.overhead_cost || 0)}</span>
                 </div>
-                <div className={`flex justify-between text-sm pt-2 border-t ${isDarkMode ? 'border-neutral-800' : 'border-slate-200'}`}>
-                  <span className={`font-medium ${isDarkMode ? 'text-neutral-300' : 'text-slate-700'}`}>Total COGS</span>
-                  <span className={`font-mono font-medium ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{formatCurrency(results?.cogs || 0)}</span>
+                <div className={`flex justify-between gap-2 text-sm pt-2 border-t min-w-0 ${isDarkMode ? 'border-neutral-800' : 'border-slate-200'}`}>
+                  <span className={`shrink-0 font-medium ${isDarkMode ? 'text-neutral-300' : 'text-slate-700'}`}>Total COGS</span>
+                  <span className={`font-mono font-medium text-right break-words min-w-0 max-w-[58%] tabular-nums ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{formatCurrency(results?.cogs || 0)}</span>
                 </div>
               </div>
             </div>
@@ -1330,12 +1597,15 @@ export default function Calculator() {
             </div>
 
             {/* Final Price */}
-            <div className={`p-4 rounded-xl mb-6 border shadow-sm ${isDarkMode ? 'bg-emerald-500/15 border-emerald-500/30' : 'bg-emerald-50 border-emerald-200'}`}>
-              <div className="flex justify-between items-center">
-                <span className={isDarkMode ? 'text-emerald-300' : 'text-emerald-800'}>Selling Price</span>
-                <span className={`text-2xl font-bold font-mono ${isDarkMode ? 'text-emerald-100' : 'text-emerald-900'}`} data-testid="selling-price">
-                  {formatCurrency(results?.selling_price || 0)}
-                </span>
+            <div className={`p-4 rounded-xl mb-6 border shadow-sm min-w-0 overflow-hidden ${isDarkMode ? 'bg-emerald-500/15 border-emerald-500/30' : 'bg-emerald-50 border-emerald-200'}`}>
+              <div className="flex flex-col gap-1 sm:flex-row sm:justify-between sm:items-start gap-y-1">
+                <span className={`shrink-0 ${isDarkMode ? 'text-emerald-300' : 'text-emerald-800'}`}>Selling Price</span>
+                <div className="min-w-0 sm:text-right" data-testid="selling-price">
+                  <DashboardMetricAmount
+                    value={results?.selling_price || 0}
+                    className={isDarkMode ? 'text-emerald-100' : 'text-emerald-900'}
+                  />
+                </div>
               </div>
             </div>
 
@@ -1385,13 +1655,17 @@ export default function Calculator() {
 
       </div>
 
-      {/* Save as Template Dialog */}
+      {/* Save / Update Template Dialog */}
       <Dialog open={saveTemplateDialogOpen} onOpenChange={setSaveTemplateDialogOpen}>
         <DialogContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700 text-white' : 'bg-white border-slate-200'}>
           <DialogHeader>
-            <DialogTitle className={isDarkMode ? 'text-white' : 'text-slate-900'}>Save as Template</DialogTitle>
+            <DialogTitle className={isDarkMode ? 'text-white' : 'text-slate-900'}>
+              {templateDialogMode === 'edit' ? 'Update Template' : 'Save as Template'}
+            </DialogTitle>
             <DialogDescription className={isDarkMode ? 'text-neutral-400' : 'text-slate-500'}>
-              Save current team and vendor configuration as a reusable template
+              {templateDialogMode === 'edit'
+                ? 'Overwrite the selected template with the current calculator configuration'
+                : 'Save current team, vendors, and products as a reusable template'}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -1420,6 +1694,7 @@ export default function Calculator() {
                 This template will include:
               </p>
               <ul className={`text-sm mt-2 space-y-1 ${isDarkMode ? 'text-neutral-300' : 'text-slate-700'}`}>
+                <li>• {selectedProducts.filter(p => p.product_name && p.size).length} pricing product row(s)</li>
                 <li>• {calcData.team_members.length} team member(s)</li>
                 <li>• {calcData.vendors.length} vendor(s)</li>
               </ul>
@@ -1434,12 +1709,42 @@ export default function Calculator() {
               Cancel
             </Button>
             <Button
-              onClick={handleSaveAsTemplate}
+              onClick={handleSaveTemplate}
               disabled={savingTemplate || !newTemplateName.trim()}
               className="bg-indigo-600 hover:bg-indigo-700 text-white"
               data-testid="save-template-confirm-btn"
             >
-              {savingTemplate ? 'Saving...' : 'Save Template'}
+              {savingTemplate
+                ? (templateDialogMode === 'edit' ? 'Updating...' : 'Saving...')
+                : (templateDialogMode === 'edit' ? 'Update Template' : 'Save Template')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteTemplateDialogOpen} onOpenChange={setDeleteTemplateDialogOpen}>
+        <DialogContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700 text-white' : 'bg-white border-slate-200'}>
+          <DialogHeader>
+            <DialogTitle className={isDarkMode ? 'text-white' : 'text-slate-900'}>Delete Template</DialogTitle>
+            <DialogDescription className={isDarkMode ? 'text-neutral-400' : 'text-slate-500'}>
+              Delete &quot;{scopeTemplates.find(t => t.id === activeTemplateId)?.name || 'this template'}&quot;? This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteTemplateDialogOpen(false)}
+              className={isDarkMode ? 'border-neutral-700 text-neutral-300' : ''}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleDeleteTemplate}
+              disabled={deletingTemplate}
+              className="bg-rose-600 hover:bg-rose-700 text-white"
+              data-testid="delete-template-confirm-btn"
+            >
+              {deletingTemplate ? 'Deleting...' : 'Delete'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1458,6 +1763,7 @@ export default function Calculator() {
               variant="outline"
               onClick={() => {
                 applyGeneratedTeam('append', pendingTeamMembers);
+                setProductsTeamLink(null);
                 setApplyProductsDialogOpen(false);
                 toast.success(`Appended ${pendingTeamMembers.length} team members from products pricing.`);
               }}
@@ -1468,6 +1774,7 @@ export default function Calculator() {
             <Button
               onClick={() => {
                 applyGeneratedTeam('replace', pendingTeamMembers);
+                setProductsTeamLink('replace');
                 setApplyProductsDialogOpen(false);
                 toast.success(`Replaced team with ${pendingTeamMembers.length} generated members.`);
               }}

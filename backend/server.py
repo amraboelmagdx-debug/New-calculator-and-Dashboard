@@ -68,7 +68,7 @@ class HRConfigModel(BaseModel):
     google_sheets_enabled: bool = False
     google_sheets_url: str = ""
     google_sheets_tab: str = "Average Emp. Salary"  # Tab name in sheet
-    google_sheets_products_tab: str = "Products Pricing"  # New field
+    google_sheets_products_tab: str = "Products Pricing Full-DB-V1"
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class HRConfigUpdate(BaseModel):
@@ -82,7 +82,7 @@ class HRConfigUpdate(BaseModel):
     google_sheets_enabled: bool = False
     google_sheets_url: str = ""
     google_sheets_tab: str = "Average Emp. Salary"
-    google_sheets_products_tab: str = "Products Pricing"
+    google_sheets_products_tab: str = "Products Pricing Full-DB-V1"
 
 # Google Sheets cache
 sheets_cache = {
@@ -117,7 +117,7 @@ def _hr_config_from_env() -> Dict[str, Any]:
         "google_sheets_url": sheet_url,
         "google_sheets_tab": os.environ.get("GOOGLE_SHEETS_TAB", "Average Emp. Salary"),
         "google_sheets_products_tab": os.environ.get(
-            "GOOGLE_SHEETS_PRODUCTS_TAB", "Products Pricing"
+            "GOOGLE_SHEETS_PRODUCTS_TAB", "Products Pricing Full-DB-V1"
         ),
     }
 
@@ -351,6 +351,160 @@ def _extract_products_pricing_rows(content: str) -> List[Dict[str, Any]]:
             })
 
     return parsed_rows
+
+
+INTERNAL_ROLES_LINE_RE = re.compile(
+    r"^(.+?)\s*:\s*([\d.,]+)\s*hours?\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _normalize_segment(value: str) -> str:
+    text = (value or "").strip().lower()
+    match = re.search(r"\b(tiny|standard|big|mega)\b", text, re.IGNORECASE)
+    return match.group(1).lower() if match else text
+
+
+def _parse_internal_roles_text(raw_text: str) -> List[Dict[str, Any]]:
+    roles: List[Dict[str, Any]] = []
+    if not raw_text or not str(raw_text).strip():
+        return roles
+    for line in re.split(r"[\r\n]+", str(raw_text)):
+        line = line.strip()
+        if not line:
+            continue
+        match = INTERNAL_ROLES_LINE_RE.match(line)
+        if match:
+            role_name = re.sub(r"\s+", " ", match.group(1)).strip()
+            try:
+                hours = float(match.group(2).replace(",", ""))
+            except ValueError:
+                hours = 0.0
+            if role_name and hours > 0:
+                roles.append({"role_name": role_name, "hours": round(hours, 2)})
+    return roles
+
+
+def _parse_products_pricing_full_db_v1(content: str) -> List[Dict[str, Any]]:
+    """Parse tabular Products Pricing Full-DB-V1 sheet (columns A-T)."""
+    all_rows = list(csv.reader(io.StringIO(content)))
+    if not all_rows:
+        return []
+
+    data_rows = all_rows[1:] if len(all_rows) > 1 else all_rows
+    records: List[Dict[str, Any]] = []
+
+    for row in data_rows:
+        service_name = _cell(row, 2)
+        if not service_name:
+            continue
+        header_like = service_name.lower()
+        if header_like in ("service name", "اسم الخدمة", "product name"):
+            continue
+
+        segment = _normalize_segment(_cell(row, 3))
+        if not segment:
+            continue
+
+        internal_roles_raw = _cell(row, 5)
+        internal_roles = _parse_internal_roles_text(internal_roles_raw)
+        unique_id = _cell(row, 0) or f"{service_name}::{segment}"
+
+        records.append(
+            {
+                "unique_service_id": unique_id,
+                "service_family": _cell(row, 1) or "General",
+                "service_name": service_name,
+                "segment": segment,
+                "execution_mode": _cell(row, 4),
+                "internal_roles_raw": internal_roles_raw,
+                "internal_roles": internal_roles,
+                "direct_cost_per_unit": _parse_sales_number(_cell(row, 6)),
+                "total_team_hours": _parse_sales_number(_cell(row, 7)),
+                "oh_cost_value": _parse_sales_number(_cell(row, 8)),
+                "total_cost": _parse_sales_number(_cell(row, 9)),
+                "minimum_margin_percent": _parse_sales_number(_cell(row, 10)),
+                "minimum_selling_price": _parse_sales_number(_cell(row, 11)),
+                "execution_risk": _cell(row, 12),
+                "risk_multiplier_value": _parse_sales_number(_cell(row, 13)),
+                "base_minimum_selling_price": _parse_sales_number(_cell(row, 14)),
+                "deliverables_description": _cell(row, 15),
+                "modifications_per_phase": _cell(row, 16),
+                "detailed_sheet_url": _cell(row, 18),
+                "references": _cell(row, 19),
+            }
+        )
+
+    return records
+
+
+def _group_services_pricing_for_api(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    grouped: Dict[str, Dict[str, Any]] = {}
+    for record in records:
+        family = record.get("service_family") or "General"
+        name = record.get("service_name") or ""
+        segment = record.get("segment") or "standard"
+        product_key = f"{family}||{name}"
+
+        if product_key not in grouped:
+            grouped[product_key] = {
+                "service_family": family,
+                "service_name": name,
+                "section_name": family,
+                "product_name": name,
+                "segments": {},
+                "sizes": {},
+            }
+
+        segment_payload = {**record}
+        grouped[product_key]["segments"][segment] = segment_payload
+        grouped[product_key]["sizes"][segment] = record.get("internal_roles", [])
+
+    return sorted(grouped.values(), key=lambda x: (x.get("service_family", ""), x.get("service_name", "").lower()))
+
+
+async def _upsert_services_pricing_to_db(records: List[Dict[str, Any]]) -> int:
+    if not records:
+        await db.services_pricing.delete_many({})
+        return 0
+
+    synced_at = datetime.now(timezone.utc).isoformat()
+    await db.services_pricing.delete_many({})
+    docs = []
+    for record in records:
+        doc = {**record, "updated_at": synced_at}
+        docs.append(doc)
+    if docs:
+        await db.services_pricing.insert_many(docs)
+    return len(docs)
+
+
+async def _load_services_pricing_from_db() -> List[Dict[str, Any]]:
+    return await db.services_pricing.find({}, {"_id": 0}).to_list(5000)
+
+
+async def _fetch_and_sync_services_pricing_from_sheet() -> Dict[str, Any]:
+    hr_config = await _get_hr_config()
+    sheet_url = hr_config.get("google_sheets_url", "")
+    raw_tab_name = hr_config.get("google_sheets_products_tab", "Products Pricing Full-DB-V1")
+    content = await _fetch_google_sheet_csv(sheet_url, tab_name=raw_tab_name)
+    records = _parse_products_pricing_full_db_v1(content)
+    if not records:
+        return {
+            "status": "error",
+            "message": f"No service pricing rows found in tab '{raw_tab_name}'",
+            "data": [],
+        }
+    synced = await _upsert_services_pricing_to_db(records)
+    data = _group_services_pricing_for_api(records)
+    return {
+        "status": "success",
+        "data": data,
+        "source": "google_sheet",
+        "synced": synced,
+        "synced_at": datetime.now(timezone.utc).isoformat(),
+        "count": len(data),
+    }
 
 
 def _derive_section_from_product_name(product_name: str) -> str:
@@ -724,6 +878,7 @@ class ScopeTemplateModel(BaseModel):
     default_products: List[str] = []  # product template IDs
     default_roles: List[Dict[str, Any]] = []  # Direct roles with hours (new format)
     default_vendors: List[Dict[str, Any]] = []
+    default_pricing_products: List[Dict[str, Any]] = []  # Products Pricing Builder rows
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class ScopeTemplateCreate(BaseModel):
@@ -733,6 +888,7 @@ class ScopeTemplateCreate(BaseModel):
     default_products: List[str] = []
     default_roles: List[Dict[str, Any]] = []  # Direct roles with hours
     default_vendors: List[Dict[str, Any]] = []
+    default_pricing_products: List[Dict[str, Any]] = []
 
 class VendorServiceModel(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -2231,7 +2387,7 @@ async def fetch_roles_from_sheet(force_refresh: bool = False):
 
 @api_router.get("/sheets/products-pricing", response_model=Dict)
 async def fetch_products_pricing_from_sheet(force_refresh: bool = False):
-    """Fetch Products Pricing matrix from Google Sheets tab by name."""
+    """Fetch services pricing from MongoDB or sync from Google Sheets Full-DB-V1 tab."""
     hr_config = await _get_hr_config()
     if not hr_config.get("google_sheets_enabled"):
         return {"status": "disabled", "data": [], "source": "sheets_disabled"}
@@ -2241,44 +2397,41 @@ async def fetch_products_pricing_from_sheet(force_refresh: bool = False):
         return {"status": "error", "message": "No Google Sheets URL configured", "data": []}
 
     try:
-        raw_tab_name = hr_config.get("google_sheets_products_tab", "Products Pricing")
-        content = await _fetch_google_sheet_csv(sheet_url, tab_name=raw_tab_name)
-        parsed_rows = _extract_products_pricing_rows(content)
-        if not parsed_rows:
-            return {
-                "status": "error",
-                "message": "No product pricing rows found in Products Pricing tab",
-                "data": [],
-            }
+        if force_refresh:
+            return await _fetch_and_sync_services_pricing_from_sheet()
 
-        grouped: Dict[str, Dict[str, Any]] = {}
-        for item in parsed_rows:
-            section_name = item.get("section_name") or "General"
-            if section_name == "General":
-                section_name = _derive_section_from_product_name(item["product_name"])
-            if not section_name or section_name == "General":
-                section_name = "Branding"
-            product_key = f"{section_name}||{item['product_name']}"
+        records = await _load_services_pricing_from_db()
+        if not records:
+            return await _fetch_and_sync_services_pricing_from_sheet()
 
-            if product_key not in grouped:
-                grouped[product_key] = {
-                    "section_name": section_name,
-                    "product_name": item["product_name"],
-                    "sizes": {},
-                }
-            grouped[product_key]["sizes"][item["size"]] = item["roles"]
-
-        data = sorted(grouped.values(), key=lambda x: x["product_name"].lower())
+        data = _group_services_pricing_for_api(records)
+        latest = max((r.get("updated_at") or "") for r in records) if records else None
         return {
             "status": "success",
             "data": data,
-            "source": "live" if force_refresh else "live",
+            "source": "database",
+            "synced_at": latest,
             "count": len(data),
         }
     except httpx.HTTPError as e:
         return {"status": "error", "message": f"Failed to fetch sheet: {str(e)}", "data": []}
     except Exception as e:
         return {"status": "error", "message": f"Error: {str(e)}", "data": []}
+
+
+@api_router.post("/sheets/sync-products-to-db", response_model=Dict)
+async def sync_products_pricing_to_database(_: bool = Depends(verify_admin)):
+    """Sync services pricing from Google Sheets into MongoDB."""
+    hr_config = await _get_hr_config()
+    if not hr_config.get("google_sheets_enabled"):
+        raise HTTPException(status_code=400, detail="Google Sheets integration is disabled")
+    if not hr_config.get("google_sheets_url", "").strip():
+        raise HTTPException(status_code=400, detail="No Google Sheets URL configured")
+
+    result = await _fetch_and_sync_services_pricing_from_sheet()
+    if result.get("status") != "success":
+        raise HTTPException(status_code=400, detail=result.get("message", "Failed to sync products pricing"))
+    return result
 
 
 @api_router.post("/sheets/sync-to-db", response_model=Dict)
