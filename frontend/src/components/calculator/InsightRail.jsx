@@ -22,6 +22,7 @@ export default function InsightRail({
 }) {
   const [cogsOpen, setCogsOpen] = useState(false);
   const [deductionsOpen, setDeductionsOpen] = useState(false);
+  const [marginStackOpen, setMarginStackOpen] = useState(true);
 
   const margin = results?.contribution_margin_percent ?? 0;
   const marginColor =
@@ -100,6 +101,36 @@ export default function InsightRail({
             calcData={calcData}
             isDarkMode={isDarkMode}
           />
+
+          {results?.margin_breakdown?.mode === 'granular' && (
+            <Collapsible open={marginStackOpen} onOpenChange={setMarginStackOpen} className="mb-3">
+              <CollapsibleTrigger
+                className={`flex w-full items-center justify-between py-2 text-sm font-medium ${
+                  isDarkMode ? 'text-neutral-300' : 'text-slate-700'
+                }`}
+              >
+                Margin breakdown
+                <ChevronDown className={`w-4 h-4 transition-transform ${marginStackOpen ? 'rotate-180' : ''}`} />
+              </CollapsibleTrigger>
+              <CollapsibleContent className="space-y-2 pt-1 text-sm">
+                <Row
+                  label="Products"
+                  value={formatCurrency(results.margin_breakdown.products_selling || 0)}
+                  isDarkMode={isDarkMode}
+                />
+                <Row
+                  label="Internal"
+                  value={formatCurrency(results.margin_breakdown.internal?.selling || 0)}
+                  isDarkMode={isDarkMode}
+                />
+                <Row
+                  label="Vendors"
+                  value={formatCurrency(results.margin_breakdown.vendors?.selling || 0)}
+                  isDarkMode={isDarkMode}
+                />
+              </CollapsibleContent>
+            </Collapsible>
+          )}
 
           <Collapsible open={cogsOpen} onOpenChange={setCogsOpen} className="mb-3">
             <CollapsibleTrigger className={`flex w-full items-center justify-between py-2 text-sm font-medium ${isDarkMode ? 'text-neutral-300' : 'text-slate-700'}`}>

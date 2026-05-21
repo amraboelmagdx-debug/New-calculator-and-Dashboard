@@ -1,13 +1,63 @@
 import { useState } from 'react';
 import {
-  Lightbulb, FileEdit, ExternalLink, BookOpen, AlertTriangle
+  Lightbulb, FileEdit, ExternalLink, BookOpen, AlertTriangle, Copy, Check
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger
 } from '@/components/ui/dialog';
+import { toast } from 'sonner';
 import { formatCurrency } from '@/lib/utils';
+
+function SheetTextDialog({ open, onOpenChange, title, text, isDarkMode, trigger }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(String(text || ''));
+      setCopied(true);
+      toast.success('Copied to clipboard');
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error('Could not copy');
+    }
+  };
+
+  const dialogClass = isDarkMode
+    ? 'bg-neutral-900 border-neutral-700 text-white max-w-2xl max-h-[80vh] overflow-y-auto'
+    : 'max-w-2xl max-h-[80vh] overflow-y-auto';
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogContent className={dialogClass}>
+        <DialogHeader className="flex flex-row items-start justify-between gap-3 space-y-0 pr-8">
+          <DialogTitle className="text-left">{title}</DialogTitle>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleCopy}
+            className={`shrink-0 gap-1.5 ${
+              isDarkMode ? 'border-neutral-600 hover:bg-neutral-800' : ''
+            }`}
+          >
+            {copied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+            {copied ? 'Copied' : 'Copy'}
+          </Button>
+        </DialogHeader>
+        <p
+          className={`text-sm whitespace-pre-wrap leading-relaxed ${
+            isDarkMode ? 'text-neutral-300' : 'text-slate-700'
+          }`}
+        >
+          {text}
+        </p>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 function splitUrls(text) {
   if (!text || !String(text).trim()) return [];
@@ -20,6 +70,7 @@ function splitUrls(text) {
 export default function ServicePricingDetail({ segmentData, quantity = 1, isDarkMode }) {
   const [deliverablesOpen, setDeliverablesOpen] = useState(false);
   const [modificationsOpen, setModificationsOpen] = useState(false);
+  const [referencesOpen, setReferencesOpen] = useState(false);
 
   if (!segmentData) return null;
 
@@ -94,8 +145,13 @@ export default function ServicePricingDetail({ segmentData, quantity = 1, isDark
 
       <div className="flex flex-wrap gap-2">
         {segmentData.deliverables_description && (
-          <Dialog open={deliverablesOpen} onOpenChange={setDeliverablesOpen}>
-            <DialogTrigger asChild>
+          <SheetTextDialog
+            open={deliverablesOpen}
+            onOpenChange={setDeliverablesOpen}
+            title="Deliverables Description"
+            text={segmentData.deliverables_description}
+            isDarkMode={isDarkMode}
+            trigger={
               <Button
                 type="button"
                 variant="outline"
@@ -105,21 +161,18 @@ export default function ServicePricingDetail({ segmentData, quantity = 1, isDark
                 <Lightbulb className="w-4 h-4 mr-1" />
                 Deliverables
               </Button>
-            </DialogTrigger>
-            <DialogContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700 text-white max-w-2xl max-h-[80vh] overflow-y-auto' : 'max-w-2xl max-h-[80vh] overflow-y-auto'}>
-              <DialogHeader>
-                <DialogTitle>Deliverables Description</DialogTitle>
-              </DialogHeader>
-              <p className={`text-sm whitespace-pre-wrap leading-relaxed ${isDarkMode ? 'text-neutral-300' : 'text-slate-700'}`}>
-                {segmentData.deliverables_description}
-              </p>
-            </DialogContent>
-          </Dialog>
+            }
+          />
         )}
 
         {segmentData.modifications_per_phase && (
-          <Dialog open={modificationsOpen} onOpenChange={setModificationsOpen}>
-            <DialogTrigger asChild>
+          <SheetTextDialog
+            open={modificationsOpen}
+            onOpenChange={setModificationsOpen}
+            title="Modifications per Phase"
+            text={segmentData.modifications_per_phase}
+            isDarkMode={isDarkMode}
+            trigger={
               <Button
                 type="button"
                 variant="outline"
@@ -129,16 +182,8 @@ export default function ServicePricingDetail({ segmentData, quantity = 1, isDark
                 <FileEdit className="w-4 h-4 mr-1" />
                 Modifications
               </Button>
-            </DialogTrigger>
-            <DialogContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700 text-white max-w-2xl max-h-[80vh] overflow-y-auto' : 'max-w-2xl max-h-[80vh] overflow-y-auto'}>
-              <DialogHeader>
-                <DialogTitle>Modifications per Phase</DialogTitle>
-              </DialogHeader>
-              <p className={`text-sm whitespace-pre-wrap leading-relaxed ${isDarkMode ? 'text-neutral-300' : 'text-slate-700'}`}>
-                {segmentData.modifications_per_phase}
-              </p>
-            </DialogContent>
-          </Dialog>
+            }
+          />
         )}
 
         {sheetUrls.map((url, i) => (
@@ -174,10 +219,24 @@ export default function ServicePricingDetail({ segmentData, quantity = 1, isDark
             </Button>
           ))
         ) : segmentData.references && !refUrls.length ? (
-          <Badge variant="outline" className={chipClass}>
-            <BookOpen className="w-3 h-3 mr-1" />
-            References (text)
-          </Badge>
+          <SheetTextDialog
+            open={referencesOpen}
+            onOpenChange={setReferencesOpen}
+            title="References"
+            text={segmentData.references}
+            isDarkMode={isDarkMode}
+            trigger={
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className={isDarkMode ? 'border-slate-500 text-slate-300' : 'border-slate-300 text-slate-700'}
+              >
+                <BookOpen className="w-4 h-4 mr-1" />
+                References
+              </Button>
+            }
+          />
         ) : null}
       </div>
     </div>

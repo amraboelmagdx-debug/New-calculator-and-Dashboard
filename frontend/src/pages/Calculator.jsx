@@ -60,6 +60,11 @@ import {
   hoursFromUtilization,
   utilizationFromHours,
 } from '@/lib/utils';
+import {
+  buildProductLines,
+  buildProductLinesForApi,
+  MARGIN_MODES,
+} from '@/lib/marginEngine';
 
 export default function Calculator() {
   const navigate = useNavigate();
@@ -110,6 +115,7 @@ export default function Calculator() {
     internal_margin_percent: 30,
     vendor_margin_percent: 15,
     use_split_margins: false,
+    margin_mode: 'unified',
     internal_risk: { complexity: 'none', rush: 'none', execution: 'none', custom_multiplier: 0 },
     vendor_risk: { complexity: 'none', rush: 'none', execution: 'none', custom_multiplier: 0 },
     client_type: 'new',
@@ -167,8 +173,16 @@ export default function Calculator() {
         id: p.id,
         product_name: p.product_name,
         size: p.size,
-        quantity: p.quantity
-      }))
+        quantity: p.quantity,
+        margin_percent: p.margin_percent,
+        margin_source: p.margin_source,
+        locked: p.locked,
+      })),
+      margin_mode: calcData.margin_mode || 'unified',
+      target_margin_percent: calcData.target_margin_percent,
+      internal_margin_percent: calcData.internal_margin_percent,
+      vendor_margin_percent: calcData.vendor_margin_percent,
+      use_split_margins: calcData.use_split_margins,
     };
   };
 
@@ -409,14 +423,31 @@ export default function Calculator() {
 
   // Calculate pricing
   const handleCalculate = useCallback(async () => {
-    if (calcData.team_members.length === 0 && calcData.vendors.length === 0) {
+    const productLines = buildProductLines(
+      selectedProducts,
+      findCatalogProduct,
+      getSegmentPayload,
+      calcData
+    );
+    const marginMode = calcData.margin_mode || MARGIN_MODES.UNIFIED;
+    const hasGranularProducts =
+      marginMode === MARGIN_MODES.GRANULAR && productLines.length > 0;
+    const hasLaborOrVendors =
+      calcData.team_members.length > 0 || calcData.vendors.length > 0;
+
+    if (!hasLaborOrVendors && !hasGranularProducts) {
       setResults(null);
       return;
     }
 
     setCalculating(true);
     try {
-      const result = await calculateSimple(calcData);
+      const payload = {
+        ...calcData,
+        margin_mode: marginMode,
+        product_lines: hasGranularProducts ? buildProductLinesForApi(productLines) : [],
+      };
+      const result = await calculateSimple(payload);
       
       // Add financing cost if payment term selected
       if (projectInfo.payment_term_id) {
@@ -689,6 +720,9 @@ export default function Calculator() {
           product_name: p.product_name || '',
           size: p.size || 'standard',
           quantity: Math.max(1, Number(p.quantity) || 1),
+          margin_percent: p.margin_percent,
+          margin_source: p.margin_source,
+          locked: p.locked,
         }));
         setSelectedProducts(restored);
         const firstName = restored[0]?.product_name;
@@ -705,7 +739,12 @@ export default function Calculator() {
         team_members: pricingProducts.length > 0
           ? (newTeamMembers.length > 0 ? newTeamMembers : [])
           : [...prev.team_members, ...newTeamMembers],
-        vendors: [...prev.vendors, ...newVendors]
+        vendors: [...prev.vendors, ...newVendors],
+        margin_mode: template.margin_mode || prev.margin_mode || 'unified',
+        target_margin_percent: template.target_margin_percent ?? prev.target_margin_percent,
+        internal_margin_percent: template.internal_margin_percent ?? prev.internal_margin_percent,
+        vendor_margin_percent: template.vendor_margin_percent ?? prev.vendor_margin_percent,
+        use_split_margins: template.use_split_margins ?? prev.use_split_margins,
       }));
 
       const parts = [];
@@ -1099,6 +1138,11 @@ export default function Calculator() {
               isDarkMode={isDarkMode}
               calcData={calcData}
               setCalcData={setCalcData}
+              selectedProducts={selectedProducts}
+              setSelectedProducts={setSelectedProducts}
+              findCatalogProduct={findCatalogProduct}
+              getSegmentPayload={getSegmentPayload}
+              results={results}
               vendorServices={vendorServices}
               addVendor={addVendor}
               updateVendor={updateVendor}

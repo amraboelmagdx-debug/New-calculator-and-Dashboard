@@ -23,18 +23,30 @@ export default function IntelligenceAlerts({
   if (results && marginPct < 20 && results.selling_price > 0) {
     const target = 30;
     const bump = Math.max(1, Math.ceil(target - marginPct));
-    const suggested = calcData?.use_split_margins
+    const mode = calcData?.margin_mode || (calcData?.use_split_margins ? 'split' : 'unified');
+    const suggested = mode === 'split' || mode === 'granular'
       ? (calcData.internal_margin_percent || 0) + bump
       : (calcData?.target_margin_percent || 0) + bump;
+    const label = mode === 'split' || mode === 'granular' ? 'internal' : 'target';
     alerts.push({
       key: 'margin',
       tone: 'amber',
       icon: AlertTriangle,
-      message: `Margin is ${marginPct.toFixed(1)}%. Consider raising ${
-        calcData?.use_split_margins ? 'internal' : 'target'
-      } margin to about ${suggested}% to approach ${target}%.`,
+      message: `Margin is ${marginPct.toFixed(1)}%. Consider raising ${label} margin to about ${suggested}% to approach ${target}%.`,
     });
   }
+
+  const productWarnings = (results?.warnings || []).filter(
+    w => w.type === 'product_below_sheet_margin' || w.type === 'product_below_floor'
+  );
+  productWarnings.slice(0, 3).forEach((w, idx) => {
+    alerts.push({
+      key: `product-warn-${idx}`,
+      tone: w.severity === 'error' ? 'amber' : 'amber',
+      icon: AlertTriangle,
+      message: w.message,
+    });
+  });
 
   if (productsTeamLink === 'replace') {
     alerts.push({

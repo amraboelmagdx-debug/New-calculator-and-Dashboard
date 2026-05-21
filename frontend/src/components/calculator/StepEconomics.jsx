@@ -1,19 +1,22 @@
-import { Truck, Target, Shield, Plus } from 'lucide-react';
+import { Truck, Shield, Plus } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import VendorRow from '@/components/VendorRow';
-import StepContinueFooter from './StepContinueFooter';
+import MarginControlCenter from './MarginControlCenter';
 
 export default function StepEconomics({
   isDarkMode,
   calcData,
   setCalcData,
+  selectedProducts,
+  setSelectedProducts,
+  findCatalogProduct,
+  getSegmentPayload,
+  results,
   vendorServices,
   addVendor,
   updateVendor,
@@ -150,108 +153,17 @@ export default function StepEconomics({
       )}
 
       {showPricing && (
-        <section id="pricing" className="animate-fade-in quote-panel-enter">
-          <Card
-            className={isDarkMode ? 'dark-card' : 'bg-white border border-slate-200 shadow-sm rounded-xl'}
-            data-testid="pricing-section"
-          >
-            <CardHeader className="pb-4">
-              <div className="flex items-center gap-3">
-                <div
-                  className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                    isDarkMode ? 'bg-emerald-500/10' : 'bg-emerald-50'
-                  }`}
-                >
-                  <Target className={`w-5 h-5 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`} />
-                </div>
-                <div>
-                  <CardTitle className={`text-lg ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                    Margins & risk
-                  </CardTitle>
-                  <CardDescription className={isDarkMode ? 'text-neutral-500' : 'text-slate-500'}>
-                    Configure margins and pricing strategy
-                  </CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div
-                className={`flex items-center justify-between p-4 rounded-lg mb-4 ${
-                  isDarkMode ? 'bg-neutral-800/50' : 'bg-slate-50 border border-slate-200'
-                }`}
-              >
-                <div>
-                  <Label className={`font-medium ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Split margins</Label>
-                  <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>
-                    Separate margins for internal vs vendor costs
-                  </p>
-                </div>
-                <Switch
-                  checked={calcData.use_split_margins}
-                  onCheckedChange={checked => setCalcData(p => ({ ...p, use_split_margins: checked }))}
-                  data-testid="split-margins-toggle"
-                />
-              </div>
-
-              {calcData.use_split_margins ? (
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label className={`text-sm flex items-center gap-2 ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`}>
-                      <div className="w-2 h-2 rounded-full bg-blue-500" />
-                      Internal margin %
-                    </Label>
-                    <Input
-                      type="number"
-                      value={calcData.internal_margin_percent}
-                      onChange={e =>
-                        setCalcData(p => ({ ...p, internal_margin_percent: parseFloat(e.target.value) || 0 }))
-                      }
-                      className={`mt-1.5 font-mono ${
-                        isDarkMode ? 'bg-neutral-950 border-neutral-800 text-white' : 'bg-white border-slate-300 text-slate-900'
-                      }`}
-                      data-testid="internal-margin-input"
-                    />
-                  </div>
-                  <div>
-                    <Label className={`text-sm flex items-center gap-2 ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`}>
-                      <div className="w-2 h-2 rounded-full bg-amber-500" />
-                      Vendor margin %
-                    </Label>
-                    <Input
-                      type="number"
-                      value={calcData.vendor_margin_percent}
-                      onChange={e =>
-                        setCalcData(p => ({ ...p, vendor_margin_percent: parseFloat(e.target.value) || 0 }))
-                      }
-                      className={`mt-1.5 font-mono ${
-                        isDarkMode ? 'bg-neutral-950 border-neutral-800 text-white' : 'bg-white border-slate-300 text-slate-900'
-                      }`}
-                      data-testid="vendor-margin-input"
-                    />
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <Label className={`text-sm ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`}>Target margin %</Label>
-                  <Input
-                    type="number"
-                    value={calcData.target_margin_percent}
-                    onChange={e =>
-                      setCalcData(p => ({ ...p, target_margin_percent: parseFloat(e.target.value) || 0 }))
-                    }
-                    className={`mt-1.5 font-mono max-w-xs ${
-                      isDarkMode ? 'bg-neutral-950 border-neutral-800 text-white' : 'bg-white border-slate-300 text-slate-900'
-                    }`}
-                    data-testid="target-margin-input"
-                  />
-                </div>
-              )}
-              {onContinueToReview && (
-                <StepContinueFooter label="Continue to Review" onContinue={onContinueToReview} isDarkMode={isDarkMode} />
-              )}
-            </CardContent>
-          </Card>
-        </section>
+        <MarginControlCenter
+          isDarkMode={isDarkMode}
+          calcData={calcData}
+          setCalcData={setCalcData}
+          selectedProducts={selectedProducts}
+          setSelectedProducts={setSelectedProducts}
+          findCatalogProduct={findCatalogProduct}
+          getSegmentPayload={getSegmentPayload}
+          results={results}
+          onContinueToReview={onContinueToReview}
+        />
       )}
     </>
   );

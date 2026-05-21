@@ -39,7 +39,6 @@ export default function VendorRow({
     ? "text-xs text-neutral-400"
     : "text-xs text-slate-500";
   const textClass = darkMode ? "text-white" : "text-slate-900";
-  const subtextClass = darkMode ? "text-neutral-500" : "text-slate-500";
 
   // Calculate totals with quantity
   const quantity = vendor.quantity || 1;
@@ -171,15 +170,19 @@ export default function VendorRow({
               data-testid={`vendor-markup-${index}`}
             />
           </div>
-          <div className="col-span-4">
+          <div className="col-span-2">
+            <Label className={labelClass}>Markup (SAR)</Label>
+            <div
+              className={`text-sm font-mono px-3 py-2 rounded-md border mt-1 ${darkMode ? 'bg-neutral-900 border-neutral-700 text-neutral-300' : 'bg-white border-slate-200 text-slate-600'}`}
+              data-testid={`vendor-markup-amount-${index}`}
+            >
+              {formatCurrency(markupAmount, false)}
+            </div>
+          </div>
+          <div className="col-span-2">
             <Label className={labelClass}>Client Price</Label>
-            <div className={`flex items-center justify-between mt-1`}>
-              <div className={`text-lg font-mono font-bold ${textClass}`}>
-                {formatCurrency(clientPrice, false)}
-              </div>
-              <div className={`text-xs ${subtextClass}`}>
-                +{formatCurrency(markupAmount, false)} markup
-              </div>
+            <div className={`text-lg font-mono font-bold mt-1 ${textClass}`}>
+              {formatCurrency(clientPrice, false)}
             </div>
           </div>
         </div>

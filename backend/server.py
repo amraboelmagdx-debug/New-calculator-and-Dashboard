@@ -899,6 +899,11 @@ class ScopeTemplateModel(BaseModel):
     default_roles: List[Dict[str, Any]] = []  # Direct roles with hours (new format)
     default_vendors: List[Dict[str, Any]] = []
     default_pricing_products: List[Dict[str, Any]] = []  # Products Pricing Builder rows
+    margin_mode: str = "unified"
+    target_margin_percent: float = 30
+    internal_margin_percent: float = 30
+    vendor_margin_percent: float = 15
+    use_split_margins: bool = False
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class ScopeTemplateCreate(BaseModel):
@@ -909,6 +914,11 @@ class ScopeTemplateCreate(BaseModel):
     default_roles: List[Dict[str, Any]] = []  # Direct roles with hours
     default_vendors: List[Dict[str, Any]] = []
     default_pricing_products: List[Dict[str, Any]] = []
+    margin_mode: str = "unified"
+    target_margin_percent: float = 30
+    internal_margin_percent: float = 30
+    vendor_margin_percent: float = 15
+    use_split_margins: bool = False
 
 class VendorServiceModel(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -1106,6 +1116,17 @@ class OpportunityModel(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+class ProductLineMarginInput(BaseModel):
+    id: str = ""
+    product_name: str = ""
+    segment: str = ""
+    quantity: int = 1
+    cost: float = 0
+    sheet_min_margin_percent: float = 0
+    sheet_min_selling: float = 0
+    margin_percent: float = 30
+
+
 class SimpleCalculationInput(BaseModel):
     team_members: List[TeamMemberInput] = []
     vendors: List[VendorInput] = []
@@ -1113,6 +1134,8 @@ class SimpleCalculationInput(BaseModel):
     internal_margin_percent: float = 30
     vendor_margin_percent: float = 15
     use_split_margins: bool = False
+    margin_mode: str = "unified"  # unified | split | granular
+    product_lines: List[ProductLineMarginInput] = []
     # Risk factors
     internal_risk: RiskFactorsInput = RiskFactorsInput()
     vendor_risk: RiskFactorsInput = RiskFactorsInput()
@@ -1484,13 +1507,55 @@ async def calculate_simple(data: SimpleCalculationInput):
     
     # Total COGS
     cogs = internal_labor_cost + vendor_cost + overhead_cost
+
+    margin_mode = getattr(data, "margin_mode", None) or ("split" if data.use_split_margins else "unified")
+    product_lines = getattr(data, "product_lines", None) or []
+    product_cogs = 0.0
+    product_selling = 0.0
+    product_lines_breakdown = []
+
+    def _line_selling_from_margin(cost: float, margin_pct: float, floor: float) -> float:
+        if cost <= 0:
+            return max(0.0, floor)
+        m = min(99.99, max(0.0, margin_pct)) / 100.0
+        if m >= 1:
+            selling = cost * 2
+        else:
+            selling = cost / (1 - m) if (1 - m) > 0 else cost * 2
+        return max(selling, floor)
+
+    if margin_mode == "granular" and product_lines:
+        for line in product_lines:
+            cost = float(line.cost or 0)
+            floor = float(line.sheet_min_selling or 0)
+            margin_pct = float(line.margin_percent or 0)
+            line_sell = _line_selling_from_margin(cost, margin_pct, floor)
+            product_cogs += cost
+            product_selling += line_sell
+            achieved = ((line_sell - cost) / line_sell * 100) if line_sell > 0 else 0
+            product_lines_breakdown.append({
+                "id": line.id,
+                "product_name": line.product_name,
+                "segment": line.segment,
+                "cost": round(cost, 2),
+                "margin_percent": round(margin_pct, 2),
+                "sheet_min_margin_percent": round(float(line.sheet_min_margin_percent or 0), 2),
+                "sheet_min_selling": round(floor, 2),
+                "selling": round(line_sell, 2),
+                "margin_achieved": round(achieved, 2),
+            })
+        cogs += product_cogs
     
     # ==================== NEW INCENTIVE CALCULATION ====================
     # Step 1: Estimate initial selling price to determine deal size
     margin_percent = data.target_margin_percent / 100
     
     # Estimate selling price (without incentive for deal size detection)
-    estimated_price = cogs / (1 - margin_percent) if (1 - margin_percent) > 0 else cogs * 2
+    estimate_cogs = cogs
+    estimated_price = estimate_cogs / (1 - margin_percent) if (1 - margin_percent) > 0 else estimate_cogs * 2
+    if margin_mode == "granular" and product_selling > 0:
+        internal_est = internal_base_cost / (1 - margin_percent) if (1 - margin_percent) > 0 and internal_base_cost > 0 else 0
+        estimated_price = product_selling + internal_est + vendor_revenue
     
     # Step 2: Get deal size category
     deal_size = await get_deal_size_category(estimated_price)
@@ -1536,8 +1601,63 @@ async def calculate_simple(data: SimpleCalculationInput):
     
     # ==================== SELLING PRICE CALCULATION ====================
     # Formula: Selling_Price_Final = COGS / (1 - Target_Margin% - Total_Incentive_%)
-    
-    if data.use_split_margins:
+
+    margin_breakdown = None
+
+    if margin_mode == "granular":
+        internal_margin = data.internal_margin_percent / 100
+        vendor_margin = data.vendor_margin_percent / 100
+        if risk_impact_mode == "margin":
+            internal_margin *= internal_risk_mult
+            vendor_margin *= vendor_risk_mult
+
+        divisor = 1 - internal_margin - total_incentive_percent
+        if divisor > 0 and internal_base_cost > 0:
+            internal_selling = internal_base_cost / divisor
+        else:
+            internal_selling = 0.0
+
+        has_markup = any(v.markup_percent > 0 for v in data.vendors)
+        if has_markup:
+            vendor_selling = vendor_revenue
+        elif vendor_cost > 0:
+            if (1 - vendor_margin) > 0:
+                vendor_selling = vendor_cost / (1 - vendor_margin)
+            else:
+                vendor_selling = vendor_cost * 1.5
+        else:
+            vendor_selling = 0.0
+
+        if risk_impact_mode == "buffer":
+            internal_selling *= internal_risk_mult
+            vendor_selling *= vendor_risk_mult
+
+        total_selling_price = product_selling + internal_selling + vendor_selling
+
+        internal_margin_achieved = (
+            ((internal_selling - internal_base_cost) / internal_selling * 100) if internal_selling > 0 else 0
+        )
+        vendor_margin_achieved = (
+            ((vendor_selling - vendor_cost) / vendor_selling * 100) if vendor_selling > 0 else 0
+        )
+
+        margin_breakdown = {
+            "mode": "granular",
+            "products_selling": round(product_selling, 2),
+            "products_cost": round(product_cogs, 2),
+            "products": product_lines_breakdown,
+            "internal": {
+                "cost": round(internal_base_cost, 2),
+                "selling": round(internal_selling, 2),
+                "margin_achieved": round(internal_margin_achieved, 2),
+            },
+            "vendors": {
+                "cost": round(vendor_cost, 2),
+                "selling": round(vendor_selling, 2),
+                "margin_achieved": round(vendor_margin_achieved, 2),
+            },
+        }
+    elif data.use_split_margins:
         # SPLIT MARGIN LOGIC
         internal_margin = data.internal_margin_percent / 100
         vendor_margin = data.vendor_margin_percent / 100
@@ -1662,6 +1782,28 @@ async def calculate_simple(data: SimpleCalculationInput):
             "message": f"لا توجد قاعدة حوافز لحجم الصفقة '{deal_size}'",
             "severity": "warning"
         })
+
+    if margin_mode == "granular" and product_lines:
+        for line in product_lines:
+            cost = float(line.cost or 0)
+            if cost <= 0:
+                continue
+            margin_pct = float(line.margin_percent or 0)
+            min_margin = float(line.sheet_min_margin_percent or 0)
+            floor = float(line.sheet_min_selling or 0)
+            line_sell = _line_selling_from_margin(cost, margin_pct, floor)
+            if min_margin > 0 and margin_pct < min_margin:
+                warnings.append({
+                    "type": "product_below_sheet_margin",
+                    "message": f"{line.product_name} ({line.segment}): margin {margin_pct:.1f}% below sheet minimum {min_margin:.1f}%",
+                    "severity": "warning",
+                })
+            if floor > 0 and line_sell < floor - 0.01:
+                warnings.append({
+                    "type": "product_below_floor",
+                    "message": f"{line.product_name} ({line.segment}): price below sheet floor {floor:,.0f}",
+                    "severity": "error",
+                })
     
     return {
         "internal_labor_cost": round(internal_labor_cost, 2),
@@ -1717,6 +1859,7 @@ async def calculate_simple(data: SimpleCalculationInput):
         "total_risk_multiplier": round(total_risk_mult, 3),
         "risk_level": risk_level,
         "risk_impact_percent": round(risk_impact_percent, 2),
+        "margin_breakdown": margin_breakdown,
         # Warnings
         "warnings": warnings
     }
