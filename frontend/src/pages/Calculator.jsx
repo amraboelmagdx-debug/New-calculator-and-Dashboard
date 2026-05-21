@@ -64,6 +64,9 @@ import {
   buildProductLines,
   buildProductLinesForApi,
   MARGIN_MODES,
+  shouldAutoSyncTeamFromSegment,
+  normalizeExecutionMode,
+  EXECUTION_HYBRID,
 } from '@/lib/marginEngine';
 
 export default function Calculator() {
@@ -80,6 +83,7 @@ export default function Calculator() {
   const [selectedProducts, setSelectedProducts] = useState([{ id: `pp-${Date.now()}`, product_name: '', size: 'tiny', quantity: 1 }]);
   const [productsPricingLoading, setProductsPricingLoading] = useState(false);
   const [productsPricingSyncedAt, setProductsPricingSyncedAt] = useState(null);
+  const [productsPricingStale, setProductsPricingStale] = useState(false);
   const [sheetPriceFloorWarning, setSheetPriceFloorWarning] = useState(null);
   const [applyProductsDialogOpen, setApplyProductsDialogOpen] = useState(false);
   const [pendingTeamMembers, setPendingTeamMembers] = useState([]);
@@ -256,21 +260,28 @@ export default function Calculator() {
     try {
       setProductsPricingLoading(true);
       const result = await fetchProductsPricing(forceRefresh);
-      if (result?.status === 'success') {
+      if (result?.status === 'success' || result?.status === 'stale') {
         setProductsPricingCatalog(result.data || []);
         setProductsPricingSyncedAt(result.synced_at || new Date().toISOString());
-        if (forceRefresh) {
+        setProductsPricingStale(result.status === 'stale');
+        if (result.status === 'stale') {
+          toast.warning(result?.message || 'Using cached pricing — sheet sync failed');
+        } else if (forceRefresh) {
           const synced = result.synced ?? result.count ?? result.data?.length ?? 0;
           toast.success(`Synced ${synced} service groups from Google Sheet`);
         }
       } else {
-        setProductsPricingCatalog([]);
+        if (!productsPricingCatalog?.length) {
+          setProductsPricingCatalog([]);
+        }
         if (forceRefresh) {
           toast.error(result?.message || 'Failed to sync products pricing');
         }
       }
     } catch {
-      setProductsPricingCatalog([]);
+      if (!productsPricingCatalog?.length) {
+        setProductsPricingCatalog([]);
+      }
       if (forceRefresh) toast.error('Failed to refresh sheet');
     } finally {
       setProductsPricingLoading(false);
@@ -323,6 +334,9 @@ export default function Calculator() {
     validSelections.forEach(item => {
       const product = findCatalogProduct(item.product_name);
       const seg = getSegmentPayload(product, item.size);
+      if (!seg || !shouldAutoSyncTeamFromSegment(seg)) return;
+
+      const mode = normalizeExecutionMode(seg.execution_mode, seg);
       const roleList = seg?.internal_roles?.length
         ? seg.internal_roles
         : (product?.sizes?.[item.size] || []);
@@ -330,8 +344,18 @@ export default function Calculator() {
       const qty = Number(item.quantity) || 1;
       roleList.forEach(roleItem => {
         const key = normalizeRoleName(roleItem.role_name);
-        const prev = roleHoursMap.get(key) || { role_name: roleItem.role_name, hours: 0 };
-        prev.hours += (Number(roleItem.hours) || 0) * qty;
+        const prev = roleHoursMap.get(key) || {
+          role_name: roleItem.role_name,
+          hours: 0,
+          baseline_hours: 0,
+          isHybrid: false,
+        };
+        const roleHours = (Number(roleItem.hours) || 0) * qty;
+        prev.hours += roleHours;
+        if (mode === EXECUTION_HYBRID) {
+          prev.baseline_hours += roleHours;
+          prev.isHybrid = true;
+        }
         roleHoursMap.set(key, prev);
       });
     });
@@ -344,12 +368,15 @@ export default function Calculator() {
         return null;
       }
       const hours = Math.round(roleData.hours * 100) / 100;
+      const baselineHours = Math.round((roleData.baseline_hours || 0) * 100) / 100;
       const prior = existingByRoleId.get(matched.id);
       return {
         id: prior?.id || `tm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         role_id: matched.id,
         role_name: matched.name,
         hours,
+        baseline_hours: baselineHours,
+        labor_charge_context: roleData.isHybrid ? EXECUTION_HYBRID : 'resource',
         hourly_rate: matched.hourly_rate || 0,
         monthly_salary: matched.monthly_salary || 0,
         utilization_percent: utilizationFromHours(hours, standardMonthlyHours),
@@ -367,9 +394,18 @@ export default function Calculator() {
     item => item.product_name && item.size && (Number(item.quantity) || 0) > 0
   );
 
-  // Auto-sync team from products when qty / service / segment changes (like Internal Team hours)
+  const hasSyncableProductSelections = useMemo(() => {
+    return selectedProducts.some(item => {
+      if (!item.product_name || !item.size || (Number(item.quantity) || 0) <= 0) return false;
+      const product = findCatalogProduct(item.product_name);
+      const seg = getSegmentPayload(product, item.size);
+      return seg && shouldAutoSyncTeamFromSegment(seg);
+    });
+  }, [selectedProducts, productsPricingCatalog]);
+
+  // Auto-sync team from resource/hybrid products only (all-in: no labor double-count)
   useEffect(() => {
-    if (!hasValidProductSelections) return;
+    if (!hasValidProductSelections || !hasSyncableProductSelections) return;
 
     const timer = setTimeout(() => {
       setProductsTeamLink('replace');
@@ -388,7 +424,7 @@ export default function Calculator() {
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [selectedProducts, hasValidProductSelections, buildTeamMembersFromProducts]);
+  }, [selectedProducts, hasValidProductSelections, hasSyncableProductSelections, buildTeamMembersFromProducts]);
 
   const sectionOptions = ['all', ...Array.from(new Set((productsPricingCatalog || []).map(
     p => p.service_family || p.section_name || 'General'
@@ -1049,6 +1085,7 @@ export default function Calculator() {
               isDarkMode={isDarkMode}
               productsPricingLoading={productsPricingLoading}
               productsPricingSyncedAt={productsPricingSyncedAt}
+              productsPricingStale={productsPricingStale}
               rolesCount={roles.length}
               onRefreshProducts={loadProductsPricingCatalog}
               onRefreshRoles={refreshRoles}
@@ -1142,6 +1179,7 @@ export default function Calculator() {
               setSelectedProducts={setSelectedProducts}
               findCatalogProduct={findCatalogProduct}
               getSegmentPayload={getSegmentPayload}
+              roles={roles}
               results={results}
               vendorServices={vendorServices}
               addVendor={addVendor}

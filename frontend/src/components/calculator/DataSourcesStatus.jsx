@@ -20,13 +20,15 @@ export default function DataSourcesStatus({
   isDarkMode,
   productsPricingLoading,
   productsPricingSyncedAt,
+  productsPricingStale = false,
   rolesCount,
   onRefreshProducts,
   onRefreshRoles,
 }) {
-  const stale = productsPricingSyncedAt
+  const ageStale = productsPricingSyncedAt
     ? Date.now() - new Date(productsPricingSyncedAt).getTime() > 24 * 60 * 60 * 1000
     : true;
+  const stale = productsPricingStale || ageStale;
 
   return (
     <div

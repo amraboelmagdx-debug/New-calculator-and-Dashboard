@@ -9,6 +9,12 @@ import {
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { formatCurrency } from '@/lib/utils';
+import {
+  normalizeExecutionMode,
+  costBasisDescription,
+  executionModeLabel,
+  resolveProductLineCost,
+} from '@/lib/pricingCostRules';
 
 function SheetTextDialog({ open, onOpenChange, title, text, isDarkMode, trigger }) {
   const [copied, setCopied] = useState(false);
@@ -122,7 +128,9 @@ export default function ServicePricingDetail({ segmentData, quantity = 1, isDark
 
         <div className="flex flex-wrap gap-2">
           {segmentData.execution_mode && (
-            <Badge variant="outline" className={chipClass}>{segmentData.execution_mode}</Badge>
+            <Badge variant="outline" className={chipClass} title="How cost and team sync are interpreted">
+              {executionModeLabel(normalizeExecutionMode(segmentData.execution_mode, segmentData))}
+            </Badge>
           )}
           {segmentData.execution_risk && (
             <Badge variant="outline" className={chipClass}>
@@ -141,6 +149,14 @@ export default function ServicePricingDetail({ segmentData, quantity = 1, isDark
             </Badge>
           )}
         </div>
+        {segmentData.execution_mode && (
+          <p className={`text-xs mt-2 ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>
+            {costBasisDescription(
+              normalizeExecutionMode(segmentData.execution_mode, segmentData),
+              resolveProductLineCost(segmentData, qty).costBasis
+            )}
+          </p>
+        )}
       </div>
 
       <div className="flex flex-wrap gap-2">

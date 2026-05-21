@@ -26,10 +26,15 @@ import {
   MARGIN_MODES,
   applyMarginModeToCalcData,
   buildProductLines,
+  buildProductLinePricingBreakdown,
+  createRoleMatcher,
   getDealComposition,
   computeClientPreview,
   getPrimaryGuidelineCategory,
 } from '@/lib/marginEngine';
+import { EXECUTION_HYBRID } from '@/lib/pricingCostRules';
+import ProductPricingBreakdown from './ProductPricingBreakdown';
+import { executionModeLabel } from '@/lib/pricingCostRules';
 
 const MODES = [
   { id: MARGIN_MODES.UNIFIED, label: 'Unified' },
@@ -80,10 +85,12 @@ export default function MarginControlCenter({
   setSelectedProducts,
   findCatalogProduct,
   getSegmentPayload,
+  roles = [],
   results,
   onContinueToReview,
 }) {
   const [guidelinesOpen, setGuidelinesOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const marginMode = calcData.margin_mode || MARGIN_MODES.UNIFIED;
 
   const productLines = useMemo(
@@ -92,14 +99,20 @@ export default function MarginControlCenter({
   );
 
   const composition = useMemo(
-    () => getDealComposition(selectedProducts, calcData),
-    [selectedProducts, calcData]
+    () => getDealComposition(selectedProducts, calcData, findCatalogProduct, getSegmentPayload),
+    [selectedProducts, calcData, findCatalogProduct, getSegmentPayload]
   );
 
   const preview = useMemo(
     () => computeClientPreview(productLines, calcData, results),
     [productLines, calcData, results]
   );
+
+  const matchRoleByName = useMemo(() => createRoleMatcher(roles), [roles]);
+
+  const hybridProductLineCount = useMemo(() => {
+    return productLines.filter(l => l.execution_mode === EXECUTION_HYBRID).length;
+  }, [productLines]);
 
   const guidelineCategory = useMemo(
     () => getPrimaryGuidelineCategory(selectedProducts, findCatalogProduct),
@@ -174,30 +187,67 @@ export default function MarginControlCenter({
             </div>
           </div>
 
-          <div
-            className={`flex flex-wrap gap-1 p-1 rounded-lg mt-4 ${
-              isDarkMode ? 'bg-neutral-900' : 'bg-slate-100'
-            }`}
-          >
-            {MODES.map(m => (
+          <div className="mt-4 space-y-2">
+            <div
+              className={`flex flex-wrap gap-1 p-1 rounded-lg ${
+                isDarkMode ? 'bg-neutral-900' : 'bg-slate-100'
+              }`}
+            >
               <button
-                key={m.id}
                 type="button"
-                onClick={() => setMode(m.id)}
+                onClick={() => setMode(MARGIN_MODES.UNIFIED)}
                 className={`flex-1 min-w-[80px] py-2 px-3 text-sm font-medium rounded-md transition-colors ${
-                  marginMode === m.id
-                    ? isDarkMode
-                      ? 'bg-indigo-600 text-white'
-                      : 'bg-indigo-600 text-white shadow-sm'
+                  marginMode === MARGIN_MODES.UNIFIED
+                    ? 'bg-indigo-600 text-white shadow-sm'
                     : isDarkMode
                       ? 'text-neutral-400 hover:text-neutral-200'
                       : 'text-slate-600 hover:text-slate-900'
                 }`}
-                data-testid={`margin-mode-${m.id}`}
+                data-testid="margin-mode-unified"
               >
-                {m.label}
+                Unified
               </button>
-            ))}
+            </div>
+            <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+              <CollapsibleTrigger
+                className={`flex w-full items-center justify-between py-1.5 text-xs font-medium ${
+                  isDarkMode ? 'text-neutral-400' : 'text-slate-600'
+                }`}
+              >
+                Advanced pricing (Split / Per-line)
+                <ChevronDown className={`w-4 h-4 transition-transform ${advancedOpen ? 'rotate-180' : ''}`} />
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pt-2">
+                <div
+                  className={`flex flex-wrap gap-1 p-1 rounded-lg ${
+                    isDarkMode ? 'bg-neutral-900' : 'bg-slate-100'
+                  }`}
+                >
+                  {[MODES[1], MODES[2]].map(m => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => setMode(m.id)}
+                      className={`flex-1 min-w-[80px] py-2 px-3 text-sm font-medium rounded-md transition-colors ${
+                        marginMode === m.id
+                          ? 'bg-indigo-600 text-white shadow-sm'
+                          : isDarkMode
+                            ? 'text-neutral-400 hover:text-neutral-200'
+                            : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                      data-testid={`margin-mode-${m.id}`}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+                {composition.hasProducts && marginMode !== MARGIN_MODES.GRANULAR && (
+                  <p className={`text-xs mt-2 ${isDarkMode ? 'text-amber-400' : 'text-amber-700'}`}>
+                    Sheet products need <strong>Per-line</strong> mode to price each row in the API total.
+                  </p>
+                )}
+              </CollapsibleContent>
+            </Collapsible>
           </div>
         </CardHeader>
 
@@ -220,7 +270,7 @@ export default function MarginControlCenter({
             </CollapsibleContent>
           </Collapsible>
 
-          {composition.isHybrid && (
+          {(composition.hasHybridMode || composition.isHybrid) && (
             <div
               className={`flex items-start gap-2 p-3 rounded-lg text-xs border ${
                 isDarkMode
@@ -230,8 +280,9 @@ export default function MarginControlCenter({
             >
               <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
               <span>
-                Hybrid scope: sheet product costs may already include team hours. Per-line margins add to team/vendor
-                pricing — review Summary for double-count risk.
+                {composition.hasHybridMode
+                  ? 'Hybrid rows: Total Cost is the included package. Synced team is for scope — only hours above the sheet baseline add labor cost.'
+                  : 'Mixed deal: use Per-line for sheet products; review team and vendor buckets in Summary.'}
               </span>
             </div>
           )}
@@ -298,7 +349,15 @@ export default function MarginControlCenter({
                             </p>
                             <p className={`text-xs ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>
                               {line.segment?.toUpperCase()} · Qty {line.quantity}
+                              {line.execution_mode && (
+                                <> · {executionModeLabel(line.execution_mode)}</>
+                              )}
                             </p>
+                            {line.cost_basis_description && (
+                              <p className={`text-xs mt-1 ${isDarkMode ? 'text-neutral-600' : 'text-slate-500'}`}>
+                                {line.cost_basis_description}
+                              </p>
+                            )}
                           </div>
                           <Badge className={`text-xs border ${statusBadgeClass(line.validation?.tone, isDarkMode)}`}>
                             {line.validation?.label}
@@ -330,6 +389,20 @@ export default function MarginControlCenter({
                             </p>
                           </div>
                         </div>
+                        <ProductPricingBreakdown
+                          isDarkMode={isDarkMode}
+                          breakdown={buildProductLinePricingBreakdown(
+                            line,
+                            getSegmentPayload(findCatalogProduct(line.product_name), line.segment),
+                            calcData,
+                            matchRoleByName
+                          )}
+                          footnote={
+                            hybridProductLineCount > 1 && line.execution_mode === EXECUTION_HYBRID
+                              ? 'Multiple hybrid lines may share roles — extra labor is consolidated on the Team tab.'
+                              : null
+                          }
+                        />
                         <div className="space-y-2">
                           <div className="flex items-center justify-between gap-2">
                             <Label className={`text-xs ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`}>

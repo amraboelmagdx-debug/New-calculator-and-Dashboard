@@ -2,6 +2,17 @@
  * Margin pricing helpers — per-line products, validation, API payloads.
  */
 
+import {
+  normalizeExecutionMode,
+  resolveProductLineCost,
+  shouldAutoSyncTeamFromSegment,
+  costBasisDescription,
+  getChargeableHours,
+  EXECUTION_HYBRID,
+  EXECUTION_ALL_IN,
+  EXECUTION_RESOURCE,
+} from '@/lib/pricingCostRules';
+
 export const MARGIN_MODES = {
   UNIFIED: 'unified',
   SPLIT: 'split',
@@ -30,7 +41,7 @@ export function resolveDefaultMarginPercent(item, segment, calcData) {
 
 export function buildProductLineFromSelection(item, segment, calcData) {
   const qty = Math.max(1, Number(item.quantity) || 1);
-  const cost = (Number(segment?.total_cost) || 0) * qty;
+  const { cost, executionMode, costBasis, usedFallback } = resolveProductLineCost(segment, qty);
   const sheetMinMargin = Number(segment?.minimum_margin_percent) || 0;
   const sheetMinSelling = (Number(segment?.base_minimum_selling_price) || 0) * qty;
   const marginPercent = resolveDefaultMarginPercent(item, segment, calcData);
@@ -42,12 +53,19 @@ export function buildProductLineFromSelection(item, segment, calcData) {
     product_name: item.product_name,
     segment: item.size,
     quantity: qty,
-    cost: Math.round(cost * 100) / 100,
+    cost,
+    execution_mode: executionMode,
+    cost_basis: costBasis,
+    cost_basis_description: costBasisDescription(executionMode, costBasis),
+    cost_fallback: usedFallback,
     sheet_min_margin_percent: sheetMinMargin,
     sheet_min_selling: Math.round(sheetMinSelling * 100) / 100,
     margin_percent: marginPercent,
     line_selling: Math.round(lineSelling * 100) / 100,
     service_family: segment?.service_family,
+    direct_cost_per_unit: Number(segment?.direct_cost_per_unit) || 0,
+    oh_cost_value: Number(segment?.oh_cost_value) || 0,
+    total_cost_sheet: Number(segment?.total_cost) || 0,
   };
 }
 
@@ -93,29 +111,64 @@ export function buildProductLinesForApi(lines) {
     segment: l.segment,
     quantity: l.quantity,
     cost: l.cost,
+    execution_mode: l.execution_mode,
+    direct_cost_per_unit: l.direct_cost_per_unit,
+    oh_cost_value: l.oh_cost_value,
+    total_cost: l.total_cost_sheet,
     sheet_min_margin_percent: l.sheet_min_margin_percent,
     sheet_min_selling: l.sheet_min_selling,
     margin_percent: l.margin_percent,
   }));
 }
 
-export function getDealComposition(selectedProducts, calcData) {
+export function getDealComposition(selectedProducts, calcData, findCatalogProduct, getSegmentPayload) {
   const hasProducts = (selectedProducts || []).some(p => p.product_name && p.size);
   const hasTeam = (calcData?.team_members?.length || 0) > 0;
   const hasVendors = (calcData?.vendors?.length || 0) > 0;
-  const isHybrid = hasProducts && (hasTeam || hasVendors);
+  const isHybridDeal = hasProducts && (hasTeam || hasVendors);
+
+  let hasHybridMode = false;
+  let hasAllIn = false;
+  if (findCatalogProduct && getSegmentPayload) {
+    (selectedProducts || []).forEach(item => {
+      if (!item.product_name || !item.size) return;
+      const product = findCatalogProduct(item.product_name);
+      const seg = getSegmentPayload(product, item.size);
+      if (!seg) return;
+      const mode = normalizeExecutionMode(seg.execution_mode, seg);
+      if (mode === EXECUTION_HYBRID) hasHybridMode = true;
+      if (mode === EXECUTION_ALL_IN) hasAllIn = true;
+    });
+  }
+
   let hint = 'Set a quote-level margin for team and vendor costs.';
   if (hasProducts && !hasTeam && !hasVendors) {
-    hint = 'Product-led quote — set margin per catalog line.';
-  } else if (isHybrid) {
-    hint = 'Hybrid deal — per-product margins plus team/vendor buckets. Sheet costs may include embedded labor.';
+    hint = 'Product-led quote — use Per-line mode so sheet rows drive the total.';
+  } else if (hasHybridMode) {
+    hint =
+      'Hybrid rows: package cost is in Total Cost; synced team shows scope — only hours above sheet baseline add labor.';
+  } else if (isHybridDeal && hasAllIn) {
+    hint = 'All-in products use sheet Total Cost only — avoid adding duplicate team labor for those lines.';
+  } else if (isHybridDeal) {
+    hint = 'Mixed deal — use Per-line for products; team/vendor use separate margin buckets.';
   } else if (hasTeam && !hasProducts) {
     hint = 'Team-led quote — margin applies to internal labor and overhead.';
   } else if (hasVendors && !hasProducts) {
     hint = 'Vendor-led quote — use markup per vendor or vendor margin %.';
   }
-  return { hasProducts, hasTeam, hasVendors, isHybrid, hint };
+
+  return {
+    hasProducts,
+    hasTeam,
+    hasVendors,
+    isHybrid: isHybridDeal,
+    hasHybridMode,
+    hasAllIn,
+    hint,
+  };
 }
+
+export { shouldAutoSyncTeamFromSegment, normalizeExecutionMode, EXECUTION_HYBRID };
 
 export function applyMarginModeToCalcData(prev, mode) {
   const next = { ...prev, margin_mode: mode };
@@ -142,6 +195,101 @@ export function computeClientPreview(productLines, calcData, results) {
     target,
     gapToTarget: target - (results?.contribution_margin_percent ?? 0),
     invalidLines: productLines.filter(l => l.validation?.status !== 'ok').length,
+  };
+}
+
+export function createRoleMatcher(roles) {
+  const normalize = value => String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  return sheetRoleName => {
+    const target = normalize(sheetRoleName);
+    const targetCore = target.split(' - ')[0].trim();
+    return (roles || []).find(role => {
+      const roleName = normalize(role.name);
+      const roleCore = roleName.split(' - ')[0].trim();
+      return (
+        roleName === target ||
+        roleCore === targetCore ||
+        roleName.includes(targetCore) ||
+        target.includes(roleCore)
+      );
+    });
+  };
+}
+
+/**
+ * BD-facing pricing breakdown for one catalog line (display; granular line selling).
+ */
+export function buildProductLinePricingBreakdown(line, segment, calcData, matchRoleByName) {
+  const qty = Math.max(1, Number(line?.quantity) || 1);
+  const mode = line?.execution_mode;
+  const roleList = segment?.internal_roles?.length
+    ? segment.internal_roles
+    : [];
+
+  const includedParts = roleList
+    .map(r => {
+      const h = Math.round((Number(r.hours) || 0) * qty * 10) / 10;
+      return `${r.role_name || 'Role'} ${h}h`;
+    })
+    .join(', ');
+
+  let includedTeamScope = '—';
+  if (mode === EXECUTION_ALL_IN) {
+    includedTeamScope = 'N/A — all-in package';
+  } else if (includedParts) {
+    includedTeamScope = `${includedParts} (included)`;
+  }
+
+  let additionalHoursCost = 0;
+  let belowBaselineNote = false;
+  let utilizationNote = false;
+
+  if (mode === EXECUTION_RESOURCE || mode === EXECUTION_HYBRID) {
+    roleList.forEach(roleItem => {
+      const productBaseline = (Number(roleItem.hours) || 0) * qty;
+      const matched = matchRoleByName?.(roleItem.role_name);
+      if (!matched) return;
+      const member = (calcData?.team_members || []).find(tm => tm.role_id === matched.id);
+      if (!member) return;
+      const rate = Number(member.hourly_rate) || Number(matched.hourly_rate) || 0;
+      const memberQty = Number(member.quantity) || 1;
+
+      if (member.calc_mode && member.calc_mode !== 'hours') {
+        utilizationNote = true;
+        return;
+      }
+
+      let chargeable = 0;
+      if (mode === EXECUTION_HYBRID) {
+        chargeable = getChargeableHours(
+          member.hours,
+          productBaseline,
+          'hours',
+          EXECUTION_HYBRID
+        );
+        if ((Number(member.hours) || 0) < productBaseline) belowBaselineNote = true;
+      } else {
+        chargeable = Math.max(0, Number(member.hours) || 0);
+      }
+      additionalHoursCost += chargeable * rate * memberQty;
+    });
+  }
+
+  const rawSelling = sellingFromCostAndMargin(line.cost, line.margin_percent);
+  const floorApplied = (line.line_selling || 0) > rawSelling + 0.01;
+  const marginApplied = Math.round(((line.line_selling || 0) - (line.cost || 0)) * 100) / 100;
+
+  return {
+    basePackageCost: line.cost || 0,
+    includedTeamScope,
+    additionalHoursCost: Math.round(additionalHoursCost * 100) / 100,
+    vendorCostNote: 'Deal-level — see Vendors tab',
+    marginPercent: line.margin_percent,
+    marginApplied,
+    floorApplied,
+    finalSellingPrice: line.line_selling || 0,
+    belowBaselineNote,
+    utilizationNote,
   };
 }
 

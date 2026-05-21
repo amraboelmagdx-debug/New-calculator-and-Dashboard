@@ -252,10 +252,18 @@ sequenceDiagram
 
 ---
 
-## 9. فجوات ومخاطر (للتحليل)
+## 9. قواعد التكلفة (V1 — مُنفَّذة)
 
-1. **Hybrid double-count:** تكلفة المنتج من الـ sheet قد تشمل ساعات؛ الفريق يُضاف أيضاً — تحذير فقط، لا dedup تلقائي.
-2. **Products tab في Unified/Split:** يعرض البطاقات لكن API لا يرسل `product_lines` إلا في granular — preview محلي vs API قد يختلفان.
+راجع [`pricing-rules.md`](pricing-rules.md) و [`pricing-engine-mvp.md`](pricing-engine-mvp.md).
+
+- **All-in:** `total_cost` فقط — لا auto-sync للفريق.
+- **Resource:** Direct+OH — sync فريق + ساعات كاملة.
+- **Hybrid:** `total_cost` باقة شاملة — sync للرؤية؛ labor = ساعات فوق `baseline_hours` فقط.
+
+## 10. فجوات ومخاطر (متبقية)
+
+1. **Utilization/seconded على hybrid:** تحذير API؛ لا delta في V1.
+2. **Products tab في Unified/Split:** يعرض البطاقات لكن API لا يرسل `product_lines` إلا في granular — استخدم Per-line.
 3. **Vendors tab في MCC:** read-only ملخص؛ التحرير الفعلي في **VendorRow** أعلى الصفحة (Markup % + Markup SAR).
 4. **Per-vendor markup vs vendor_margin_percent:** markup > 0 يتجاوز vendor margin في الـ backend.
 5. **لا يوجد تعديل margin لكل vendor داخل MCC** — فقط نسبة عامة + قائمة.
@@ -263,7 +271,7 @@ sequenceDiagram
 
 ---
 
-## 10. اقتراحات تطوير (عملي + بصري)
+## 11. اقتراحات تطوير (عملي + بصري)
 
 ### بصري (UX/UI)
 
@@ -290,7 +298,7 @@ sequenceDiagram
 
 ---
 
-## 11. test-id للاختبار
+## 12. test-id للاختبار
 
 | test-id | عنصر |
 |---------|------|

@@ -18,6 +18,13 @@ import httpx
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
+from pricing_rules import (
+    resolve_product_line_cost,
+    get_chargeable_hours,
+    normalize_execution_mode,
+    EXECUTION_HYBRID,
+)
+
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
@@ -1045,6 +1052,8 @@ class TeamMemberInput(BaseModel):
     role_name: str = ""
     quantity: int = 1  # Number of team members with this role
     hours: float = 0
+    baseline_hours: float = 0  # Sheet included hours (hybrid delta pricing)
+    labor_charge_context: str = ""  # hybrid | resource | empty
     utilization_percent: float = 0
     duration_months: int = 1
     hourly_rate: float = 0
@@ -1122,6 +1131,10 @@ class ProductLineMarginInput(BaseModel):
     segment: str = ""
     quantity: int = 1
     cost: float = 0
+    execution_mode: str = ""
+    direct_cost_per_unit: float = 0
+    oh_cost_value: float = 0
+    total_cost: float = 0
     sheet_min_margin_percent: float = 0
     sheet_min_selling: float = 0
     margin_percent: float = 30
@@ -1464,7 +1477,13 @@ async def calculate_simple(data: SimpleCalculationInput):
             member_cost = monthly_cost * utilization * duration
             member_hours = std_monthly_hours * utilization * duration
         else:
-            member_hours = member.hours if member.hours > 0 else 0
+            chargeable_hours = get_chargeable_hours(
+                member.hours,
+                getattr(member, "baseline_hours", 0) or 0,
+                member.calc_mode,
+                getattr(member, "labor_charge_context", None) or None,
+            )
+            member_hours = chargeable_hours if chargeable_hours > 0 else 0
             member_cost = member_hours * (member.hourly_rate or 0)
         
         # Apply quantity multiplier
@@ -1526,7 +1545,14 @@ async def calculate_simple(data: SimpleCalculationInput):
 
     if margin_mode == "granular" and product_lines:
         for line in product_lines:
-            cost = float(line.cost or 0)
+            seg = {
+                "execution_mode": getattr(line, "execution_mode", "") or "",
+                "direct_cost_per_unit": float(getattr(line, "direct_cost_per_unit", 0) or 0),
+                "oh_cost_value": float(getattr(line, "oh_cost_value", 0) or 0),
+                "total_cost": float(getattr(line, "total_cost", 0) or line.cost or 0),
+            }
+            qty = int(getattr(line, "quantity", 1) or 1)
+            cost, exec_mode, cost_basis, cost_fallback = resolve_product_line_cost(seg, qty)
             floor = float(line.sheet_min_selling or 0)
             margin_pct = float(line.margin_percent or 0)
             line_sell = _line_selling_from_margin(cost, margin_pct, floor)
@@ -1537,6 +1563,9 @@ async def calculate_simple(data: SimpleCalculationInput):
                 "id": line.id,
                 "product_name": line.product_name,
                 "segment": line.segment,
+                "execution_mode": exec_mode,
+                "cost_basis": cost_basis,
+                "cost_fallback": cost_fallback,
                 "cost": round(cost, 2),
                 "margin_percent": round(margin_pct, 2),
                 "sheet_min_margin_percent": round(float(line.sheet_min_margin_percent or 0), 2),
@@ -1743,6 +1772,18 @@ async def calculate_simple(data: SimpleCalculationInput):
     
     # ==================== WARNINGS ====================
     warnings = []
+
+    for member in data.team_members:
+        ctx = getattr(member, "labor_charge_context", None) or ""
+        if ctx == EXECUTION_HYBRID and member.calc_mode != "hours":
+            warnings.append({
+                "type": "hybrid_utilization_charge",
+                "message": (
+                    f"Role {member.role_name or member.role_id}: hybrid delta pricing applies to hours mode only; "
+                    "utilization/seconded uses full charge."
+                ),
+                "severity": "warning",
+            })
     
     # Margin warnings
     guidelines = await db.pricing_guidelines.find_one({"category": "general", "is_active": True}, {"_id": 0})
@@ -2585,8 +2626,32 @@ async def fetch_products_pricing_from_sheet(force_refresh: bool = False):
             "count": len(data),
         }
     except httpx.HTTPError as e:
+        records = await _load_services_pricing_from_db()
+        if records:
+            data = _group_services_pricing_for_api(records)
+            latest = max((r.get("updated_at") or "") for r in records)
+            return {
+                "status": "stale",
+                "data": data,
+                "source": "database",
+                "synced_at": latest,
+                "count": len(data),
+                "message": f"Sheet unavailable; using cached data. ({str(e)})",
+            }
         return {"status": "error", "message": f"Failed to fetch sheet: {str(e)}", "data": []}
     except Exception as e:
+        records = await _load_services_pricing_from_db()
+        if records:
+            data = _group_services_pricing_for_api(records)
+            latest = max((r.get("updated_at") or "") for r in records)
+            return {
+                "status": "stale",
+                "data": data,
+                "source": "database",
+                "synced_at": latest,
+                "count": len(data),
+                "message": f"Using cached data. ({str(e)})",
+            }
         return {"status": "error", "message": f"Error: {str(e)}", "data": []}
 
 

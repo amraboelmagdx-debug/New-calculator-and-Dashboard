@@ -16,6 +16,7 @@ export default function StepEconomics({
   setSelectedProducts,
   findCatalogProduct,
   getSegmentPayload,
+  roles,
   results,
   vendorServices,
   addVendor,
@@ -161,6 +162,7 @@ export default function StepEconomics({
           setSelectedProducts={setSelectedProducts}
           findCatalogProduct={findCatalogProduct}
           getSegmentPayload={getSegmentPayload}
+          roles={roles}
           results={results}
           onContinueToReview={onContinueToReview}
         />

@@ -8,6 +8,7 @@ import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { formatCurrency, generateId, hoursFromUtilization, utilizationFromHours } from '@/lib/utils';
+import { getChargeableHours, EXECUTION_HYBRID } from '@/lib/pricingCostRules';
 import { quickCreateRole } from '@/lib/api';
 
 export default function TeamMemberRow({ 
@@ -67,11 +68,21 @@ export default function TeamMemberRow({
         const duration = member.duration_months || 1;
         return monthlyCost * utilization * duration * quantity;
       } else {
-        // Hours mode: hours * hourly_rate * quantity
-        return (member.hours || 0) * (member.hourly_rate || 0) * quantity;
+        const billableHours =
+          member.labor_charge_context === EXECUTION_HYBRID && (member.baseline_hours || 0) > 0
+            ? getChargeableHours(member.hours, member.baseline_hours, 'hours', EXECUTION_HYBRID)
+            : member.hours || 0;
+        return billableHours * (member.hourly_rate || 0) * quantity;
       }
     }
   };
+
+  const hybridBillableHours =
+    member.labor_charge_context === EXECUTION_HYBRID &&
+    member.calc_mode !== 'utilization' &&
+    (member.baseline_hours || 0) > 0
+      ? getChargeableHours(member.hours, member.baseline_hours, 'hours', EXECUTION_HYBRID)
+      : null;
 
   const handleAddRole = async () => {
     if (!newRole.name) {
@@ -325,6 +336,13 @@ export default function TeamMemberRow({
                 <p className={`text-xs mt-1 ${subtextClass}`}>
                   ≈ {mirroredUtilPercent}% of month ({member.hours || 0}h / {standardMonthlyHours}h)
                 </p>
+                {hybridBillableHours != null && (
+                  <p className={`text-xs mt-1 ${darkMode ? 'text-amber-400/90' : 'text-amber-700'}`}>
+                    Included: {member.baseline_hours}h · Billable: {hybridBillableHours}h
+                    {(member.hours || 0) < (member.baseline_hours || 0) &&
+                      ' — below scope (no labor credit)'}
+                  </p>
+                )}
               </div>
               <div className="col-span-2">
                 <Label className={labelClass}>Hourly Rate</Label>
