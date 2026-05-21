@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import QuoteReadiness from './QuoteReadiness';
 import DashboardMetricAmount from './DashboardMetricAmount';
@@ -10,6 +11,21 @@ export default function QuoteHealthStrip({
   isDarkMode,
   sheetPriceFloorWarning,
 }) {
+  const [pricePulse, setPricePulse] = useState(false);
+  const prevPrice = useRef(results?.selling_price ?? 0);
+
+  useEffect(() => {
+    const next = results?.selling_price ?? 0;
+    if (next > 0 && next !== prevPrice.current) {
+      prevPrice.current = next;
+      setPricePulse(true);
+      const t = setTimeout(() => setPricePulse(false), 600);
+      return () => clearTimeout(t);
+    }
+    prevPrice.current = next;
+    return undefined;
+  }, [results?.selling_price]);
+
   const margin = results?.contribution_margin_percent ?? 0;
   const marginColor =
     margin >= 30 ? 'text-emerald-500' : margin >= 20 ? 'text-amber-500' : 'text-rose-500';
@@ -18,7 +34,7 @@ export default function QuoteHealthStrip({
     <div
       className={`sticky top-[73px] z-40 border-b ${
         isDarkMode ? 'bg-neutral-950/95 border-neutral-800 backdrop-blur-md' : 'bg-white/95 border-slate-200 backdrop-blur-md shadow-sm'
-      }`}
+      } ${pricePulse ? 'quote-price-pulse' : ''}`}
       data-testid="quote-health-strip"
     >
       <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-3">

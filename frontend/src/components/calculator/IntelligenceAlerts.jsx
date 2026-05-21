@@ -19,12 +19,20 @@ export default function IntelligenceAlerts({
     });
   }
 
-  if (results && (results.contribution_margin_percent ?? 0) < 20 && results.selling_price > 0) {
+  const marginPct = results?.contribution_margin_percent ?? 0;
+  if (results && marginPct < 20 && results.selling_price > 0) {
+    const target = 30;
+    const bump = Math.max(1, Math.ceil(target - marginPct));
+    const suggested = calcData?.use_split_margins
+      ? (calcData.internal_margin_percent || 0) + bump
+      : (calcData?.target_margin_percent || 0) + bump;
     alerts.push({
       key: 'margin',
       tone: 'amber',
       icon: AlertTriangle,
-      message: 'Contribution margin is below 20%. Consider adjusting margins in Economics.',
+      message: `Margin is ${marginPct.toFixed(1)}%. Consider raising ${
+        calcData?.use_split_margins ? 'internal' : 'target'
+      } margin to about ${suggested}% to approach ${target}%.`,
     });
   }
 
