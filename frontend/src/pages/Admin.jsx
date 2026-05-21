@@ -37,7 +37,7 @@ import {
   seedDatabase,
   setAdminPassword, getAdminPassword
 } from '@/lib/api';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, getStandardMonthlyHours } from '@/lib/utils';
 
 const ADMIN_PASSWORD = 'Amr123';
 
@@ -1529,8 +1529,15 @@ function HRConfigManager() {
     medical_insurance_percent: 3,
     end_of_service_divisor: 2,
     google_sheets_enabled: false,
-    google_sheets_url: ''
+    google_sheets_url: '',
+    weeks_per_month: 4,
+    work_days_per_week: 5,
+    hours_per_work_day: 8,
   });
+  const standardMonthlyHours = useMemo(
+    () => getStandardMonthlyHours(formData),
+    [formData.weeks_per_month, formData.work_days_per_week, formData.hours_per_work_day]
+  );
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
 
@@ -1547,7 +1554,10 @@ function HRConfigManager() {
         medical_insurance_percent: data.medical_insurance_percent || 3,
         end_of_service_divisor: data.end_of_service_divisor || 2,
         google_sheets_enabled: data.google_sheets_enabled || false,
-        google_sheets_url: data.google_sheets_url || ''
+        google_sheets_url: data.google_sheets_url || '',
+        weeks_per_month: data.weeks_per_month ?? 4,
+        work_days_per_week: data.work_days_per_week ?? 5,
+        hours_per_work_day: data.hours_per_work_day ?? 8,
       });
     } catch (error) {
       toast.error('Failed to load HR config');
@@ -1591,6 +1601,65 @@ function HRConfigManager() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Work Calendar */}
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Clock className="w-5 h-5" />
+              Work Calendar
+            </CardTitle>
+            <CardDescription>
+              Defines standard monthly hours for linking Hours ↔ Month % in the Calculator (weeks × days × hours/day)
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>Weeks per Month</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  step="0.5"
+                  value={formData.weeks_per_month}
+                  onChange={(e) => setFormData(prev => ({ ...prev, weeks_per_month: parseFloat(e.target.value) || 4 }))}
+                  data-testid="weeks-per-month-input"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Work Days per Week</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  max="7"
+                  value={formData.work_days_per_week}
+                  onChange={(e) => setFormData(prev => ({ ...prev, work_days_per_week: parseFloat(e.target.value) || 5 }))}
+                  data-testid="work-days-per-week-input"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Hours per Work Day</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  max="24"
+                  value={formData.hours_per_work_day}
+                  onChange={(e) => setFormData(prev => ({ ...prev, hours_per_work_day: parseFloat(e.target.value) || 8 }))}
+                  data-testid="hours-per-work-day-input"
+                />
+              </div>
+            </div>
+            <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
+              <p className="text-sm text-slate-700">
+                <strong>Standard monthly hours:</strong>{' '}
+                <span className="font-mono text-indigo-700" data-testid="standard-monthly-hours">
+                  {standardMonthlyHours}
+                </span>
+                {' '}(example: 25% = {Math.round(standardMonthlyHours * 0.25 * 100) / 100} hours)
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Benefits Configuration */}
         <Card>
           <CardHeader>

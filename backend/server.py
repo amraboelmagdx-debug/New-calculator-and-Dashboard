@@ -69,6 +69,10 @@ class HRConfigModel(BaseModel):
     google_sheets_url: str = ""
     google_sheets_tab: str = "Average Emp. Salary"  # Tab name in sheet
     google_sheets_products_tab: str = "Products Pricing Full-DB-V1"
+    # Work calendar — standard month hours = weeks × work_days × hours_per_day
+    weeks_per_month: float = 4
+    work_days_per_week: float = 5
+    hours_per_work_day: float = 8
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class HRConfigUpdate(BaseModel):
@@ -83,6 +87,9 @@ class HRConfigUpdate(BaseModel):
     google_sheets_url: str = ""
     google_sheets_tab: str = "Average Emp. Salary"
     google_sheets_products_tab: str = "Products Pricing Full-DB-V1"
+    weeks_per_month: Optional[float] = 4
+    work_days_per_week: Optional[float] = 5
+    hours_per_work_day: Optional[float] = 8
 
 # Google Sheets cache
 sheets_cache = {
@@ -130,6 +137,16 @@ async def _get_hr_config() -> Dict[str, Any]:
     except Exception as exc:
         logger.warning("Could not read hr_config from database: %s", exc)
     return _hr_config_from_env()
+
+
+def _standard_monthly_hours(hr_config: Optional[Dict[str, Any]] = None) -> float:
+    """Standard working hours per month from work calendar settings (default 4×5×8 = 160)."""
+    cfg = hr_config or {}
+    weeks = float(cfg.get("weeks_per_month") or 4)
+    days = float(cfg.get("work_days_per_week") or 5)
+    hours_per_day = float(cfg.get("hours_per_work_day") or 8)
+    total = weeks * days * hours_per_day
+    return total if total > 0 else 160.0
 
 
 async def _fetch_google_sheet_csv(
@@ -213,8 +230,11 @@ def _stable_role_id(role_name: str) -> str:
 
 
 def _map_sheet_rows_to_api_roles(
-    sheet_rows: List[Dict[str, Any]], mongo_name_to_id: Dict[str, str]
+    sheet_rows: List[Dict[str, Any]],
+    mongo_name_to_id: Dict[str, str],
+    standard_monthly_hours: Optional[float] = None,
 ) -> List[Dict[str, Any]]:
+    std_hours = standard_monthly_hours or _standard_monthly_hours()
     api_roles: List[Dict[str, Any]] = []
     for row in sheet_rows:
         role_name = (row.get("role_name") or "").strip()
@@ -224,7 +244,7 @@ def _map_sheet_rows_to_api_roles(
         total_monthly = float(row.get("total_monthly") or 0)
         hourly_rate = float(row.get("hourly_rate") or 0)
         if hourly_rate == 0 and total_monthly > 0:
-            hourly_rate = round(total_monthly / 176, 2)
+            hourly_rate = round(total_monthly / std_hours, 2)
 
         api_roles.append(
             {
@@ -1372,6 +1392,7 @@ async def calculate_simple(data: SimpleCalculationInput):
     hr_config = await db.hr_config.find_one({}, {"_id": 0})
     if not hr_config:
         hr_config = {"social_insurance_percent": 12, "medical_insurance_percent": 3, "end_of_service_divisor": 2}
+    std_monthly_hours = _standard_monthly_hours(hr_config)
     
     # Calculate risk multipliers
     internal_risk_mult = await calculate_risk_multiplier(data.internal_risk)
@@ -1403,7 +1424,7 @@ async def calculate_simple(data: SimpleCalculationInput):
             utilization = (member.utilization_percent or 100) / 100
             duration = member.duration_months or 1
             member_cost = with_admin_fee * utilization * duration
-            member_hours = 176 * utilization * duration
+            member_hours = std_monthly_hours * utilization * duration
         elif member.calc_mode == 'utilization':
             role = await db.roles.find_one({"id": member.role_id}, {"_id": 0})
             if role:
@@ -1418,7 +1439,7 @@ async def calculate_simple(data: SimpleCalculationInput):
             utilization = (member.utilization_percent or 0) / 100
             duration = member.duration_months or 1
             member_cost = monthly_cost * utilization * duration
-            member_hours = 176 * utilization * duration
+            member_hours = std_monthly_hours * utilization * duration
         else:
             member_hours = member.hours if member.hours > 0 else 0
             member_cost = member_hours * (member.hourly_rate or 0)
@@ -1704,6 +1725,8 @@ async def calculate_opportunity(data: OpportunityInput):
     """Calculate full opportunity pricing"""
     overhead_rate = await get_overhead_rate()
     sales_incentive_percent = await get_sales_incentive_percent()
+    hr_config = await _get_hr_config()
+    std_monthly_hours = _standard_monthly_hours(hr_config)
     
     # Get payment term
     payment_term = None
@@ -1738,7 +1761,7 @@ async def calculate_opportunity(data: OpportunityInput):
             product_labor = 0
             product_hours = 0
             for member in product.team_members:
-                hours = member.hours if member.hours > 0 else (member.utilization_percent / 100) * 176
+                hours = member.hours if member.hours > 0 else (member.utilization_percent / 100) * std_monthly_hours
                 cost = hours * member.hourly_rate
                 product_labor += cost
                 product_hours += hours
@@ -1929,7 +1952,11 @@ async def get_roles(force_refresh: bool = False):
                 for r in mongo_roles
                 if r.get("name")
             }
-            return _map_sheet_rows_to_api_roles(sheets_result["data"], name_to_id)
+            return _map_sheet_rows_to_api_roles(
+                sheets_result["data"],
+                name_to_id,
+                _standard_monthly_hours(hr_config),
+            )
 
     if not hr_config:
         hr_config = {"social_insurance_percent": 12, "medical_insurance_percent": 3, "end_of_service_divisor": 2}
@@ -2252,6 +2279,8 @@ import httpx
 @api_router.post("/import-google-sheet", response_model=Dict)
 async def import_google_sheet(url: str, _: bool = Depends(verify_admin)):
     """Import roles from Google Sheets"""
+    hr_config = await _get_hr_config()
+    std_monthly_hours = _standard_monthly_hours(hr_config)
     try:
         # Convert Google Sheets URL to CSV export format
         # URL format: https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit
@@ -2297,8 +2326,7 @@ async def import_google_sheet(url: str, _: bool = Depends(verify_admin)):
             except (ValueError, TypeError):
                 salary_float = 0
             
-            # Calculate hourly rate (assuming 176 hours/month)
-            hourly_rate = salary_float / 176 if salary_float > 0 else 0
+            hourly_rate = salary_float / std_monthly_hours if salary_float > 0 else 0
             
             # Check if role exists
             existing = await db.roles.find_one({"name": name})
@@ -2437,6 +2465,8 @@ async def sync_products_pricing_to_database(_: bool = Depends(verify_admin)):
 @api_router.post("/sheets/sync-to-db", response_model=Dict)
 async def sync_sheets_to_database(_: bool = Depends(verify_admin)):
     """Sync roles from Google Sheets to database - uses Total Monthly directly from sheet"""
+    hr_config = await _get_hr_config()
+    std_monthly_hours = _standard_monthly_hours(hr_config)
     # First fetch from sheets
     sheets_result = await fetch_roles_from_sheet(force_refresh=True)
     
@@ -2458,7 +2488,7 @@ async def sync_sheets_to_database(_: bool = Depends(verify_admin)):
         
         # If hourly rate is 0 but total_monthly exists, calculate it
         if hourly_rate == 0 and total_monthly > 0:
-            hourly_rate = round(total_monthly / 176, 2)
+            hourly_rate = round(total_monthly / std_monthly_hours, 2)
         
         # Check if role exists
         existing = await db.roles.find_one({"name": role_name})

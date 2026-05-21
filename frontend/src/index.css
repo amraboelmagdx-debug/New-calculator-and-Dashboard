@@ -196,6 +196,36 @@ code {
     animation: fadeIn 0.3s ease-out;
 }
 
+.quote-panel-enter {
+    animation: fadeIn 0.35s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .quote-panel-enter {
+        animation: none;
+    }
+}
+
+.safe-area-pb {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.quote-price-pulse {
+    animation: quotePricePulse 0.6s ease-out;
+}
+
+@keyframes quotePricePulse {
+    0% { background-color: transparent; }
+    40% { background-color: rgba(99, 102, 241, 0.15); }
+    100% { background-color: transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .quote-price-pulse {
+        animation: none;
+    }
+}
+
 @keyframes fadeIn {
     from {
         opacity: 0;

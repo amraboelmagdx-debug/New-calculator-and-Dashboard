@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -31,6 +31,7 @@ import {
   seedDatabase,
   setAdminPassword,
   getThemeSettings,
+  getHRConfig,
   fetchProductsPricing
 } from '@/lib/api';
 
@@ -40,27 +41,22 @@ import ServicePricingDetail from '@/components/ServicePricingDetail';
 import TeamMemberRow from '@/components/TeamMemberRow';
 import VendorRow from '@/components/VendorRow';
 import ExportPDF from '@/components/ExportPDF';
-import { formatCurrency } from '@/lib/utils';
-
-function metricAmountSizeClass(formatted) {
-  const len = String(formatted || '').length;
-  if (len > 18) return 'text-sm';
-  if (len > 14) return 'text-base';
-  if (len > 11) return 'text-lg';
-  return 'text-xl';
-}
-
-function DashboardMetricAmount({ value, className = '' }) {
-  const formatted = formatCurrency(value);
-  return (
-    <p
-      className={`font-bold font-mono tabular-nums leading-tight break-words mt-1 min-w-0 ${metricAmountSizeClass(formatted)} ${className}`}
-      title={formatted}
-    >
-      {formatted}
-    </p>
-  );
-}
+import QuoteHealthStrip from '@/components/calculator/QuoteHealthStrip';
+import InsightRail from '@/components/calculator/InsightRail';
+import InsightSheet from '@/components/calculator/InsightSheet';
+import DealStepper from '@/components/calculator/DealStepper';
+import BottomNav from '@/components/calculator/BottomNav';
+import TemplatePanel from '@/components/calculator/TemplatePanel';
+import DataSourcesStatus from '@/components/calculator/DataSourcesStatus';
+import QuoteEmptyState from '@/components/calculator/QuoteEmptyState';
+import { DEAL_STEPS, dealStepToPrimarySection, sectionIdToDealStep } from '@/components/calculator/quoteSteps';
+import { useQuoteWorkflow } from '@/hooks/useQuoteCalculator';
+import {
+  formatCurrency,
+  getStandardMonthlyHours,
+  hoursFromUtilization,
+  utilizationFromHours,
+} from '@/lib/utils';
 
 export default function Calculator() {
   const navigate = useNavigate();
@@ -83,6 +79,15 @@ export default function Calculator() {
   const [productsTeamLink, setProductsTeamLink] = useState(null);
   const [paymentTerms, setPaymentTerms] = useState([]);
   const [themeSettings, setThemeSettings] = useState({ company_name: 'ZAN', logo_url: '' });
+  const [hrConfig, setHrConfig] = useState({
+    weeks_per_month: 4,
+    work_days_per_week: 5,
+    hours_per_work_day: 8,
+  });
+  const standardMonthlyHours = useMemo(
+    () => getStandardMonthlyHours(hrConfig),
+    [hrConfig.weeks_per_month, hrConfig.work_days_per_week, hrConfig.hours_per_work_day]
+  );
   const [loading, setLoading] = useState(true);
   const [calculating, setCalculating] = useState(false);
   
@@ -109,7 +114,19 @@ export default function Calculator() {
   });
   
   const [results, setResults] = useState(null);
-  const [activeSection, setActiveSection] = useState('project');
+  const [activeDealStep, setActiveDealStep] = useState('frame');
+  const [expandAllSections, setExpandAllSections] = useState(false);
+  const [mobileInsightOpen, setMobileInsightOpen] = useState(false);
+  const [composeSubTab, setComposeSubTab] = useState('products');
+  const [isLg, setIsLg] = useState(
+    typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)').matches : true
+  );
+
+  const quoteCtx = useMemo(
+    () => ({ projectInfo, selectedProducts, calcData, results }),
+    [projectInfo, selectedProducts, calcData, results]
+  );
+  const { readiness, stepCompletion } = useQuoteWorkflow(quoteCtx);
   
   // Save Template Dialog State
   const [saveTemplateDialogOpen, setSaveTemplateDialogOpen] = useState(false);
@@ -179,12 +196,17 @@ export default function Calculator() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [rolesData, vendorsData, scopesData, termsData, themeData] = await Promise.all([
+      const [rolesData, vendorsData, scopesData, termsData, themeData, hrData] = await Promise.all([
         getRoles(),
         getVendorServices(),
         getScopeTemplates(),
         getPaymentTerms(),
-        getThemeSettings().catch(() => ({ company_name: 'ZAN', logo_url: '' }))
+        getThemeSettings().catch(() => ({ company_name: 'ZAN', logo_url: '' })),
+        getHRConfig().catch(() => ({
+          weeks_per_month: 4,
+          work_days_per_week: 5,
+          hours_per_work_day: 8,
+        })),
       ]);
       
       setRoles(rolesData);
@@ -192,6 +214,11 @@ export default function Calculator() {
       setScopeTemplates(scopesData);
       setPaymentTerms(termsData);
       setThemeSettings(themeData);
+      setHrConfig({
+        weeks_per_month: hrData.weeks_per_month ?? 4,
+        work_days_per_week: hrData.work_days_per_week ?? 5,
+        hours_per_work_day: hrData.hours_per_work_day ?? 8,
+      });
       await loadProductsPricingCatalog();
 
       if (rolesData.length === 0) {
@@ -308,7 +335,7 @@ export default function Calculator() {
         hours,
         hourly_rate: matched.hourly_rate || 0,
         monthly_salary: matched.monthly_salary || 0,
-        utilization_percent: prior?.utilization_percent ?? 0,
+        utilization_percent: utilizationFromHours(hours, standardMonthlyHours),
         duration_months: prior?.duration_months ?? 1,
         calc_mode: prior?.calc_mode || 'hours',
         employee_type: prior?.employee_type || 'internal',
@@ -317,7 +344,7 @@ export default function Calculator() {
     }).filter(Boolean);
 
     return { members, unmatched };
-  }, [selectedProducts, productsPricingCatalog, roles]);
+  }, [selectedProducts, productsPricingCatalog, roles, standardMonthlyHours]);
 
   const hasValidProductSelections = selectedProducts.some(
     item => item.product_name && item.size && (Number(item.quantity) || 0) > 0
@@ -458,22 +485,41 @@ export default function Calculator() {
   };
 
   const updateTeamMember = (index, field, value) => {
-    if (field === 'hours' || field === 'role_id') {
+    if (field === 'hours' || field === 'role_id' || field === 'utilization_percent') {
       setProductsTeamLink(null);
     }
     setCalcData(prev => {
       const updated = [...prev.team_members];
-      updated[index] = { ...updated[index], [field]: value };
-      
+      const member = { ...updated[index], [field]: value };
+
       if (field === 'role_id' && value) {
         const role = roles.find(r => r.id === value);
         if (role) {
-          updated[index].role_name = role.name;
-          updated[index].hourly_rate = role.hourly_rate || 0;
-          updated[index].monthly_salary = role.monthly_salary || 0;
+          member.role_name = role.name;
+          member.hourly_rate = role.hourly_rate || 0;
+          member.monthly_salary = role.monthly_salary || 0;
         }
       }
-      
+
+      if (field === 'hours') {
+        member.utilization_percent = utilizationFromHours(
+          parseFloat(value) || 0,
+          standardMonthlyHours
+        );
+      } else if (field === 'utilization_percent') {
+        member.hours = hoursFromUtilization(
+          parseFloat(value) || 0,
+          standardMonthlyHours
+        );
+      } else if (field === 'calc_mode') {
+        if (value === 'utilization' && (member.hours || 0) > 0) {
+          member.utilization_percent = utilizationFromHours(member.hours, standardMonthlyHours);
+        } else if (value === 'hours' && (member.utilization_percent || 0) > 0) {
+          member.hours = hoursFromUtilization(member.utilization_percent, standardMonthlyHours);
+        }
+      }
+
+      updated[index] = member;
       return { ...prev, team_members: updated };
     });
   };
@@ -746,14 +792,93 @@ export default function Calculator() {
     setVendorServices(data);
   };
 
-  // Navigation sections
-  const navSections = [
-    { id: 'project', label: 'Project Info', icon: Briefcase },
-    { id: 'products', label: 'Products Builder', icon: LayoutTemplate },
-    { id: 'team', label: 'Internal Team', icon: Users },
-    { id: 'vendors', label: 'Vendors', icon: Truck },
-    { id: 'pricing', label: 'Pricing Settings', icon: Target },
-  ];
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const onChange = () => setIsLg(mq.matches);
+    onChange();
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  const goToDealStep = useCallback((stepId) => {
+    setActiveDealStep(stepId);
+    if (stepId === 'insight') {
+      setMobileInsightOpen(true);
+      return;
+    }
+    const targetId =
+      stepId === 'review'
+        ? 'review'
+        : stepId === 'compose'
+          ? composeSubTab === 'team'
+            ? 'team'
+            : 'products'
+          : dealStepToPrimarySection(stepId);
+    requestAnimationFrame(() => {
+      document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }, [composeSubTab]);
+
+  const isSectionVisible = useCallback(
+    (sectionId) => {
+      if (expandAllSections) return true;
+      if (sectionId === 'review') return activeDealStep === 'review';
+      const step = DEAL_STEPS.find(s => s.sectionIds.includes(sectionId));
+      if (!step || step.id !== activeDealStep) return false;
+      if (step.id === 'compose' && !isLg) {
+        return sectionId === (composeSubTab === 'team' ? 'team' : 'products');
+      }
+      return true;
+    },
+    [expandAllSections, activeDealStep, composeSubTab, isLg]
+  );
+
+  useEffect(() => {
+    const sectionIds = ['project', 'products', 'team', 'vendors', 'pricing', 'review'];
+    const elements = sectionIds.map(id => document.getElementById(id)).filter(Boolean);
+    if (!elements.length) return undefined;
+
+    const observer = new IntersectionObserver(
+      entries => {
+        const visible = entries
+          .filter(e => e.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
+        if (visible[0]?.target?.id) {
+          setActiveDealStep(sectionIdToDealStep(visible[0].target.id));
+        }
+      },
+      { rootMargin: '-20% 0px -55% 0px', threshold: [0.1, 0.25, 0.5] }
+    );
+    elements.forEach(el => observer.observe(el));
+    return () => observer.disconnect();
+  }, [expandAllSections, isLg, composeSubTab]);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const idx = parseInt(e.key, 10);
+      if (idx >= 1 && idx <= 4) {
+        e.preventDefault();
+        goToDealStep(DEAL_STEPS[idx - 1].id);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [goToDealStep]);
+
+  const handleBottomNav = (tabId) => {
+    if (tabId === 'insight') {
+      setMobileInsightOpen(true);
+      return;
+    }
+    if (tabId === 'more') {
+      setExpandAllSections(prev => !prev);
+      toast.info(expandAllSections ? 'Focused step view' : 'Showing all sections');
+      return;
+    }
+    if (tabId === 'compose') setComposeSubTab('products');
+    goToDealStep(tabId);
+  };
 
   if (loading) {
     return (
@@ -788,7 +913,7 @@ export default function Calculator() {
               <h1 className={`text-lg font-bold  ${isDarkMode ? 'text-white' : 'text-neutral-900'}`}>
                 {themeSettings.company_name || 'ZAN'}
               </h1>
-              <p className={`text-xs ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>Cost Calculator</p>
+              <p className={`text-xs ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>Pricing Command Center</p>
             </div>
           </div>
           
@@ -835,97 +960,95 @@ export default function Calculator() {
         </div>
       </header>
 
-      {/* Main Layout */}
-      <div className="max-w-[1600px] mx-auto grid grid-cols-1 lg:grid-cols-[220px_1fr_380px] gap-6 p-6">
-        
-        {/* Left Navigation */}
-        <nav className={`hidden lg:block sticky top-24 h-fit space-y-2 p-4 rounded-xl ${isDarkMode ? '' : 'bg-white shadow-sm border border-slate-200'}`}>
-          {navSections.map(section => (
-            <button
-              key={section.id}
-              onClick={() => {
-                setActiveSection(section.id);
-                document.getElementById(section.id)?.scrollIntoView({ behavior: 'smooth' });
-              }}
-              className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 ${
-                activeSection === section.id 
-                  ? (isDarkMode ? 'text-neutral-50 bg-neutral-800' : 'text-slate-900 bg-slate-100') 
-                  : (isDarkMode ? 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/50' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50')
-              }`}
-              data-testid={`nav-${section.id}`}
-            >
-              <section.icon className="w-4 h-4" />
-              {section.label}
-            </button>
-          ))}
-          
-          <div className={`border-t my-4 ${isDarkMode ? 'border-neutral-800' : 'border-slate-200'}`} />
-          
-          {/* Template Loader */}
-          <div className="px-2 space-y-2">
-            <Label className={`text-xs uppercase tracking-wider ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>Templates</Label>
-            <Select
-              value={activeTemplateId || undefined}
-              onValueChange={loadScopeTemplate}
-            >
-              <SelectTrigger className={`text-sm ${isDarkMode ? 'bg-neutral-900 border-neutral-700 text-neutral-300' : 'bg-white border-slate-300 text-slate-700'}`} data-testid="template-select">
-                <SelectValue placeholder="Choose template..." />
-              </SelectTrigger>
-              <SelectContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700' : 'bg-white border-slate-200'}>
-                {scopeTemplates.map(template => (
-                  <SelectItem key={template.id} value={template.id} className={isDarkMode ? 'text-neutral-300' : 'text-slate-700'}>
-                    {template.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {activeTemplateId && (
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={openEditTemplateDialog}
-                  disabled={!hasTemplateSaveContent}
-                  className={`flex-1 gap-1.5 text-xs ${isDarkMode ? 'border-neutral-700 bg-neutral-900 text-neutral-200 hover:bg-neutral-800' : 'border-slate-300 bg-white text-slate-800 hover:bg-slate-50'}`}
-                  data-testid="update-template-btn"
-                >
-                  <Pencil className="w-3.5 h-3.5" />
-                  Update
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setDeleteTemplateDialogOpen(true)}
-                  className={`gap-1.5 text-xs text-rose-500 hover:text-rose-600 ${isDarkMode ? 'border-neutral-700 bg-neutral-900 hover:bg-rose-950/40' : 'border-slate-300 bg-white hover:bg-rose-50'}`}
-                  data-testid="delete-template-btn"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </Button>
-              </div>
-            )}
-          </div>
-          
-          {/* Save as Template Button */}
-          <div className="px-2 mt-4">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={openCreateTemplateDialog}
-              disabled={!hasTemplateSaveContent}
-              className={`w-full gap-2 ${isDarkMode ? 'border-neutral-700 bg-neutral-900 text-neutral-200 hover:bg-neutral-800 hover:text-white' : 'border-slate-300 bg-white text-slate-800 hover:bg-slate-50 hover:text-slate-950'}`}
-              data-testid="save-template-btn"
-            >
-              <Save className="w-4 h-4" />
-              Save as Template
-            </Button>
-          </div>
-        </nav>
+      <QuoteHealthStrip
+        results={results}
+        calculating={calculating}
+        readiness={readiness}
+        isDarkMode={isDarkMode}
+        sheetPriceFloorWarning={sheetPriceFloorWarning}
+      />
 
-        {/* Center Content */}
-        <main className="space-y-6 pb-20">
-          
-          {/* Project Info Section */}
-          <section id="project" className="animate-fade-in">
+      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 pt-4">
+        <DealStepper
+          horizontal
+          activeStep={activeDealStep}
+          onStepClick={goToDealStep}
+          stepCompletion={stepCompletion}
+          isDarkMode={isDarkMode}
+        />
+      </div>
+
+      {/* Main Layout */}
+      <div className="max-w-[1600px] mx-auto grid grid-cols-1 lg:grid-cols-[240px_1fr_360px] gap-6 p-4 sm:p-6 pb-28 lg:pb-6">
+        <div className="hidden lg:block space-y-3">
+          <DealStepper
+            activeStep={activeDealStep}
+            onStepClick={goToDealStep}
+            stepCompletion={stepCompletion}
+            isDarkMode={isDarkMode}
+          />
+          <TemplatePanel
+            isDarkMode={isDarkMode}
+            scopeTemplates={scopeTemplates}
+            activeTemplateId={activeTemplateId}
+            onLoadTemplate={loadScopeTemplate}
+            onOpenEdit={openEditTemplateDialog}
+            onOpenDelete={() => setDeleteTemplateDialogOpen(true)}
+            onOpenCreate={openCreateTemplateDialog}
+            hasTemplateSaveContent={hasTemplateSaveContent}
+          />
+        </div>
+
+        <main className="space-y-6 min-w-0">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <DataSourcesStatus
+              isDarkMode={isDarkMode}
+              productsPricingLoading={productsPricingLoading}
+              productsPricingSyncedAt={productsPricingSyncedAt}
+              rolesCount={roles.length}
+              onRefreshProducts={loadProductsPricingCatalog}
+              onRefreshRoles={refreshRoles}
+            />
+            <div className="flex items-center gap-2">
+              <Label className={`text-xs ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>
+                Show all sections
+              </Label>
+              <Switch
+                checked={expandAllSections}
+                onCheckedChange={setExpandAllSections}
+                data-testid="expand-all-sections"
+              />
+            </div>
+          </div>
+
+          {activeDealStep === 'compose' && !isLg && (
+            <div className={`flex gap-1 p-1 rounded-lg ${isDarkMode ? 'bg-neutral-900' : 'bg-slate-100'}`}>
+              {['products', 'team'].map(tab => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => {
+                    setComposeSubTab(tab);
+                    document.getElementById(tab)?.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                  className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${
+                    composeSubTab === tab
+                      ? isDarkMode
+                        ? 'bg-neutral-800 text-white'
+                        : 'bg-white text-slate-900 shadow-sm'
+                      : isDarkMode
+                        ? 'text-neutral-500'
+                        : 'text-slate-600'
+                  }`}
+                >
+                  {tab === 'products' ? 'Products' : 'Team'}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {isSectionVisible('project') && (
+          <section id="project" className="animate-fade-in quote-panel-enter">
             <Card className={isDarkMode ? 'dark-card' : 'bg-white border border-slate-200 shadow-sm rounded-xl'} data-testid="project-info-section">
               <CardHeader className="pb-4">
                 <div className="flex items-center gap-3">
@@ -1026,8 +1149,10 @@ export default function Calculator() {
               </CardContent>
             </Card>
           </section>
+          )}
 
-          <section id="products" className="animate-fade-in">
+          {isSectionVisible('products') && (
+          <section id="products" className="animate-fade-in quote-panel-enter">
             <Card className={isDarkMode ? 'dark-card' : 'bg-white border border-slate-200 shadow-sm rounded-xl'}>
               <CardHeader className="pb-4">
                 <div className="flex items-center justify-between gap-3">
@@ -1057,7 +1182,49 @@ export default function Calculator() {
                   </Button>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-3">
+
+              {/* Actions first: family filter + Add Product + Apply (above product rows) */}
+              <div
+                className={`flex flex-wrap items-center gap-2 px-6 pb-4 border-b ${isDarkMode ? 'border-neutral-800' : 'border-slate-200'}`}
+                data-testid="products-pricing-toolbar"
+              >
+                <div className="w-full sm:w-[260px]">
+                  <Select value={selectedSection} onValueChange={setSelectedSection}>
+                    <SelectTrigger className={isDarkMode ? 'border-neutral-700 bg-neutral-900 text-neutral-100' : 'border-slate-300 bg-white text-slate-700'}>
+                      <SelectValue placeholder="Filter by family" />
+                    </SelectTrigger>
+                    <SelectContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700' : 'bg-white border-slate-200'}>
+                      {sectionOptions.map(section => (
+                        <SelectItem key={section} value={section}>
+                          {section === 'all' ? 'All Service Families' : section}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={() => setSelectedProducts(prev => [...prev, { id: `pp-${Date.now()}-${prev.length}`, product_name: '', size: 'tiny', quantity: 1 }])}
+                  className={isDarkMode ? 'border-neutral-700 text-neutral-200 hover:bg-neutral-800' : 'border-slate-300 text-slate-700 hover:bg-slate-50'}
+                >
+                  <Plus className="w-4 h-4 mr-1" />
+                  Add Product
+                </Button>
+                <Button
+                  onClick={handleApplyProducts}
+                  disabled={productsPricingLoading || productsPricingCatalog.length === 0}
+                  className="bg-violet-600 hover:bg-violet-700 text-white"
+                >
+                  Apply to Team
+                </Button>
+                {productsPricingLoading && (
+                  <p className={`text-sm w-full sm:w-auto ${isDarkMode ? 'text-neutral-400' : 'text-slate-500'}`}>
+                    Loading products pricing...
+                  </p>
+                )}
+              </div>
+
+              <CardContent className="space-y-3 pt-4">
                 {selectedProducts.map((item) => {
                   const product = findCatalogProduct(item.product_name);
                   const segmentKeys = Object.keys(product?.segments || product?.sizes || {});
@@ -1135,45 +1302,13 @@ export default function Calculator() {
                     </div>
                   );
                 })}
-
-                <div className="flex flex-wrap gap-2 pt-1">
-                  <div className="w-[260px]">
-                    <Select value={selectedSection} onValueChange={setSelectedSection}>
-                      <SelectTrigger className={isDarkMode ? 'border-neutral-700 bg-neutral-900 text-neutral-100' : 'border-slate-300 bg-white text-slate-700'}>
-                        <SelectValue placeholder="Filter by family" />
-                      </SelectTrigger>
-                      <SelectContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700' : 'bg-white border-slate-200'}>
-                        {sectionOptions.map(section => (
-                          <SelectItem key={section} value={section}>
-                            {section === 'all' ? 'All Service Families' : section}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <Button
-                    variant="outline"
-                    onClick={() => setSelectedProducts(prev => [...prev, { id: `pp-${Date.now()}-${prev.length}`, product_name: '', size: 'tiny', quantity: 1 }])}
-                    className={isDarkMode ? 'border-neutral-700 text-neutral-200 hover:bg-neutral-800' : 'border-slate-300 text-slate-700 hover:bg-slate-50'}
-                  >
-                    <Plus className="w-4 h-4 mr-1" />
-                    Add Product
-                  </Button>
-                  <Button
-                    onClick={handleApplyProducts}
-                    disabled={productsPricingLoading || productsPricingCatalog.length === 0}
-                    className="bg-violet-600 hover:bg-violet-700 text-white"
-                  >
-                    Apply to Team
-                  </Button>
-                  {productsPricingLoading && <p className={`text-sm ${isDarkMode ? 'text-neutral-400' : 'text-slate-500'}`}>Loading products pricing...</p>}
-                </div>
               </CardContent>
             </Card>
           </section>
+          )}
 
-          {/* Internal Team Section */}
-          <section id="team" className="animate-fade-in">
+          {isSectionVisible('team') && (
+          <section id="team" className="animate-fade-in quote-panel-enter">
             <Card className={isDarkMode ? 'dark-card' : 'bg-white border border-slate-200 shadow-sm rounded-xl'} data-testid="team-section">
               <CardHeader className="pb-4">
                 <div className="flex items-center justify-between">
@@ -1245,6 +1380,7 @@ export default function Calculator() {
                           onRemove={() => removeTeamMember(index)}
                           onRolesRefresh={refreshRoles}
                           darkMode={isDarkMode}
+                          standardMonthlyHours={standardMonthlyHours}
                         />
                       ))}
                     </div>
@@ -1298,7 +1434,8 @@ export default function Calculator() {
           </section>
 
           {/* Vendors Section */}
-          <section id="vendors" className="animate-fade-in">
+          {isSectionVisible('vendors') && (
+          <section id="vendors" className="animate-fade-in quote-panel-enter">
             <Card className={isDarkMode ? 'dark-card' : 'bg-white border border-slate-200 shadow-sm rounded-xl'} data-testid="vendor-section">
               <CardHeader className="pb-4">
                 <div className="flex items-center justify-between">

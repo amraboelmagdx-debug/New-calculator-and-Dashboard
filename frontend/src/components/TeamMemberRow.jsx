@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { formatCurrency, generateId } from '@/lib/utils';
+import { formatCurrency, generateId, hoursFromUtilization, utilizationFromHours } from '@/lib/utils';
 import { quickCreateRole } from '@/lib/api';
 
 export default function TeamMemberRow({ 
@@ -18,7 +18,8 @@ export default function TeamMemberRow({
   onRemove,
   onRolesRefresh,
   darkMode = false,
-  secondedMarkupPercent = 20  // Default 20% markup for seconded employees
+  secondedMarkupPercent = 20,  // Default 20% markup for seconded employees
+  standardMonthlyHours = 160,
 }) {
   const [showAddRole, setShowAddRole] = useState(false);
   const [newRole, setNewRole] = useState({ name: '', hourly_rate: 0, monthly_salary: 0 });
@@ -118,6 +119,8 @@ export default function TeamMemberRow({
   const isUtilizationMode = member.calc_mode === 'utilization';
   const isSeconded = member.employee_type === 'seconded';
   const cost = calculateCost();
+  const mirroredUtilPercent = utilizationFromHours(member.hours || 0, standardMonthlyHours);
+  const mirroredHours = hoursFromUtilization(member.utilization_percent || 0, standardMonthlyHours);
 
   return (
     <>
@@ -266,6 +269,9 @@ export default function TeamMemberRow({
                   placeholder="e.g., 50"
                   data-testid={`util-input-${index}`}
                 />
+                <p className={`text-xs mt-1 ${subtextClass}`}>
+                  ≈ {mirroredHours} hours / {standardMonthlyHours}h month
+                </p>
               </div>
               <div className="col-span-2">
                 <Label className={labelClass}>Duration (months)</Label>
@@ -316,6 +322,9 @@ export default function TeamMemberRow({
                   placeholder="Hours"
                   data-testid={`hours-input-${index}`}
                 />
+                <p className={`text-xs mt-1 ${subtextClass}`}>
+                  ≈ {mirroredUtilPercent}% of month ({member.hours || 0}h / {standardMonthlyHours}h)
+                </p>
               </div>
               <div className="col-span-2">
                 <Label className={labelClass}>Hourly Rate</Label>

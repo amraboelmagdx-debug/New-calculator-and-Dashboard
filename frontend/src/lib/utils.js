@@ -56,9 +56,24 @@ export function getMarginColorClass(marginPercent) {
   return 'text-red-600';
 }
 
-// Calculate working hours from utilization
-export function hoursFromUtilization(utilizationPercent, monthlyHours = 176) {
-  return (utilizationPercent / 100) * monthlyHours;
+export function getStandardMonthlyHours(config = {}) {
+  const weeks = Number(config.weeks_per_month ?? 4);
+  const days = Number(config.work_days_per_week ?? 5);
+  const hoursPerDay = Number(config.hours_per_work_day ?? 8);
+  const total = weeks * days * hoursPerDay;
+  return total > 0 ? total : 160;
+}
+
+export function hoursFromUtilization(utilizationPercent, monthlyHours = 160) {
+  if (utilizationPercent === null || utilizationPercent === undefined || isNaN(utilizationPercent)) return 0;
+  const std = monthlyHours > 0 ? monthlyHours : 160;
+  return Math.round((utilizationPercent / 100) * std * 100) / 100;
+}
+
+export function utilizationFromHours(hours, monthlyHours = 160) {
+  if (hours === null || hours === undefined || isNaN(hours)) return 0;
+  const std = monthlyHours > 0 ? monthlyHours : 160;
+  return Math.round((hours / std) * 10000) / 100;
 }
 
 // Deep clone object
