@@ -15,6 +15,23 @@ export function formatCurrency(value, showSymbol = true) {
   return showSymbol ? `SAR ${formatted}` : formatted;
 }
 
+/** Compact SAR for snapshot rows (e.g. SAR 136K). Full precision in detail panels. */
+export function formatCurrencyCompact(value, showSymbol = true) {
+  const n = Number(value);
+  if (value === null || value === undefined || isNaN(n)) return showSymbol ? 'SAR 0' : '0';
+  const prefix = showSymbol ? 'SAR ' : '';
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000) {
+    const m = n / 1_000_000;
+    return `${prefix}${m >= 10 ? Math.round(m) : m.toFixed(1).replace(/\.0$/, '')}M`;
+  }
+  if (abs >= 1_000) {
+    const k = n / 1_000;
+    return `${prefix}${k >= 100 ? Math.round(k) : k.toFixed(1).replace(/\.0$/, '')}K`;
+  }
+  return formatCurrency(n, showSymbol);
+}
+
 // Format percentage
 export function formatPercent(value, decimals = 1) {
   if (value === null || value === undefined || isNaN(value)) return '0%';

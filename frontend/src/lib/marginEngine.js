@@ -226,18 +226,43 @@ export function buildProductLinePricingBreakdown(line, segment, calcData, matchR
     ? segment.internal_roles
     : [];
 
-  const includedParts = roleList
-    .map(r => {
-      const h = Math.round((Number(r.hours) || 0) * qty * 10) / 10;
-      return `${r.role_name || 'Role'} ${h}h`;
-    })
-    .join(', ');
+  const rolesIncluded = roleList.map(r => {
+    const h = Math.round((Number(r.hours) || 0) * qty * 10) / 10;
+    return { name: r.role_name || 'Role', hours: h };
+  });
+  const totalIncludedHours = rolesIncluded.reduce((s, r) => s + r.hours, 0);
+  const roleCount = rolesIncluded.length;
+  const isAllIn = mode === EXECUTION_ALL_IN;
 
   let includedTeamScope = '—';
-  if (mode === EXECUTION_ALL_IN) {
-    includedTeamScope = 'N/A — all-in package';
-  } else if (includedParts) {
-    includedTeamScope = `${includedParts} (included)`;
+  let includedTeam = {
+    roleCount: 0,
+    totalHours: 0,
+    roles: [],
+    summary: '—',
+    isAllIn: false,
+  };
+
+  if (isAllIn) {
+    includedTeamScope = 'All-in package';
+    includedTeam = {
+      roleCount: 0,
+      totalHours: 0,
+      roles: [],
+      summary: 'All-in package',
+      isAllIn: true,
+    };
+  } else if (roleCount > 0) {
+    const roleWord = roleCount === 1 ? 'role' : 'roles';
+    const summary = `${roleCount} ${roleWord} · ${Math.round(totalIncludedHours)}h included`;
+    includedTeamScope = summary;
+    includedTeam = {
+      roleCount,
+      totalHours: Math.round(totalIncludedHours * 10) / 10,
+      roles: rolesIncluded,
+      summary,
+      isAllIn: false,
+    };
   }
 
   let additionalHoursCost = 0;
@@ -282,6 +307,7 @@ export function buildProductLinePricingBreakdown(line, segment, calcData, matchR
   return {
     basePackageCost: line.cost || 0,
     includedTeamScope,
+    includedTeam,
     additionalHoursCost: Math.round(additionalHoursCost * 100) / 100,
     vendorCostNote: 'Deal-level — see Vendors tab',
     marginPercent: line.margin_percent,

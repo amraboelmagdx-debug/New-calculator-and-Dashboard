@@ -1,8 +1,6 @@
 import { useMemo, useState } from 'react';
 import {
   Target,
-  Lock,
-  Unlock,
   Layers,
   Package,
   Users,
@@ -16,12 +14,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Slider } from '@/components/ui/slider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import PricingGuidelinesPanel from '@/components/PricingGuidelinesPanel';
 import StepContinueFooter from './StepContinueFooter';
 import { formatCurrency } from '@/lib/utils';
+import ProductPricingCard from './ProductPricingCard';
 import {
   MARGIN_MODES,
   applyMarginModeToCalcData,
@@ -33,49 +31,12 @@ import {
   getPrimaryGuidelineCategory,
 } from '@/lib/marginEngine';
 import { EXECUTION_HYBRID } from '@/lib/pricingCostRules';
-import ProductPricingBreakdown from './ProductPricingBreakdown';
-import { executionModeLabel } from '@/lib/pricingCostRules';
 
 const MODES = [
   { id: MARGIN_MODES.UNIFIED, label: 'Unified' },
   { id: MARGIN_MODES.SPLIT, label: 'Split' },
   { id: MARGIN_MODES.GRANULAR, label: 'Per-line' },
 ];
-
-function statusBadgeClass(tone, isDarkMode) {
-  if (tone === 'emerald') {
-    return isDarkMode ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-emerald-100 text-emerald-800 border-emerald-200';
-  }
-  if (tone === 'amber') {
-    return isDarkMode ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' : 'bg-amber-100 text-amber-800 border-amber-200';
-  }
-  if (tone === 'rose') {
-    return isDarkMode ? 'bg-rose-500/20 text-rose-400 border-rose-500/30' : 'bg-rose-50 text-rose-800 border-rose-200';
-  }
-  return isDarkMode ? 'bg-neutral-800 text-neutral-400 border-neutral-700' : 'bg-slate-100 text-slate-600 border-slate-200';
-}
-
-function MarginRangeBar({ value, min, target, isDarkMode }) {
-  const minP = Math.min(100, Math.max(0, min || 0));
-  const targetP = Math.min(100, Math.max(minP, target || 30));
-  const valP = Math.min(100, Math.max(0, value || 0));
-  return (
-    <div className={`relative h-2 rounded-full overflow-hidden ${isDarkMode ? 'bg-neutral-800' : 'bg-slate-200'}`}>
-      <div
-        className={`absolute inset-y-0 left-0 ${isDarkMode ? 'bg-amber-500/30' : 'bg-amber-200'}`}
-        style={{ width: `${minP}%` }}
-      />
-      <div
-        className={`absolute inset-y-0 ${isDarkMode ? 'bg-emerald-500/25' : 'bg-emerald-200'}`}
-        style={{ left: `${minP}%`, width: `${targetP - minP}%` }}
-      />
-      <div
-        className="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full bg-indigo-500 border-2 border-white shadow"
-        style={{ left: `calc(${valP}% - 5px)` }}
-      />
-    </div>
-  );
-}
 
 export default function MarginControlCenter({
   isDarkMode,
@@ -330,124 +291,35 @@ export default function MarginControlCenter({
                   Add products in Scope to configure per-line margins.
                 </p>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-5">
                   {productLines.map(line => {
                     const item = selectedProducts.find(p => p.id === line.id);
                     const target = Number(calcData.target_margin_percent) || 30;
                     const minM = line.sheet_min_margin_percent || 0;
+                    const breakdown = buildProductLinePricingBreakdown(
+                      line,
+                      getSegmentPayload(findCatalogProduct(line.product_name), line.segment),
+                      calcData,
+                      matchRoleByName
+                    );
                     return (
-                      <div
+                      <ProductPricingCard
                         key={line.id}
-                        className={`rounded-xl border p-4 space-y-3 ${
-                          isDarkMode ? 'border-neutral-700 bg-neutral-900/50' : 'border-slate-200 bg-slate-50/80'
-                        }`}
-                      >
-                        <div className="flex flex-wrap items-start justify-between gap-2">
-                          <div>
-                            <p className={`font-medium text-sm ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                              {line.product_name}
-                            </p>
-                            <p className={`text-xs ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>
-                              {line.segment?.toUpperCase()} · Qty {line.quantity}
-                              {line.execution_mode && (
-                                <> · {executionModeLabel(line.execution_mode)}</>
-                              )}
-                            </p>
-                            {line.cost_basis_description && (
-                              <p className={`text-xs mt-1 ${isDarkMode ? 'text-neutral-600' : 'text-slate-500'}`}>
-                                {line.cost_basis_description}
-                              </p>
-                            )}
-                          </div>
-                          <Badge className={`text-xs border ${statusBadgeClass(line.validation?.tone, isDarkMode)}`}>
-                            {line.validation?.label}
-                          </Badge>
-                        </div>
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                          <div>
-                            <p className={isDarkMode ? 'text-neutral-500' : 'text-slate-500'}>Cost (J)</p>
-                            <p className={`font-mono font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                              {formatCurrency(line.cost)}
-                            </p>
-                          </div>
-                          <div>
-                            <p className={isDarkMode ? 'text-neutral-500' : 'text-slate-500'}>Min margin</p>
-                            <p className={`font-mono ${isDarkMode ? 'text-amber-400' : 'text-amber-700'}`}>
-                              {minM > 0 ? `${minM}%` : '—'}
-                            </p>
-                          </div>
-                          <div>
-                            <p className={isDarkMode ? 'text-neutral-500' : 'text-slate-500'}>Min selling (O)</p>
-                            <p className={`font-mono ${isDarkMode ? 'text-emerald-400' : 'text-emerald-700'}`}>
-                              {formatCurrency(line.sheet_min_selling)}
-                            </p>
-                          </div>
-                          <div>
-                            <p className={isDarkMode ? 'text-neutral-500' : 'text-slate-500'}>Line price</p>
-                            <p className={`font-mono font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                              {formatCurrency(line.line_selling)}
-                            </p>
-                          </div>
-                        </div>
-                        <ProductPricingBreakdown
-                          isDarkMode={isDarkMode}
-                          breakdown={buildProductLinePricingBreakdown(
-                            line,
-                            getSegmentPayload(findCatalogProduct(line.product_name), line.segment),
-                            calcData,
-                            matchRoleByName
-                          )}
-                          footnote={
-                            hybridProductLineCount > 1 && line.execution_mode === EXECUTION_HYBRID
-                              ? 'Multiple hybrid lines may share roles — extra labor is consolidated on the Team tab.'
-                              : null
-                          }
-                        />
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <Label className={`text-xs ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`}>
-                              Margin %
-                            </Label>
-                            <div className="flex items-center gap-2">
-                              <Input
-                                type="number"
-                                className={`w-16 h-8 text-sm ${inputClass}`}
-                                value={item?.margin_percent ?? line.margin_percent}
-                                onChange={e =>
-                                  updateProductMargin(line.id, parseFloat(e.target.value) || 0, true)
-                                }
-                              />
-                              <button
-                                type="button"
-                                title={item?.locked ? 'Margin locked' : 'Margin follows sheet/global'}
-                                onClick={() =>
-                                  setSelectedProducts(prev =>
-                                    prev.map(p =>
-                                      p.id === line.id ? { ...p, locked: !p.locked } : p
-                                    )
-                                  )
-                                }
-                                className={isDarkMode ? 'text-neutral-500 hover:text-white' : 'text-slate-400 hover:text-slate-700'}
-                              >
-                                {item?.locked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
-                              </button>
-                            </div>
-                          </div>
-                          <MarginRangeBar
-                            value={item?.margin_percent ?? line.margin_percent}
-                            min={minM}
-                            target={target}
-                            isDarkMode={isDarkMode}
-                          />
-                          <Slider
-                            value={[Math.min(80, Math.max(0, item?.margin_percent ?? line.margin_percent))]}
-                            min={0}
-                            max={80}
-                            step={0.5}
-                            onValueChange={([v]) => updateProductMargin(line.id, v, true)}
-                          />
-                        </div>
-                      </div>
+                        line={line}
+                        item={item}
+                        breakdown={breakdown}
+                        isDarkMode={isDarkMode}
+                        inputClass={inputClass}
+                        target={target}
+                        minM={minM}
+                        updateProductMargin={updateProductMargin}
+                        setSelectedProducts={setSelectedProducts}
+                        footnote={
+                          hybridProductLineCount > 1 && line.execution_mode === EXECUTION_HYBRID
+                            ? 'Multiple hybrid lines may share roles — extra labor is consolidated on the Team tab.'
+                            : null
+                        }
+                      />
                     );
                   })}
                 </div>

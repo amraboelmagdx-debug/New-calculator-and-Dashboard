@@ -377,4 +377,11 @@ export const getSalesDashboardData = async (forceRefresh = false) => {
   return response.data;
 };
 
+export const lookupOpportunityById = async (opportunityId) => {
+  const response = await apiClient.get(
+    `/sales-dashboard/opportunity/${encodeURIComponent(opportunityId)}`
+  );
+  return response.data;
+};
+
 export default apiClient;

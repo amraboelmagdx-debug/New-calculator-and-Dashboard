@@ -7,9 +7,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import VendorRow from '@/components/VendorRow';
 import MarginControlCenter from './MarginControlCenter';
+import StickyPricingSummary from './StickyPricingSummary';
 
 export default function StepEconomics({
   isDarkMode,
+  projectInfo,
+  setProjectInfo,
+  paymentTerms = [],
   calcData,
   setCalcData,
   selectedProducts,
@@ -18,6 +22,9 @@ export default function StepEconomics({
   getSegmentPayload,
   roles,
   results,
+  calculating,
+  sheetMinSellingTotal,
+  sheetPriceFloorWarning,
   vendorServices,
   addVendor,
   updateVendor,
@@ -27,8 +34,23 @@ export default function StepEconomics({
   showPricing,
   onContinueToReview,
 }) {
+  const showEconomics = showVendors || showPricing;
+
   return (
-    <>
+    <div className={showEconomics ? 'pb-28 md:pb-0' : undefined}>
+      {showEconomics && (
+        <div className="mb-6">
+          <StickyPricingSummary
+            results={results}
+            calculating={calculating}
+            isDarkMode={isDarkMode}
+            sheetMinSellingTotal={sheetMinSellingTotal}
+            sheetPriceFloorWarning={sheetPriceFloorWarning}
+            calcData={calcData}
+            selectedProducts={selectedProducts}
+          />
+        </div>
+      )}
       {showVendors && (
         <section id="vendors" className="animate-fade-in quote-panel-enter">
           <Card
@@ -154,7 +176,47 @@ export default function StepEconomics({
       )}
 
       {showPricing && (
-        <MarginControlCenter
+        <>
+          <div
+            className={`mb-4 rounded-xl border px-4 py-3 max-w-sm ${
+              isDarkMode ? 'border-neutral-800 bg-neutral-950/50' : 'border-slate-200 bg-slate-50/80'
+            }`}
+            data-testid="payment-terms-section"
+          >
+            <Label className={`text-sm ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`}>
+              Payment terms
+            </Label>
+            <Select
+              value={projectInfo?.payment_term_id || ''}
+              onValueChange={v => setProjectInfo(p => ({ ...p, payment_term_id: v }))}
+            >
+              <SelectTrigger
+                className={`mt-1.5 ${
+                  isDarkMode
+                    ? 'bg-neutral-950 border-neutral-800 text-white'
+                    : 'bg-white border-slate-300 text-slate-700'
+                }`}
+                data-testid="payment-terms-select"
+              >
+                <SelectValue placeholder="Select payment terms" />
+              </SelectTrigger>
+              <SelectContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700' : 'bg-white border-slate-200'}>
+                {paymentTerms.map(term => (
+                  <SelectItem
+                    key={term.id}
+                    value={term.id}
+                    className={isDarkMode ? 'text-neutral-300' : 'text-slate-700'}
+                  >
+                    {term.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className={`text-xs mt-1.5 ${isDarkMode ? 'text-neutral-600' : 'text-slate-400'}`}>
+              Affects financing cost on calculated price
+            </p>
+          </div>
+          <MarginControlCenter
           isDarkMode={isDarkMode}
           calcData={calcData}
           setCalcData={setCalcData}
@@ -166,7 +228,8 @@ export default function StepEconomics({
           results={results}
           onContinueToReview={onContinueToReview}
         />
+        </>
       )}
-    </>
+    </div>
   );
 }

@@ -13,7 +13,11 @@ export function getStepCompletion(stepId, { projectInfo, selectedProducts, calcD
   );
   switch (stepId) {
     case 'frame':
-      return Boolean(projectInfo?.client_name?.trim() || projectInfo?.project_name?.trim());
+      return Boolean(
+        projectInfo?.opportunity_id?.trim() ||
+          projectInfo?.client_name?.trim() ||
+          projectInfo?.project_name?.trim()
+      );
     case 'compose':
       return hasValidProduct || (calcData?.team_members?.length > 0);
     case 'economics':

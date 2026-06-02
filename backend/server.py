@@ -732,6 +732,127 @@ def _unique_sorted(values: List[str]) -> List[str]:
     return cleaned
 
 
+BD_MASTER_SHEET_TAB = "BDsMastersheet"
+BD_MASTER_DATA_ROW_INDEX = 4  # sheet row 5 (1-based)
+
+opportunity_lookup_cache: Dict[str, Any] = {
+    "rows": None,
+    "timestamp": None,
+}
+
+
+def _map_opportunity_source_to_lead_source(source: str) -> str:
+    text = (source or "").strip().lower()
+    if "referral" in text:
+        return "referral"
+    return "direct"
+
+
+def _extract_scope_label(segment: str) -> str:
+    text = re.sub(r"^\d+\.\s*", "", (segment or "").strip())
+    for sep in ("–", "—", "-"):
+        if sep in text:
+            parts = text.split(sep, 1)
+            if len(parts) > 1 and parts[1].strip():
+                return parts[1].strip()
+    return text
+
+
+def _has_numbered_scope_items(text: str) -> bool:
+    text = (text or "").strip()
+    return bool(re.match(r"^\d+\.", text)) or bool(re.search(r",\s*\d+\.", text))
+
+
+def _split_scope_segments(raw: str) -> List[str]:
+    text = (raw or "").strip()
+    if not text:
+        return []
+    if _has_numbered_scope_items(text):
+        return [p.strip() for p in re.split(r",\s*(?=\d+\.)", text) if p.strip()]
+    return [p.strip() for p in re.split(r"[,،]\s*", text) if p.strip()]
+
+
+def _parse_opportunity_scope_items(scope_raw: str) -> List[Dict[str, Any]]:
+    segments = _split_scope_segments(scope_raw)
+    items: List[Dict[str, Any]] = []
+    for index, piece in enumerate(segments, start=1):
+        items.append({
+            "index": index,
+            "raw": piece,
+            "label": _extract_scope_label(piece),
+        })
+    return items
+
+
+async def _fetch_bd_master_sheet_rows() -> List[List[str]]:
+    current_time = datetime.now(timezone.utc)
+    if (
+        opportunity_lookup_cache["rows"] is not None
+        and opportunity_lookup_cache["timestamp"] is not None
+        and (current_time - opportunity_lookup_cache["timestamp"]).total_seconds() < CACHE_TTL_SECONDS
+    ):
+        return opportunity_lookup_cache["rows"]
+
+    encoded_sheet = urllib.parse.quote(BD_MASTER_SHEET_TAB)
+    url = (
+        f"https://docs.google.com/spreadsheets/d/{SALES_DASHBOARD_SHEET_ID}/gviz/tq"
+        f"?tqx=out:csv&sheet={encoded_sheet}"
+    )
+    async with httpx.AsyncClient() as http_client:
+        response = await http_client.get(url, follow_redirects=True, timeout=30)
+        response.raise_for_status()
+
+    rows = list(csv.reader(io.StringIO(response.text)))
+    opportunity_lookup_cache["rows"] = rows
+    opportunity_lookup_cache["timestamp"] = current_time
+    return rows
+
+
+def _find_opportunity_row(rows: List[List[str]], opportunity_id: str) -> Optional[List[str]]:
+    target = (opportunity_id or "").strip().lower()
+    if not target:
+        return None
+    for row in rows[BD_MASTER_DATA_ROW_INDEX:]:
+        if _is_blank_sales_row(row):
+            continue
+        cell_id = _cell(row, 0).strip().lower()
+        if cell_id and cell_id == target:
+            return row
+    return None
+
+
+@api_router.get("/sales-dashboard/opportunity/{opportunity_id}", response_model=Dict)
+async def lookup_sales_dashboard_opportunity(opportunity_id: str):
+    lookup_id = (opportunity_id or "").strip()
+    if not lookup_id:
+        raise HTTPException(status_code=400, detail="Opportunity ID is required")
+
+    try:
+        rows = await _fetch_bd_master_sheet_rows()
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=503, detail=f"Failed to fetch BDsMastersheet: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Failed to read BDsMastersheet: {str(e)}")
+
+    row = _find_opportunity_row(rows, lookup_id)
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Opportunity not found: {lookup_id}")
+
+    opportunity_source = _cell(row, 3)
+    scope_raw = _cell(row, 15)
+
+    return {
+        "opportunity_id": _cell(row, 0),
+        "client_name": _cell(row, 12),
+        "project_name": _cell(row, 13),
+        "sales_owner": _cell(row, 1),
+        "opportunity_source": opportunity_source,
+        "lead_source": _map_opportunity_source_to_lead_source(opportunity_source),
+        "scope_raw": scope_raw,
+        "scope_items": _parse_opportunity_scope_items(scope_raw),
+    }
+
+
 @api_router.get("/sales-dashboard/data", response_model=Dict)
 async def get_sales_dashboard_data(force_refresh: bool = False):
     current_time = datetime.now(timezone.utc)

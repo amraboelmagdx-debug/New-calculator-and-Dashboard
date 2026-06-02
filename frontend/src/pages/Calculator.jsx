@@ -32,8 +32,10 @@ import {
   setAdminPassword,
   getThemeSettings,
   getHRConfig,
-  fetchProductsPricing
+  fetchProductsPricing,
+  lookupOpportunityById,
 } from '@/lib/api';
+import { enrichScopeItemsWithCatalog, parseScopeText } from '@/lib/opportunityScope';
 
 import DepartmentRolePicker from '@/components/DepartmentRolePicker';
 import ServicePricingDetail from '@/components/ServicePricingDetail';
@@ -49,6 +51,7 @@ import BottomNav from '@/components/calculator/BottomNav';
 import TemplatePanel from '@/components/calculator/TemplatePanel';
 import DataSourcesStatus from '@/components/calculator/DataSourcesStatus';
 import StepFrame from '@/components/calculator/StepFrame';
+import OpportunityScopeConfirmDialog from '@/components/calculator/OpportunityScopeConfirmDialog';
 import StepCompose from '@/components/calculator/StepCompose';
 import StepEconomics from '@/components/calculator/StepEconomics';
 import StepReview from '@/components/calculator/StepReview';
@@ -68,6 +71,38 @@ import {
   normalizeExecutionMode,
   EXECUTION_HYBRID,
 } from '@/lib/marginEngine';
+
+function applyScopeEntriesToProducts(prev, entries) {
+  let addedRows = 0;
+  let mergedRows = 0;
+  const next = prev.map(row => ({ ...row }));
+
+  entries.forEach(({ product_name, quantity }) => {
+    if (!product_name) return;
+    const qty = Math.max(1, Math.floor(Number(quantity)) || 1);
+    const existingIdx = next.findIndex(
+      p => p.product_name === product_name && (p.size || 'standard') === 'standard'
+    );
+    if (existingIdx >= 0) {
+      const current = Math.max(1, Number(next[existingIdx].quantity) || 1);
+      next[existingIdx] = {
+        ...next[existingIdx],
+        quantity: current + qty,
+      };
+      mergedRows += 1;
+    } else {
+      next.push({
+        id: `pp-opp-${Date.now()}-${addedRows}-${Math.random().toString(36).slice(2, 6)}`,
+        product_name,
+        size: 'standard',
+        quantity: qty,
+      });
+      addedRows += 1;
+    }
+  });
+
+  return { next, addedRows, mergedRows };
+}
 
 export default function Calculator() {
   const navigate = useNavigate();
@@ -105,11 +140,20 @@ export default function Calculator() {
   
   // Project Info
   const [projectInfo, setProjectInfo] = useState({
+    opportunity_id: '',
     client_name: '',
     project_name: '',
     sales_owner: '',
-    payment_term_id: ''
+    opportunity_source: '',
+    payment_term_id: '',
+    opportunity_scope_raw: '',
+    opportunity_scope_items: [],
+    opportunity_loaded: false,
   });
+  const [opportunityLoading, setOpportunityLoading] = useState(false);
+  const [opportunityLoadError, setOpportunityLoadError] = useState('');
+  const [opportunityLoadSuccess, setOpportunityLoadSuccess] = useState('');
+  const [scopeConfirmOpen, setScopeConfirmOpen] = useState(false);
 
   // Calculator Data
   const [calcData, setCalcData] = useState({
@@ -299,7 +343,7 @@ export default function Calculator() {
     return product.segments?.[segment] || null;
   };
 
-  const getSheetMinimumTotal = () => {
+  const getSheetMinimumTotal = useCallback(() => {
     let sum = 0;
     selectedProducts.forEach(item => {
       if (!item.product_name || !item.size) return;
@@ -310,7 +354,12 @@ export default function Calculator() {
       sum += (Number(seg.base_minimum_selling_price) || 0) * qty;
     });
     return sum;
-  };
+  }, [selectedProducts, productsPricingCatalog]);
+
+  const sheetMinSellingTotal = useMemo(
+    () => getSheetMinimumTotal(),
+    [getSheetMinimumTotal]
+  );
 
   const normalizeRoleName = (value) => String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
 
@@ -878,6 +927,91 @@ export default function Calculator() {
     return () => mq.removeEventListener('change', onChange);
   }, []);
 
+  useEffect(() => {
+    if (!projectInfo.opportunity_loaded || !projectInfo.opportunity_scope_raw) return;
+    if (!productsPricingCatalog.length) return;
+    setProjectInfo(prev => {
+      const enriched = enrichScopeItemsWithCatalog(
+        parseScopeText(prev.opportunity_scope_raw),
+        productsPricingCatalog
+      );
+      const same =
+        enriched.length === prev.opportunity_scope_items.length &&
+        enriched.every(
+          (item, i) =>
+            item.matched === prev.opportunity_scope_items[i]?.matched &&
+            item.catalog_product_name === prev.opportunity_scope_items[i]?.catalog_product_name
+        );
+      if (same) return prev;
+      return { ...prev, opportunity_scope_items: enriched };
+    });
+  }, [productsPricingCatalog, projectInfo.opportunity_loaded, projectInfo.opportunity_scope_raw]);
+
+  const handleLoadOpportunity = useCallback(async () => {
+    const id = (projectInfo.opportunity_id || '').trim();
+    if (!id) return;
+    setOpportunityLoading(true);
+    setOpportunityLoadError('');
+    setOpportunityLoadSuccess('');
+    try {
+      const data = await lookupOpportunityById(id);
+      const scopeItems = enrichScopeItemsWithCatalog(
+        data.scope_items || [],
+        productsPricingCatalog
+      );
+      setProjectInfo(prev => ({
+        ...prev,
+        opportunity_id: data.opportunity_id || id,
+        client_name: data.client_name || '',
+        project_name: data.project_name || '',
+        sales_owner: data.sales_owner || '',
+        opportunity_source: data.opportunity_source || '',
+        opportunity_scope_raw: data.scope_raw || '',
+        opportunity_scope_items: scopeItems,
+        opportunity_loaded: true,
+      }));
+      if (data.lead_source === 'referral' || data.lead_source === 'direct') {
+        setCalcData(prev => ({ ...prev, lead_source: data.lead_source }));
+      }
+      const matchedCount = scopeItems.filter(i => i.matched).length;
+      setOpportunityLoadSuccess(
+        `Loaded ${data.opportunity_id}${matchedCount ? ` · ${matchedCount} scope line(s) matched catalog` : ''}`
+      );
+      toast.success('Opportunity loaded from sheet');
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      const message =
+        typeof detail === 'string'
+          ? detail
+          : err.response?.status === 404
+            ? `Opportunity not found: ${id}`
+            : 'Failed to load opportunity from sheet';
+      setOpportunityLoadError(message);
+      setProjectInfo(prev => ({
+        ...prev,
+        opportunity_loaded: false,
+        opportunity_source: '',
+        opportunity_scope_raw: '',
+        opportunity_scope_items: [],
+      }));
+      toast.error(message);
+    } finally {
+      setOpportunityLoading(false);
+    }
+  }, [projectInfo.opportunity_id, productsPricingCatalog]);
+
+  const mergeScopeProductsIntoSelection = useCallback(entries => {
+    if (!entries?.length) return { addedRows: 0, mergedRows: 0 };
+
+    let result = { addedRows: 0, mergedRows: 0 };
+    setSelectedProducts(prev => {
+      const applied = applyScopeEntriesToProducts(prev, entries);
+      result = applied;
+      return applied.next;
+    });
+    return result;
+  }, []);
+
   const goToDealStep = useCallback((stepId) => {
     setActiveDealStep(stepId);
     if (stepId === 'insight') {
@@ -896,6 +1030,39 @@ export default function Calculator() {
       document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   }, [composeSubTab]);
+
+  const proceedToComposeStep = useCallback(() => {
+    goToDealStep('compose');
+  }, [goToDealStep]);
+
+  const handleContinueFromFrame = useCallback(() => {
+    const matched = (projectInfo.opportunity_scope_items || []).filter(
+      i => i.matched && i.catalog_product_name
+    );
+    if (projectInfo.opportunity_loaded && matched.length > 0) {
+      setScopeConfirmOpen(true);
+      return;
+    }
+    proceedToComposeStep();
+  }, [projectInfo.opportunity_loaded, projectInfo.opportunity_scope_items, proceedToComposeStep]);
+
+  const handleScopeConfirmAdd = useCallback(
+    entries => {
+      const { addedRows, mergedRows } = mergeScopeProductsIntoSelection(entries);
+      if (addedRows > 0 || mergedRows > 0) {
+        const parts = [];
+        if (addedRows > 0) {
+          parts.push(`added ${addedRows} product${addedRows === 1 ? '' : 's'}`);
+        }
+        if (mergedRows > 0) {
+          parts.push(`updated quantity on ${mergedRows} existing row${mergedRows === 1 ? '' : 's'}`);
+        }
+        toast.success(parts.join(', '));
+      }
+      proceedToComposeStep();
+    },
+    [mergeScopeProductsIntoSelection, proceedToComposeStep]
+  );
 
   const isSectionVisible = useCallback(
     (sectionId) => {
@@ -1129,15 +1296,28 @@ export default function Calculator() {
           )}
 
           {isSectionVisible('project') && (
-            <StepFrame
-              isDarkMode={isDarkMode}
-              projectInfo={projectInfo}
-              setProjectInfo={setProjectInfo}
-              paymentTerms={paymentTerms}
-              calcData={calcData}
-              setCalcData={setCalcData}
-              onContinue={() => goToDealStep('compose')}
-            />
+            <>
+              <StepFrame
+                isDarkMode={isDarkMode}
+                projectInfo={projectInfo}
+                setProjectInfo={setProjectInfo}
+                calcData={calcData}
+                setCalcData={setCalcData}
+                onContinue={handleContinueFromFrame}
+                onLoadOpportunity={handleLoadOpportunity}
+                opportunityLoading={opportunityLoading}
+                opportunityLoadError={opportunityLoadError}
+                opportunityLoadSuccess={opportunityLoadSuccess}
+              />
+              <OpportunityScopeConfirmDialog
+                open={scopeConfirmOpen}
+                onOpenChange={setScopeConfirmOpen}
+                scopeItems={projectInfo.opportunity_scope_items}
+                isDarkMode={isDarkMode}
+                onConfirm={handleScopeConfirmAdd}
+                onSkip={proceedToComposeStep}
+              />
+            </>
           )}
 
           {(isSectionVisible('products') || isSectionVisible('team')) && (
@@ -1173,6 +1353,9 @@ export default function Calculator() {
               showVendors={isSectionVisible('vendors')}
               showPricing={isSectionVisible('pricing')}
               isDarkMode={isDarkMode}
+              projectInfo={projectInfo}
+              setProjectInfo={setProjectInfo}
+              paymentTerms={paymentTerms}
               calcData={calcData}
               setCalcData={setCalcData}
               selectedProducts={selectedProducts}
@@ -1181,6 +1364,9 @@ export default function Calculator() {
               getSegmentPayload={getSegmentPayload}
               roles={roles}
               results={results}
+              calculating={calculating}
+              sheetMinSellingTotal={sheetMinSellingTotal}
+              sheetPriceFloorWarning={sheetPriceFloorWarning}
               vendorServices={vendorServices}
               addVendor={addVendor}
               updateVendor={updateVendor}
