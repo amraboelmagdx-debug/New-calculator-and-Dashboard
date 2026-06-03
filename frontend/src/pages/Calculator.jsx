@@ -28,18 +28,22 @@ import {
   getPaymentTerms,
   getRiskMultipliers,
   calculateSimple, 
-  seedDatabase,
   setAdminPassword,
   getThemeSettings,
   getHRConfig,
   fetchProductsPricing,
   lookupOpportunityById,
 } from '@/lib/api';
-import { enrichScopeItemsWithCatalog, parseScopeText } from '@/lib/opportunityScope';
+import {
+  enrichScopeItemsWithCatalog,
+  parseScopeText,
+  findExistingProductIndex,
+  normalizeTierKeyOrDefault,
+  resolveCatalogProduct,
+  resolveSegmentPayload,
+  getSegmentPayload as getCatalogSegmentPayload,
+} from '@/lib/opportunityScope';
 
-import DepartmentRolePicker from '@/components/DepartmentRolePicker';
-
-import TeamMemberRow from '@/components/TeamMemberRow';
 import VendorRow from '@/components/VendorRow';
 import ExportPDF from '@/components/ExportPDF';
 import QuoteHealthStrip from '@/components/calculator/QuoteHealthStrip';
@@ -59,7 +63,6 @@ import { useQuoteWorkflow } from '@/hooks/useQuoteCalculator';
 import {
   formatCurrency,
   getStandardMonthlyHours,
-  hoursFromUtilization,
   utilizationFromHours,
 } from '@/lib/utils';
 import {
@@ -69,78 +72,49 @@ import {
   normalizeExecutionMode,
   EXECUTION_HYBRID,
 } from '@/lib/marginEngine';
+import { buildSheetTeamMembers } from '@/lib/roleMatching';
+
+function createOpportunityProductRow(product_name, size, quantity, entryIdx) {
+  return {
+    id: `pp-opp-${Date.now()}-${entryIdx}-${Math.random().toString(36).slice(2, 6)}`,
+    product_name,
+    size: normalizeTierKeyOrDefault(size),
+    quantity: Math.max(1, Math.floor(Number(quantity)) || 1),
+    team_members: [],
+    vendors: [],
+    risk: { complexity: 'none', rush: 'none', execution: 'none', custom_multiplier: 0, risk_mode: 'default' },
+    margin_percent: null,
+    margin_source: null,
+    is_standalone: false,
+    source: 'opportunity',
+  };
+}
 
 function applyScopeEntriesToProducts(prev, entries) {
   let addedRows = 0;
   let mergedRows = 0;
   const next = prev.map(row => ({ ...row }));
 
-  entries.forEach(({ product_name, quantity }) => {
+  entries.forEach(({ product_name, size, quantity }, entryIdx) => {
     if (!product_name) return;
     const qty = Math.max(1, Math.floor(Number(quantity)) || 1);
-    const existingIdx = next.findIndex(
-      p => p.product_name === product_name && (p.size || 'standard') === 'standard'
-    );
+    const tier = normalizeTierKeyOrDefault(size);
+    const existingIdx = findExistingProductIndex(next, product_name, tier);
     if (existingIdx >= 0) {
-      const current = Math.max(1, Number(next[existingIdx].quantity) || 1);
+      const existing = next[existingIdx];
+      const current = Math.max(1, Number(existing.quantity) || 1);
       next[existingIdx] = {
-        ...next[existingIdx],
+        ...existing,
         quantity: current + qty,
       };
       mergedRows += 1;
     } else {
-      next.push({
-        id: `pp-opp-${Date.now()}-${addedRows}-${Math.random().toString(36).slice(2, 6)}`,
-        product_name,
-        size: 'standard',
-        quantity: qty,
-        source: 'opportunity',
-      });
+      next.push(createOpportunityProductRow(product_name, tier, qty, entryIdx));
       addedRows += 1;
     }
   });
 
   return { next, addedRows, mergedRows };
-}
-
-function teamMembersMatch(current, generated) {
-  if (current.length !== generated.length) return false;
-  const sortFn = (a, b) => String(a.role_id || '').localeCompare(String(b.role_id || ''));
-  const a = [...current].sort(sortFn);
-  const b = [...generated].sort(sortFn);
-  return a.every((m, i) => {
-    const g = b[i];
-    return (
-      m.role_id === g.role_id &&
-      m.hours === g.hours &&
-      (m.baseline_hours || 0) === (g.baseline_hours || 0)
-    );
-  });
-}
-
-function computeTeamSyncDiff(current, generated) {
-  const currentByRole = new Map((current || []).filter(m => m.role_id).map(m => [m.role_id, m]));
-  const genByRole = new Map((generated || []).filter(m => m.role_id).map(m => [m.role_id, m]));
-  const changes = [];
-  genByRole.forEach((g, id) => {
-    const c = currentByRole.get(id);
-    if (!c) {
-      changes.push({ type: 'add', role_name: g.role_name || 'Role', hours: g.hours });
-    } else if (c.hours !== g.hours || (c.baseline_hours || 0) !== (g.baseline_hours || 0)) {
-      changes.push({
-        type: 'change',
-        role_name: g.role_name || c.role_name || 'Role',
-        before: c.hours,
-        after: g.hours,
-      });
-    }
-  });
-  currentByRole.forEach((c, id) => {
-    if (!genByRole.has(id)) {
-      changes.push({ type: 'remove', role_name: c.role_name || 'Role', hours: c.hours });
-    }
-  });
-  return changes;
 }
 
 export default function Calculator() {
@@ -172,11 +146,6 @@ export default function Calculator() {
   const [productsPricingSyncedAt, setProductsPricingSyncedAt] = useState(null);
   const [productsPricingStale, setProductsPricingStale] = useState(false);
   const [sheetPriceFloorWarning, setSheetPriceFloorWarning] = useState(null);
-  const [applyProductsDialogOpen, setApplyProductsDialogOpen] = useState(false);
-  const [teamSyncReviewOpen, setTeamSyncReviewOpen] = useState(false);
-  const [pendingTeamMembers, setPendingTeamMembers] = useState([]);
-  /** When 'replace', team hours stay in sync with product qty/selection changes */
-  const [productsTeamLink, setProductsTeamLink] = useState(null);
   const [paymentTerms, setPaymentTerms] = useState([]);
   const [themeSettings, setThemeSettings] = useState({ company_name: 'ZAN', logo_url: '' });
   const [hrConfig, setHrConfig] = useState({
@@ -313,8 +282,8 @@ export default function Calculator() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [rolesData, vendorsData, scopesData, termsData, themeData, hrData] = await Promise.all([
-        getRoles(),
+      const [rolesResult, vendorsData, scopesData, termsData, themeData, hrData] = await Promise.all([
+        getRoles(true),
         getVendorServices(),
         getScopeTemplates(),
         getPaymentTerms(),
@@ -325,8 +294,12 @@ export default function Calculator() {
           hours_per_work_day: 8,
         })),
       ]);
-      
-      setRoles(rolesData);
+
+      const rolesList = Array.isArray(rolesResult) ? rolesResult : rolesResult.roles;
+      setRoles(rolesList || []);
+      if (!Array.isArray(rolesResult) && rolesResult.stale) {
+        toast.warning(rolesResult.warning || 'Roles data may be stale — refresh from Admin when available.');
+      }
       setVendorServices(vendorsData);
       setScopeTemplates(scopesData);
       setPaymentTerms(termsData);
@@ -337,13 +310,6 @@ export default function Calculator() {
         hours_per_work_day: hrData.hours_per_work_day ?? 8,
       });
       await loadProductsPricingCatalog();
-
-      if (rolesData.length === 0) {
-        toast.info('Seeding sample data...', { duration: 2000 });
-        setAdminPassword('Amr123');
-        await seedDatabase();
-        loadData();
-      }
     } catch (error) {
       console.error('Error loading data:', error);
       toast.error('Failed to load data');
@@ -384,16 +350,21 @@ export default function Calculator() {
     }
   };
 
-  const findCatalogProduct = (serviceName) => {
-    return productsPricingCatalog.find(
-      p => p.service_name === serviceName || p.product_name === serviceName
-    );
-  };
+  const catalogLookupOptions = useMemo(
+    () => (selectedSection !== 'all' ? { familyHint: selectedSection } : {}),
+    [selectedSection]
+  );
 
-  const getSegmentPayload = (product, segment) => {
-    if (!product || !segment) return null;
-    return product.segments?.[segment] || null;
-  };
+  const findCatalogProduct = useCallback(
+    (serviceName) =>
+      resolveCatalogProduct(productsPricingCatalog, serviceName, catalogLookupOptions),
+    [productsPricingCatalog, catalogLookupOptions]
+  );
+
+  const getSegmentPayload = useCallback(
+    (product, segment) => getCatalogSegmentPayload(product, segment),
+    []
+  );
 
   const getSheetMinimumTotal = useCallback(() => {
     let sum = 0;
@@ -406,168 +377,90 @@ export default function Calculator() {
       sum += (Number(seg.base_minimum_selling_price) || 0) * qty;
     });
     return sum;
-  }, [selectedProducts, productsPricingCatalog]);
+  }, [selectedProducts, findCatalogProduct, getSegmentPayload]);
 
   const sheetMinSellingTotal = useMemo(
     () => getSheetMinimumTotal(),
     [getSheetMinimumTotal]
   );
 
-  const normalizeRoleName = (value) => String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
-
-  const findRoleMatch = (sheetRoleName) => {
-    const target = normalizeRoleName(sheetRoleName);
-    const targetCore = target.split(' - ')[0].trim();
-    return roles.find(role => {
-      const roleName = normalizeRoleName(role.name);
-      const roleCore = roleName.split(' - ')[0].trim();
-      return roleName === target || roleCore === targetCore || roleName.includes(targetCore) || target.includes(roleCore);
-    });
-  };
-
-  const buildTeamMembersFromProducts = useCallback((existingMembers = []) => {
-    const validSelections = selectedProducts.filter(item => item.product_name && item.size && (item.quantity || 0) > 0);
-    const roleHoursMap = new Map();
-    const existingByRoleId = new Map(
-      (existingMembers || []).filter(tm => tm.role_id).map(tm => [tm.role_id, tm])
-    );
-
-    validSelections.forEach(item => {
-      const product = findCatalogProduct(item.product_name);
-      const seg = getSegmentPayload(product, item.size);
-      if (!seg || !shouldAutoSyncTeamFromSegment(seg)) return;
-
-      const mode = normalizeExecutionMode(seg.execution_mode, seg);
-      const roleList = seg?.internal_roles?.length
-        ? seg.internal_roles
-        : (product?.sizes?.[item.size] || []);
-      if (!roleList.length) return;
-      const qty = Number(item.quantity) || 1;
-      roleList.forEach(roleItem => {
-        const key = normalizeRoleName(roleItem.role_name);
-        const prev = roleHoursMap.get(key) || {
-          role_name: roleItem.role_name,
-          hours: 0,
-          baseline_hours: 0,
-          isHybrid: false,
-        };
-        const roleHours = (Number(roleItem.hours) || 0) * qty;
-        prev.hours += roleHours;
-        if (mode === EXECUTION_HYBRID) {
-          prev.baseline_hours += roleHours;
-          prev.isHybrid = true;
-        }
-        roleHoursMap.set(key, prev);
-      });
-    });
-
-    const unmatched = [];
-    const members = [...roleHoursMap.values()].map(roleData => {
-      const matched = findRoleMatch(roleData.role_name);
-      if (!matched) {
-        unmatched.push(roleData.role_name);
-        return null;
-      }
-      const hours = Math.round(roleData.hours * 100) / 100;
-      const baselineHours = Math.round((roleData.baseline_hours || 0) * 100) / 100;
-      const prior = existingByRoleId.get(matched.id);
-      return {
-        id: prior?.id || `tm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        role_id: matched.id,
-        role_name: matched.name,
-        hours,
-        baseline_hours: baselineHours,
-        labor_charge_context: roleData.isHybrid ? EXECUTION_HYBRID : 'resource',
-        hourly_rate: matched.hourly_rate || 0,
-        monthly_salary: matched.monthly_salary || 0,
-        utilization_percent: utilizationFromHours(hours, standardMonthlyHours),
-        duration_months: prior?.duration_months ?? 1,
-        calc_mode: prior?.calc_mode || 'hours',
-        employee_type: prior?.employee_type || 'internal',
-        quantity: 1,
-      };
-    }).filter(Boolean);
-
-    return { members, unmatched };
-  }, [selectedProducts, productsPricingCatalog, roles, standardMonthlyHours]);
-
   // Scoped: build suggested team members for ONE product (used by ProductWorkspaceCard
   // on service select). Returns members tagged source:'sheet', fully editable after.
   const buildProductTeam = useCallback((productName, size, quantity) => {
     const product = findCatalogProduct(productName);
-    const seg = getSegmentPayload(product, size);
-    if (!seg || !shouldAutoSyncTeamFromSegment(seg)) return [];
+    if (!product) {
+      return { members: [], error: 'service_not_found', resolvedTier: null };
+    }
+
+    const { segment: seg, resolvedTierKey } = resolveSegmentPayload(product, size);
+    if (!seg) {
+      return { members: [], error: 'tier_not_found', resolvedTier: null };
+    }
+    if (!shouldAutoSyncTeamFromSegment(seg)) {
+      return { members: [], error: 'all_in_package', resolvedTier: resolvedTierKey };
+    }
+
     const mode = normalizeExecutionMode(seg.execution_mode, seg);
     const roleList = seg?.internal_roles?.length
       ? seg.internal_roles
-      : (product?.sizes?.[size] || []);
-    if (!roleList.length) return [];
+      : (product?.sizes?.[resolvedTierKey] || []);
+    if (!roleList.length) {
+      return { members: [], error: 'no_roles', resolvedTier: resolvedTierKey };
+    }
+
     const qty = Number(quantity) || 1;
-    const members = [];
-    roleList.forEach(roleItem => {
-      const matched = findRoleMatch(roleItem.role_name);
-      if (!matched) return;
-      const hours = Math.round((Number(roleItem.hours) || 0) * qty * 100) / 100;
-      members.push({
-        id: `tm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        role_id: matched.id,
-        role_name: matched.name,
-        hours,
-        baseline_hours: mode === EXECUTION_HYBRID ? hours : 0,
-        labor_charge_context: mode === EXECUTION_HYBRID ? EXECUTION_HYBRID : 'resource',
-        hourly_rate: matched.hourly_rate || 0,
-        monthly_salary: matched.monthly_salary || 0,
-        utilization_percent: utilizationFromHours(hours, standardMonthlyHours),
-        duration_months: 1,
-        calc_mode: 'hours',
-        employee_type: 'internal',
-        quantity: 1,
-        source: 'sheet',
-      });
+    const isHybrid = mode === EXECUTION_HYBRID;
+    const { members, unmatchedRoles, sheetRoleCount } = buildSheetTeamMembers(roleList, roles, {
+      quantity: qty,
+      hybridMode: isHybrid,
+      hybridContext: EXECUTION_HYBRID,
+      utilizationFromHours: h => utilizationFromHours(h, standardMonthlyHours),
     });
-    return members;
-  }, [productsPricingCatalog, roles, standardMonthlyHours]);
 
-  const hasValidProductSelections = selectedProducts.some(
-    item => item.product_name && item.size && (Number(item.quantity) || 0) > 0
-  );
+    if (!members.length) {
+      return {
+        members: [],
+        error: 'no_roles',
+        resolvedTier: resolvedTierKey,
+        unmatchedRoles,
+        sheetRoleCount: 0,
+      };
+    }
 
-  const hasSyncableProductSelections = useMemo(() => {
-    return selectedProducts.some(item => {
-      if (!item.product_name || !item.size || (Number(item.quantity) || 0) <= 0) return false;
-      const product = findCatalogProduct(item.product_name);
-      const seg = getSegmentPayload(product, item.size);
-      return seg && shouldAutoSyncTeamFromSegment(seg);
-    });
-  }, [selectedProducts, productsPricingCatalog]);
+    const linkedCount = members.filter(m => m.hr_linked).length;
+    if (linkedCount === 0) {
+      return {
+        members,
+        error: 'roles_unmatched',
+        resolvedTier: resolvedTierKey,
+        unmatchedRoles,
+        sheetRoleCount,
+      };
+    }
 
-  const generatedTeamFromProducts = useMemo(
-    () => buildTeamMembersFromProducts(calcData.team_members),
-    [buildTeamMembersFromProducts, calcData.team_members]
-  );
-
-  const teamOutOfSync = useMemo(() => {
-    if (!hasValidProductSelections || !hasSyncableProductSelections) return false;
-    const { members } = generatedTeamFromProducts;
-    if (members.length === 0) return false;
-    return !teamMembersMatch(calcData.team_members, members);
-  }, [
-    hasValidProductSelections,
-    hasSyncableProductSelections,
-    generatedTeamFromProducts,
-    calcData.team_members,
-  ]);
-
-  const teamSyncDiff = useMemo(
-    () => computeTeamSyncDiff(calcData.team_members, generatedTeamFromProducts.members),
-    [calcData.team_members, generatedTeamFromProducts.members]
-  );
+    return {
+      members,
+      error: null,
+      resolvedTier: resolvedTierKey,
+      unmatchedRoles,
+      sheetRoleCount,
+    };
+  }, [findCatalogProduct, roles, standardMonthlyHours]);
 
   const validProductCount = useMemo(
     () =>
       selectedProducts.filter(
         p => p.product_name && p.size && (Number(p.quantity) || 0) > 0
       ).length,
+    [selectedProducts]
+  );
+
+  const productTeamMemberCount = useMemo(
+    () =>
+      selectedProducts.reduce(
+        (sum, p) => sum + (Array.isArray(p.team_members) ? p.team_members.length : 0),
+        0
+      ),
     [selectedProducts]
   );
 
@@ -580,30 +473,6 @@ export default function Calculator() {
         p => (p.service_family || p.section_name || 'General') === selectedSection
       );
 
-  const applyGeneratedTeam = (mode, generatedMembers) => {
-    setCalcData(prev => ({
-      ...prev,
-      team_members: mode === 'replace'
-        ? generatedMembers
-        : [...prev.team_members, ...generatedMembers]
-    }));
-  };
-
-  const openTeamSyncDialog = useCallback(() => {
-    const { members, unmatched } = buildTeamMembersFromProducts();
-    if (members.length === 0) {
-      toast.error('No matching roles were found for selected products.');
-      return;
-    }
-    if (unmatched.length > 0) {
-      toast.warning(`${unmatched.length} roles were not matched and were skipped.`);
-    }
-    setPendingTeamMembers(members);
-    setApplyProductsDialogOpen(true);
-  }, [buildTeamMembersFromProducts]);
-
-  const handleApplyProducts = openTeamSyncDialog;
-
   const handleUpdateProductRisk = useCallback((productId, riskField, value) => {
     setSelectedProducts(prev =>
       prev.map(item =>
@@ -612,34 +481,6 @@ export default function Calculator() {
           : item
       )
     );
-  }, []);
-
-  const onAddMemberWithRole = useCallback((roleId) => {
-    const role = roles.find(r => r.id === roleId);
-    if (!role) return;
-    setProductsTeamLink(null);
-    setCalcData(prev => ({
-      ...prev,
-      team_members: [
-        ...prev.team_members,
-        {
-          id: `tm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          role_id: roleId,
-          role_name: role.name || '',
-          hours: 0,
-          hourly_rate: role.hourly_rate || 0,
-          monthly_salary: role.monthly_salary || 0,
-          utilization_percent: 0,
-          duration_months: 1,
-          calc_mode: 'hours',
-          employee_type: 'internal',
-        },
-      ],
-    }));
-  }, [roles]);
-
-  const handleReviewTeamChanges = useCallback(() => {
-    setTeamSyncReviewOpen(true);
   }, []);
 
   // Calculate pricing
@@ -721,74 +562,6 @@ export default function Calculator() {
     }, 300);
     return () => clearTimeout(timer);
   }, [handleCalculate]);
-
-  // Team member functions
-  const addTeamMember = () => {
-    setProductsTeamLink(null);
-    setCalcData(prev => ({
-      ...prev,
-      team_members: [...prev.team_members, {
-        id: `tm-${Date.now()}`,
-        role_id: '',
-        role_name: '',
-        hours: 0,
-        hourly_rate: 0,
-        monthly_salary: 0,
-        utilization_percent: 0,
-        duration_months: 1,
-        calc_mode: 'hours',
-        employee_type: 'internal'
-      }]
-    }));
-  };
-
-  const updateTeamMember = (index, field, value) => {
-    if (field === 'hours' || field === 'role_id' || field === 'utilization_percent') {
-      setProductsTeamLink(null);
-    }
-    setCalcData(prev => {
-      const updated = [...prev.team_members];
-      const member = { ...updated[index], [field]: value };
-
-      if (field === 'role_id' && value) {
-        const role = roles.find(r => r.id === value);
-        if (role) {
-          member.role_name = role.name;
-          member.hourly_rate = role.hourly_rate || 0;
-          member.monthly_salary = role.monthly_salary || 0;
-        }
-      }
-
-      if (field === 'hours') {
-        member.utilization_percent = utilizationFromHours(
-          parseFloat(value) || 0,
-          standardMonthlyHours
-        );
-      } else if (field === 'utilization_percent') {
-        member.hours = hoursFromUtilization(
-          parseFloat(value) || 0,
-          standardMonthlyHours
-        );
-      } else if (field === 'calc_mode') {
-        if (value === 'utilization' && (member.hours || 0) > 0) {
-          member.utilization_percent = utilizationFromHours(member.hours, standardMonthlyHours);
-        } else if (value === 'hours' && (member.utilization_percent || 0) > 0) {
-          member.hours = hoursFromUtilization(member.utilization_percent, standardMonthlyHours);
-        }
-      }
-
-      updated[index] = member;
-      return { ...prev, team_members: updated };
-    });
-  };
-
-  const removeTeamMember = (index) => {
-    setProductsTeamLink(null);
-    setCalcData(prev => ({
-      ...prev,
-      team_members: prev.team_members.filter((_, i) => i !== index)
-    }));
-  };
 
   // Vendor functions
   const addVendor = () => {
@@ -955,7 +728,6 @@ export default function Calculator() {
           const family = catProduct?.service_family || catProduct?.section_name;
           if (family) setSelectedSection(family);
         }
-        setProductsTeamLink('replace');
       }
 
       setCalcData(prev => ({
@@ -1044,9 +816,14 @@ export default function Calculator() {
   // Refresh roles from Google Sheets (via /roles when sheets enabled)
   const refreshRoles = async (forceRefresh = true) => {
     try {
-      const data = await getRoles(forceRefresh);
-      setRoles(data);
-      toast.success(`Refreshed ${data.length} roles`);
+      const result = await getRoles(forceRefresh);
+      const rolesList = Array.isArray(result) ? result : result.roles;
+      setRoles(rolesList || []);
+      if (!Array.isArray(result) && result.stale) {
+        toast.warning(result.warning || 'Roles data may be stale.');
+      } else {
+        toast.success(`Refreshed ${rolesList?.length ?? 0} roles`);
+      }
     } catch {
       toast.error('Failed to refresh roles');
     }
@@ -1139,17 +916,37 @@ export default function Calculator() {
     }
   }, [projectInfo.opportunity_id, productsPricingCatalog]);
 
-  const mergeScopeProductsIntoSelection = useCallback(entries => {
-    if (!entries?.length) return { addedRows: 0, mergedRows: 0 };
+  const mergeScopeProductsIntoSelection = useCallback(
+    entries => {
+      if (!entries?.length) return { addedRows: 0, mergedRows: 0 };
 
-    let result = { addedRows: 0, mergedRows: 0 };
-    setSelectedProducts(prev => {
-      const applied = applyScopeEntriesToProducts(prev, entries);
-      result = applied;
-      return applied.next;
-    });
-    return result;
-  }, []);
+      let result = { addedRows: 0, mergedRows: 0 };
+      setSelectedProducts(prev => {
+        const applied = applyScopeEntriesToProducts(prev, entries);
+        const next = applied.next.map(row => {
+          if (row.is_standalone || !row.product_name) return row;
+          const touched = entries.some(
+            e =>
+              e.product_name === row.product_name &&
+              normalizeTierKeyOrDefault(e.size) === normalizeTierKeyOrDefault(row.size)
+          );
+          if (!touched) return row;
+          const { members } = buildProductTeam(row.product_name, row.size, row.quantity);
+          return {
+            ...row,
+            team_members: members,
+            team_edited: false,
+            team_source: 'sheet',
+            team_qty_basis: row.quantity,
+          };
+        });
+        result = applied;
+        return next;
+      });
+      return result;
+    },
+    [buildProductTeam]
+  );
 
   const goToDealStep = useCallback((stepId) => {
     setActiveDealStep(stepId);
@@ -1184,7 +981,7 @@ export default function Calculator() {
   }, [projectInfo.opportunity_loaded, projectInfo.opportunity_scope_items, proceedToComposeStep]);
 
   const handleScopeConfirmAdd = useCallback(
-    entries => {
+    (entries, meta) => {
       const { addedRows, mergedRows } = mergeScopeProductsIntoSelection(entries);
       if (addedRows > 0 || mergedRows > 0) {
         const parts = [];
@@ -1195,6 +992,11 @@ export default function Calculator() {
           parts.push(`updated quantity on ${mergedRows} existing row${mergedRows === 1 ? '' : 's'}`);
         }
         toast.success(parts.join(', '));
+      }
+      if (meta?.skippedLines?.length) {
+        toast.warning(
+          `${meta.skippedLines.length} scope line${meta.skippedLines.length === 1 ? '' : 's'} skipped — fix tiers and re-import if needed`
+        );
       }
       proceedToComposeStep();
     },
@@ -1393,12 +1195,9 @@ export default function Calculator() {
             {activeDealStep !== 'compose' && (
               <DataSourcesStatus
                 isDarkMode={isDarkMode}
-                productsPricingLoading={productsPricingLoading}
                 productsPricingSyncedAt={productsPricingSyncedAt}
                 productsPricingStale={productsPricingStale}
                 rolesCount={roles.length}
-                onRefreshProducts={loadProductsPricingCatalog}
-                onRefreshRoles={refreshRoles}
               />
             )}
             <div className={`flex items-center gap-2 ${activeDealStep === 'compose' ? 'ml-auto' : ''}`}>
@@ -1434,6 +1233,9 @@ export default function Calculator() {
                 isDarkMode={isDarkMode}
                 onConfirm={handleScopeConfirmAdd}
                 onSkip={proceedToComposeStep}
+                findCatalogProduct={findCatalogProduct}
+                getSegmentPayload={getSegmentPayload}
+                selectedProducts={selectedProducts}
               />
             </>
           )}
@@ -1443,22 +1245,14 @@ export default function Calculator() {
               isDarkMode={isDarkMode}
               expandAllSections={expandAllSections}
               onContinue={() => goToDealStep('economics')}
-              teamOutOfSync={teamOutOfSync}
-              onReviewTeamChanges={handleReviewTeamChanges}
-              onSyncTeam={openTeamSyncDialog}
               contextStripProps={{
                 isDarkMode,
-                productsPricingLoading,
                 productsPricingSyncedAt,
                 productsPricingStale,
                 productCount: validProductCount,
-                teamCount: calcData.team_members.length,
+                teamCount: productTeamMemberCount,
                 sheetPriceFloorWarning,
                 readiness,
-                onRefresh: () => {
-                  loadProductsPricingCatalog(true);
-                  refreshRoles(true);
-                },
               }}
               productsProps={{
                 productsPricingLoading,
@@ -1548,7 +1342,6 @@ export default function Calculator() {
             calculating={calculating}
             isDarkMode={isDarkMode}
             sheetPriceFloorWarning={sheetPriceFloorWarning}
-            productsTeamLink={productsTeamLink}
             calcData={calcData}
             onGoToScope={() => goToDealStep('compose')}
             onSaveTemplate={openCreateTemplateDialog}
@@ -1573,7 +1366,6 @@ export default function Calculator() {
         calculating={calculating}
         isDarkMode={isDarkMode}
         sheetPriceFloorWarning={sheetPriceFloorWarning}
-        productsTeamLink={productsTeamLink}
         calcData={calcData}
         onGoToScope={() => goToDealStep('compose')}
         onSaveTemplate={openCreateTemplateDialog}
@@ -1698,96 +1490,6 @@ export default function Calculator() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={teamSyncReviewOpen} onOpenChange={setTeamSyncReviewOpen}>
-        <DialogContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700 text-white' : 'bg-white border-slate-200'}>
-          <DialogHeader>
-            <DialogTitle className={isDarkMode ? 'text-white' : 'text-slate-900'}>Team changes from products</DialogTitle>
-            <DialogDescription className={isDarkMode ? 'text-neutral-400' : 'text-slate-500'}>
-              Compare your current team with what products would generate.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="max-h-[50vh] overflow-y-auto space-y-2 py-2">
-            {teamSyncDiff.length === 0 ? (
-              <p className={`text-sm ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`}>No differences detected.</p>
-            ) : (
-              teamSyncDiff.map((row, idx) => (
-                <div
-                  key={`${row.type}-${row.role_name}-${idx}`}
-                  className={`text-sm rounded-lg px-3 py-2 ${
-                    isDarkMode ? 'bg-neutral-800/80 text-neutral-200' : 'bg-slate-50 text-slate-800'
-                  }`}
-                >
-                  {row.type === 'add' && (
-                    <span>
-                      <strong>+ {row.role_name}</strong> — {row.hours}h
-                    </span>
-                  )}
-                  {row.type === 'remove' && (
-                    <span>
-                      <strong>− {row.role_name}</strong> — was {row.hours}h
-                    </span>
-                  )}
-                  {row.type === 'change' && (
-                    <span>
-                      <strong>{row.role_name}</strong> — {row.before}h → {row.after}h
-                    </span>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setTeamSyncReviewOpen(false)}>
-              Close
-            </Button>
-            <Button
-              className="bg-indigo-600 hover:bg-indigo-700 text-white"
-              onClick={() => {
-                setTeamSyncReviewOpen(false);
-                openTeamSyncDialog();
-              }}
-            >
-              Sync team
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={applyProductsDialogOpen} onOpenChange={setApplyProductsDialogOpen}>
-        <DialogContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700 text-white' : 'bg-white border-slate-200'}>
-          <DialogHeader>
-            <DialogTitle className={isDarkMode ? 'text-white' : 'text-slate-900'}>Apply Generated Team</DialogTitle>
-            <DialogDescription className={isDarkMode ? 'text-neutral-400' : 'text-slate-500'}>
-              Do you want to replace current team members or append generated members?
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                applyGeneratedTeam('append', pendingTeamMembers);
-                setProductsTeamLink(null);
-                setApplyProductsDialogOpen(false);
-                toast.success(`Appended ${pendingTeamMembers.length} team members from products pricing.`);
-              }}
-              className={isDarkMode ? 'border-neutral-700 text-neutral-200' : 'border-slate-300 text-slate-700'}
-            >
-              Append
-            </Button>
-            <Button
-              onClick={() => {
-                applyGeneratedTeam('replace', pendingTeamMembers);
-                setProductsTeamLink('replace');
-                setApplyProductsDialogOpen(false);
-                toast.success(`Replaced team with ${pendingTeamMembers.length} generated members.`);
-              }}
-              className="bg-violet-600 hover:bg-violet-700 text-white"
-            >
-              Replace
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

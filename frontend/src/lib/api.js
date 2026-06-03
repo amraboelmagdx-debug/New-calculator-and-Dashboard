@@ -30,22 +30,43 @@ const adminConfig = () => ({
 // ==================== ROLES ====================
 export const getRoles = async (forceRefresh = false) => {
   const response = await apiClient.get(`/roles?force_refresh=${forceRefresh}`);
-  return response.data;
+  const data = response.data;
+  const roles = Array.isArray(data) ? data : data?.roles ?? [];
+  const staleHeader = response.headers['x-roles-stale'] ?? response.headers['X-Roles-Stale'];
+  const warningHeader = response.headers['x-roles-warning'] ?? response.headers['X-Roles-Warning'];
+  const stale = staleHeader === 'true' || staleHeader === true || Boolean(data?.stale);
+  const warning = warningHeader || data?.warning || null;
+  return { roles, stale, warning };
 };
 
-export const createRole = async (role) => {
-  const response = await apiClient.post('/roles', role, adminConfig());
-  return response.data;
+// Phase 2: Admin-only stubs until Roles & HR section is removed.
+const rolesManagedInSheet = () => {
+  throw new Error('Roles are managed in Google Sheets. Admin role CRUD and sync were removed in Phase 1.');
 };
 
-export const updateRole = async (id, role) => {
-  const response = await apiClient.put(`/roles/${id}`, role, adminConfig());
-  return response.data;
-};
+export const createRole = async () => rolesManagedInSheet();
+export const updateRole = async () => rolesManagedInSheet();
+export const deleteRole = async () => rolesManagedInSheet();
+export const quickCreateRole = async () => rolesManagedInSheet();
+export const importGoogleSheet = async () => rolesManagedInSheet();
+export const syncSheetsToDb = async () => rolesManagedInSheet();
+export const clearSheetsCache = async () => rolesManagedInSheet();
 
-export const deleteRole = async (id) => {
-  const response = await apiClient.delete(`/roles/${id}`, adminConfig());
-  return response.data;
+/** @deprecated Phase 2 — maps live roles to legacy Admin preview shape */
+export const fetchSheetsRoles = async (forceRefresh = false) => {
+  const { roles, stale, warning } = await getRoles(forceRefresh);
+  return {
+    status: 'success',
+    data: (roles || []).map(r => ({
+      role_name: r.name,
+      department: r.department,
+      hourly_rate: r.hourly_rate,
+      total_monthly: r.total_monthly_cost ?? r.monthly_salary,
+    })),
+    source: stale ? 'cache' : 'live',
+    warning,
+    count: roles?.length ?? 0,
+  };
 };
 
 // ==================== PRODUCT TEMPLATES ====================
@@ -197,38 +218,8 @@ export const updateHRConfig = async (config) => {
   return response.data;
 };
 
-// ==================== QUICK CREATE (no admin auth) ====================
-export const quickCreateRole = async (role) => {
-  const response = await apiClient.post('/roles/quick', role);
-  return response.data;
-};
-
 export const quickCreateVendorService = async (service) => {
   const response = await apiClient.post('/vendor-services/quick', service);
-  return response.data;
-};
-
-// ==================== GOOGLE SHEETS IMPORT ====================
-export const importGoogleSheet = async (url) => {
-  const response = await apiClient.post(`/import-google-sheet?url=${encodeURIComponent(url)}`, {}, adminConfig());
-  return response.data;
-};
-
-// Fetch roles from Google Sheets (live with caching)
-export const fetchSheetsRoles = async (forceRefresh = false) => {
-  const response = await apiClient.get(`/sheets/roles?force_refresh=${forceRefresh}`);
-  return response.data;
-};
-
-// Sync Google Sheets data to database
-export const syncSheetsToDb = async () => {
-  const response = await apiClient.post('/sheets/sync-to-db', {}, adminConfig());
-  return response.data;
-};
-
-// Clear Google Sheets cache
-export const clearSheetsCache = async () => {
-  const response = await apiClient.delete('/sheets/cache', adminConfig());
   return response.data;
 };
 

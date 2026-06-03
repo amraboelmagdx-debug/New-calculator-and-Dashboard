@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Trash2, Users, BarChart2, Pencil, Check, Plus, Percent, Building2, ShieldAlert, RefreshCw } from 'lucide-react';
+import { Trash2, Users, BarChart2, Pencil, Check, Plus, Percent, Building2, ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -7,8 +7,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import ServicePricingDetail from '@/components/ServicePricingDetail';
 import TeamMemberRow from '@/components/TeamMemberRow';
 import DepartmentRolePicker from '@/components/DepartmentRolePicker';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, utilizationFromHours } from '@/lib/utils';
 import { normalizeExecutionMode, executionModeLabel } from '@/lib/pricingCostRules';
+import { getCatalogTierKeys, resolveTierForProduct } from '@/lib/opportunityScope';
+import { PRODUCTS_PRICING_SHEET_TAB, HR_ROLES_SHEET_TAB } from '@/lib/roleMatching';
 
 const RISK_LEVELS = ['none', 'low', 'medium', 'high'];
 
@@ -77,25 +79,15 @@ function PriceReadout({ line, marginPercent, isDarkMode }) {
 
 // ─── Team section (editable) ──────────────────────────────────────────────────
 
-function TeamSection({ item, teamMembers, roles, calcData, standardMonthlyHours, refreshRoles, isDarkMode, onUpdateMember, onRemoveMember, onAddRole, onSyncFromSheet }) {
+function TeamSection({ item, teamMembers, roles, standardMonthlyHours, refreshRoles, isDarkMode, sheetHint, onUpdateMember, onRemoveMember, onAddRole }) {
   return (
     <div className="pt-3 space-y-3">
-      <div className="flex items-center justify-between gap-2">
+      <div className="space-y-0.5">
         <p className={`text-[11px] font-medium uppercase tracking-wider ${isDarkMode ? 'text-neutral-500' : 'text-slate-400'}`}>
           {teamMembers.length} role{teamMembers.length !== 1 ? 's' : ''} on this product
         </p>
-        {!item.is_standalone && item.product_name && (
-          <button
-            type="button"
-            onClick={onSyncFromSheet}
-            className={`inline-flex items-center gap-1 text-[11px] transition-colors ${
-              isDarkMode ? 'text-indigo-400 hover:text-indigo-300' : 'text-indigo-600 hover:text-indigo-800'
-            }`}
-            title="Replace this product's team with the sheet's suggested roles"
-          >
-            <RefreshCw className="w-3 h-3" />
-            Sync from sheet
-          </button>
+        {sheetHint && (
+          <p className={`text-[10px] ${isDarkMode ? 'text-neutral-600' : 'text-slate-400'}`}>{sheetHint}</p>
         )}
       </div>
 
@@ -325,6 +317,7 @@ export default function ProductWorkspaceCard({
   findCatalogProduct,
   getSegmentPayload,
   onChangeItem,
+  onChangeItemFields,
   onRemove,
   roles,
   calcData,
@@ -340,9 +333,14 @@ export default function ProductWorkspaceCard({
   const toggleSection = id => setOpenSection(prev => (prev === id ? null : id));
 
   const product = item.is_standalone ? null : findCatalogProduct(item.product_name);
-  const segmentKeys = Object.keys(product?.segments || product?.sizes || {});
+  const segmentKeys = getCatalogTierKeys(product);
   const segmentPayload = item.is_standalone ? null : getSegmentPayload(product, item.size);
   const hasDetail = !item.is_standalone && item.product_name && item.size && segmentPayload;
+
+  const sheetTeamHint =
+    segmentPayload && item.size
+      ? `${PRODUCTS_PRICING_SHEET_TAB} · ${String(item.size).toUpperCase()} · ${segmentPayload.internal_roles?.length || 0} roles · ${Number(segmentPayload.total_team_hours) || 0}h (rates from ${HR_ROLES_SHEET_TAB})`
+      : null;
 
   const execMode = segmentPayload?.execution_mode
     ? executionModeLabel(normalizeExecutionMode(segmentPayload.execution_mode, segmentPayload))
@@ -361,33 +359,77 @@ export default function ProductWorkspaceCard({
   const sectionDivider = isDarkMode ? 'border-neutral-800' : 'border-slate-100';
 
   // ── Mutators (all via onChangeItem) ─────────────────────────────────────────
-  const setTeam = next => onChangeItem(item.id, 'team_members', next);
-  const updateMember = (index, field, value) =>
-    setTeam(teamMembers.map((m, i) => (i === index ? { ...m, [field]: value } : m)));
-  const removeMember = index => setTeam(teamMembers.filter((_, i) => i !== index));
+  const patchItem = patch => {
+    if (onChangeItemFields) {
+      onChangeItemFields(item.id, patch);
+      return;
+    }
+    Object.entries(patch).forEach(([field, value]) => onChangeItem(item.id, field, value));
+  };
+
+  const sheetTeamMeta = (qty = item.quantity) => ({
+    team_edited: false,
+    team_source: 'sheet',
+    team_qty_basis: Math.max(1, Number(qty) || 1),
+  });
+
+  const scaleMemberHoursForQty = (members, oldQty, newQty) => {
+    const ratio = newQty / oldQty;
+    const scale = h => Math.round((Number(h) || 0) * ratio * 100) / 100;
+    return members.map(m => {
+      if (m.source !== 'sheet' && m.hours_edited === true) return m;
+      const hours = scale(m.hours);
+      return {
+        ...m,
+        hours,
+        baseline_hours: m.baseline_hours != null ? scale(m.baseline_hours) : m.baseline_hours,
+        utilization_percent: utilizationFromHours(hours, standardMonthlyHours),
+      };
+    });
+  };
+
+  const updateMember = (index, field, value) => {
+    const nextMembers = teamMembers.map((m, i) => {
+      if (i !== index) return m;
+      if (field === '_roleBundle' && value && typeof value === 'object') {
+        return { ...m, ...value };
+      }
+      const updated = { ...m, [field]: value };
+      if (field === 'hours') updated.hours_edited = true;
+      return updated;
+    });
+    patchItem({ team_members: nextMembers, team_edited: true });
+  };
+
+  const removeMember = index => {
+    patchItem({
+      team_members: teamMembers.filter((_, i) => i !== index),
+      team_edited: true,
+    });
+  };
+
   const addRole = roleId => {
     const role = roles.find(r => r.id === roleId);
     if (!role) return;
-    setTeam([
-      ...teamMembers,
-      {
-        id: `tm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        role_id: roleId,
-        role_name: role.name || '',
-        hours: 0,
-        hourly_rate: role.hourly_rate || 0,
-        monthly_salary: role.monthly_salary || 0,
-        utilization_percent: 0,
-        duration_months: 1,
-        calc_mode: 'hours',
-        employee_type: 'internal',
-        source: 'manual',
-      },
-    ]);
-  };
-  const syncFromSheet = () => {
-    const members = buildProductTeam?.(item.product_name, item.size, item.quantity) || [];
-    setTeam(members);
+    patchItem({
+      team_members: [
+        ...teamMembers,
+        {
+          id: `tm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          role_id: roleId,
+          role_name: role.name || '',
+          hours: 0,
+          hourly_rate: role.hourly_rate || 0,
+          monthly_salary: role.monthly_salary || 0,
+          utilization_percent: 0,
+          duration_months: 1,
+          calc_mode: 'hours',
+          employee_type: 'internal',
+          source: 'manual',
+        },
+      ],
+      team_edited: true,
+    });
   };
 
   const setVendors = next => onChangeItem(item.id, 'vendors', next);
@@ -404,22 +446,56 @@ export default function ProductWorkspaceCard({
     onChangeItem(item.id, 'margin_source', 'custom');
   };
 
-  // On service select, prefill the product team from the sheet (source:'sheet')
   const selectService = value => {
     const p = findCatalogProduct(value);
-    const firstSeg = Object.keys(p?.segments || p?.sizes || {})[0] || 'standard';
-    onChangeItem(item.id, 'product_name', value);
-    onChangeItem(item.id, 'size', firstSeg);
-    const members = buildProductTeam?.(value, firstSeg, item.quantity) || [];
-    onChangeItem(item.id, 'team_members', members);
+    const tier = resolveTierForProduct(p, item.size);
+    const { members } = buildProductTeam?.(value, tier, item.quantity) || { members: [] };
+    patchItem({
+      product_name: value,
+      size: tier,
+      team_members: members,
+      ...sheetTeamMeta(item.quantity),
+    });
   };
 
   const changeSegment = value => {
-    onChangeItem(item.id, 'size', value);
-    if (!item.is_standalone && item.product_name) {
-      const members = buildProductTeam?.(item.product_name, value, item.quantity) || [];
-      onChangeItem(item.id, 'team_members', members);
+    if (item.is_standalone || !item.product_name) {
+      onChangeItem(item.id, 'size', value);
+      return;
     }
+    const { members } = buildProductTeam?.(item.product_name, value, item.quantity) || { members: [] };
+    patchItem({
+      size: value,
+      team_members: members,
+      ...sheetTeamMeta(item.quantity),
+    });
+  };
+
+  const changeQuantity = rawQty => {
+    const quantity = Math.max(1, parseInt(rawQty, 10) || 1);
+    if (item.is_standalone || !item.product_name) {
+      onChangeItem(item.id, 'quantity', quantity);
+      return;
+    }
+    const oldQty = Math.max(1, Number(item.quantity) || 1);
+    if (item.team_edited) {
+      patchItem({ quantity });
+      return;
+    }
+    if (teamMembers.length > 0 && item.team_source === 'sheet') {
+      patchItem({
+        quantity,
+        team_members: scaleMemberHoursForQty(teamMembers, oldQty, quantity),
+        team_qty_basis: quantity,
+      });
+      return;
+    }
+    const result = buildProductTeam?.(item.product_name, item.size, quantity) || { members: [] };
+    patchItem({
+      quantity,
+      team_members: result.members,
+      ...sheetTeamMeta(quantity),
+    });
   };
 
   const riskActive = (risk.risk_mode === 'custom' && (risk.custom_multiplier || 0) > 1) ||
@@ -480,7 +556,7 @@ export default function ProductWorkspaceCard({
           type="number"
           min="1"
           value={item.quantity}
-          onChange={e => onChangeItem(item.id, 'quantity', Math.max(1, parseInt(e.target.value, 10) || 1))}
+          onChange={e => changeQuantity(e.target.value)}
           className={`h-9 ${isDarkMode ? 'bg-neutral-900 border-neutral-700 text-white' : 'bg-white border-slate-300'}`}
         />
       </div>
@@ -625,14 +701,13 @@ export default function ProductWorkspaceCard({
               item={item}
               teamMembers={teamMembers}
               roles={roles}
-              calcData={calcData}
               standardMonthlyHours={standardMonthlyHours}
               refreshRoles={refreshRoles}
               isDarkMode={isDarkMode}
+              sheetHint={sheetTeamHint}
               onUpdateMember={updateMember}
               onRemoveMember={removeMember}
               onAddRole={addRole}
-              onSyncFromSheet={syncFromSheet}
             />
           )}
           {openSection === 'vendors' && (

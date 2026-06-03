@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Plus, Briefcase, ChevronDown } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -29,7 +29,16 @@ export default function StepProducts({
   vendorServices,
   onOpenTeamTab,
 }) {
+  const catalogReloadAttempted = useRef(false);
   const showEmpty = productsPricingLoading === false && filteredProductsCatalog.length === 0;
+
+  useEffect(() => {
+    if (catalogReloadAttempted.current || productsPricingLoading) return;
+    if (filteredProductsCatalog.length === 0 && loadProductsPricingCatalog) {
+      catalogReloadAttempted.current = true;
+      loadProductsPricingCatalog(true);
+    }
+  }, [productsPricingLoading, filteredProductsCatalog.length, loadProductsPricingCatalog]);
 
   const blankProduct = (isStandalone) => ({
     id: `pp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -54,6 +63,12 @@ export default function StepProducts({
 
   const handleChangeItem = (id, field, value) => {
     setSelectedProducts(prev => prev.map(item => (item.id === id ? { ...item, [field]: value } : item)));
+  };
+
+  const handleChangeItemFields = (id, patch) => {
+    setSelectedProducts(prev =>
+      prev.map(item => (item.id === id ? { ...item, ...patch } : item))
+    );
   };
 
   const handleRemoveItem = id => {
@@ -128,8 +143,6 @@ export default function StepProducts({
         <QuoteEmptyState
           title="Pick a service from your catalog"
           description="Connect pricing data or load a saved template to get started."
-          actionLabel="Refresh sheet"
-          onAction={() => loadProductsPricingCatalog?.(true)}
           isDarkMode={isDarkMode}
         />
       ) : (
@@ -142,6 +155,7 @@ export default function StepProducts({
             findCatalogProduct={findCatalogProduct}
             getSegmentPayload={getSegmentPayload}
             onChangeItem={handleChangeItem}
+            onChangeItemFields={handleChangeItemFields}
             onRemove={() => handleRemoveItem(item.id)}
             roles={roles || []}
             calcData={calcData}

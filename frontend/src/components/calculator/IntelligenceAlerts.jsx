@@ -1,10 +1,9 @@
-import { AlertTriangle, Link2, Link2Off } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 
 export default function IntelligenceAlerts({
   results,
   sheetPriceFloorWarning,
-  productsTeamLink,
   calcData,
   isDarkMode,
   maxAlerts,
@@ -48,25 +47,6 @@ export default function IntelligenceAlerts({
       message: w.message,
     });
   });
-
-  if (productsTeamLink === 'replace') {
-    alerts.push({
-      key: 'linked',
-      tone: 'blue',
-      icon: Link2,
-      message: 'Team hours stay synced with product quantity changes.',
-    });
-  } else if (
-    calcData?.team_members?.length > 0 &&
-    productsTeamLink === null
-  ) {
-    alerts.push({
-      key: 'unlinked',
-      tone: 'neutral',
-      icon: Link2Off,
-      message: 'Team was edited manually and is no longer synced to products.',
-    });
-  }
 
   if (alerts.length === 0) return null;
 

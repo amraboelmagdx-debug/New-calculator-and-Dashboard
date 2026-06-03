@@ -12,7 +12,6 @@ export default function InsightRail({
   calculating,
   isDarkMode,
   sheetPriceFloorWarning,
-  productsTeamLink,
   calcData,
   exportPdfSlot,
   onSaveTemplate,
@@ -55,7 +54,6 @@ export default function InsightRail({
           <IntelligenceAlerts
             results={results}
             sheetPriceFloorWarning={sheetPriceFloorWarning}
-            productsTeamLink={productsTeamLink}
             calcData={calcData}
             isDarkMode={isDarkMode}
             maxAlerts={2}
@@ -125,7 +123,6 @@ export default function InsightRail({
           <IntelligenceAlerts
             results={results}
             sheetPriceFloorWarning={sheetPriceFloorWarning}
-            productsTeamLink={productsTeamLink}
             calcData={calcData}
             isDarkMode={isDarkMode}
           />

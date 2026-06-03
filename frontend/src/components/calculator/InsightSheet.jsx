@@ -10,7 +10,6 @@ export default function InsightSheet({
   calculating,
   isDarkMode,
   sheetPriceFloorWarning,
-  productsTeamLink,
   calcData,
   exportPdfSlot,
   onSaveTemplate,
@@ -71,7 +70,6 @@ export default function InsightSheet({
               calculating={calculating}
               isDarkMode={isDarkMode}
               sheetPriceFloorWarning={sheetPriceFloorWarning}
-              productsTeamLink={productsTeamLink}
               calcData={calcData}
               exportPdfSlot={exportPdfSlot}
               onSaveTemplate={onSaveTemplate}

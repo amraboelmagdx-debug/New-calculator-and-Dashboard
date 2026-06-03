@@ -1,9 +1,8 @@
-import { Button } from '@/components/ui/button';
-import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 
-function formatSyncedAt(iso) {
-  if (!iso) return 'Not synced';
+function formatLoadedAt(iso) {
+  if (!iso) return 'Not loaded';
   try {
     const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
     if (mins < 1) return 'Just now';
@@ -18,14 +17,12 @@ function formatSyncedAt(iso) {
 
 export default function ScopeContextStrip({
   isDarkMode,
-  productsPricingLoading,
   productsPricingSyncedAt,
   productsPricingStale = false,
   productCount = 0,
   teamCount = 0,
   sheetPriceFloorWarning,
   readiness,
-  onRefresh,
 }) {
   const ageStale = productsPricingSyncedAt
     ? Date.now() - new Date(productsPricingSyncedAt).getTime() > 24 * 60 * 60 * 1000
@@ -42,7 +39,7 @@ export default function ScopeContextStrip({
       <span className={`font-medium ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`}>Scope</span>
       <span className={`inline-flex items-center gap-1 ${stale ? 'text-amber-500' : 'text-emerald-500'}`}>
         <span className={`w-1.5 h-1.5 rounded-full ${stale ? 'bg-amber-500' : 'bg-emerald-500'}`} />
-        Sync · {formatSyncedAt(productsPricingSyncedAt)}
+        Loaded · {formatLoadedAt(productsPricingSyncedAt)}
       </span>
       <span className={isDarkMode ? 'text-neutral-600' : 'text-slate-300'}>·</span>
       <span className={isDarkMode ? 'text-neutral-300' : 'text-slate-700'}>
@@ -67,16 +64,6 @@ export default function ScopeContextStrip({
           Below sheet min
         </span>
       )}
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-7 px-2 ml-auto"
-        disabled={productsPricingLoading}
-        onClick={onRefresh}
-      >
-        <RefreshCw className={`w-3.5 h-3.5 ${productsPricingLoading ? 'animate-spin' : ''}`} />
-        Sync data
-      </Button>
     </div>
   );
 }

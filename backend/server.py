@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Header
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Header, Response
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -119,8 +119,15 @@ def _extract_spreadsheet_gid(sheet_url: str) -> Optional[str]:
     return match.group(1) if match else None
 
 
+DEFAULT_GOOGLE_SHEETS_URL = (
+    "https://docs.google.com/spreadsheets/d/1xKTWcapGCDnwEc1-_fxLwUMBGSFO9mTxDKYvgrS-U6I/edit"
+)
+DEFAULT_GOOGLE_SHEETS_ROLES_TAB = "Average Emp. Salary"
+DEFAULT_GOOGLE_SHEETS_PRODUCTS_TAB = "Products Pricing Full-DB-V1"
+
+
 def _hr_config_from_env() -> Dict[str, Any]:
-    sheet_url = os.environ.get("GOOGLE_SHEETS_URL", "").strip()
+    sheet_url = os.environ.get("GOOGLE_SHEETS_URL", DEFAULT_GOOGLE_SHEETS_URL).strip()
     enabled_raw = os.environ.get("GOOGLE_SHEETS_ENABLED", "").strip().lower()
     enabled = enabled_raw in ("1", "true", "yes")
     if sheet_url and enabled_raw == "":
@@ -129,9 +136,9 @@ def _hr_config_from_env() -> Dict[str, Any]:
         "id": "hr_config",
         "google_sheets_enabled": enabled,
         "google_sheets_url": sheet_url,
-        "google_sheets_tab": os.environ.get("GOOGLE_SHEETS_TAB", "Average Emp. Salary"),
+        "google_sheets_tab": os.environ.get("GOOGLE_SHEETS_TAB", DEFAULT_GOOGLE_SHEETS_ROLES_TAB),
         "google_sheets_products_tab": os.environ.get(
-            "GOOGLE_SHEETS_PRODUCTS_TAB", "Products Pricing Full-DB-V1"
+            "GOOGLE_SHEETS_PRODUCTS_TAB", DEFAULT_GOOGLE_SHEETS_PRODUCTS_TAB
         ),
     }
 
@@ -203,9 +210,21 @@ async def _fetch_google_sheet_csv(
     raise last_error or RuntimeError("Failed to fetch Google Sheet")
 
 
+def _find_roles_sheet_data_start(all_rows: List[List[str]]) -> int:
+    """Locate first data row after the Job Title / Department header."""
+    for i, row in enumerate(all_rows):
+        if not row:
+            continue
+        label = (row[0] or "").strip().lower()
+        if "job title" in label or "المسمى الوظيفي" in (row[0] or ""):
+            return i + 1
+    return 5 if len(all_rows) > 5 else 0
+
+
 def _parse_average_salary_rows(content: str) -> List[Dict[str, Any]]:
     all_rows = list(csv.reader(io.StringIO(content)))
-    data_rows = all_rows[5:] if len(all_rows) > 5 else all_rows
+    start_idx = _find_roles_sheet_data_start(all_rows)
+    data_rows = all_rows[start_idx:]
 
     roles_data: List[Dict[str, Any]] = []
     for row in data_rows:
@@ -217,7 +236,7 @@ def _parse_average_salary_rows(content: str) -> List[Dict[str, Any]]:
         hourly_rate_str = (row[2] or "").strip() if len(row) > 2 else "0"
         total_monthly_str = (row[3] or "").strip() if len(row) > 3 else "0"
 
-        if not role_name or role_name.lower().startswith("job title"):
+        if not role_name or "job title" in role_name.lower() or "المسمى الوظيفي" in role_name:
             continue
 
         try:
@@ -250,7 +269,6 @@ def _stable_role_id(role_name: str) -> str:
 
 def _map_sheet_rows_to_api_roles(
     sheet_rows: List[Dict[str, Any]],
-    mongo_name_to_id: Dict[str, str],
     standard_monthly_hours: Optional[float] = None,
 ) -> List[Dict[str, Any]]:
     std_hours = standard_monthly_hours or _standard_monthly_hours()
@@ -267,7 +285,7 @@ def _map_sheet_rows_to_api_roles(
 
         api_roles.append(
             {
-                "id": mongo_name_to_id.get(role_name) or _stable_role_id(role_name),
+                "id": _stable_role_id(role_name),
                 "name": role_name,
                 "department": (row.get("department") or "").strip(),
                 "hourly_rate": hourly_rate,
@@ -281,6 +299,87 @@ def _map_sheet_rows_to_api_roles(
             }
         )
     return api_roles
+
+
+async def _load_roles_sheet_data(force_refresh: bool = False) -> Dict[str, Any]:
+    """Fetch roles from Google Sheets; fall back to cache when live fetch fails."""
+    global sheets_cache
+
+    hr_config = await _get_hr_config()
+    if not hr_config.get("google_sheets_enabled"):
+        return {
+            "status": "disabled",
+            "data": [],
+            "source": "sheets_disabled",
+            "stale": False,
+            "warning": None,
+        }
+
+    sheet_url = (hr_config.get("google_sheets_url") or "").strip()
+    sheet_tab = hr_config.get("google_sheets_tab") or DEFAULT_GOOGLE_SHEETS_ROLES_TAB
+
+    if not sheet_url:
+        return {
+            "status": "error",
+            "message": "No Google Sheets URL configured",
+            "data": [],
+            "source": "error",
+            "stale": False,
+            "warning": None,
+        }
+
+    current_time = datetime.now(timezone.utc)
+    cache_key = f"{sheet_url}|{sheet_tab}"
+    if (
+        not force_refresh
+        and sheets_cache["data"] is not None
+        and sheets_cache["url"] == cache_key
+        and sheets_cache["timestamp"]
+        and (current_time - sheets_cache["timestamp"]).total_seconds() < CACHE_TTL_SECONDS
+    ):
+        return {
+            "status": "success",
+            "data": sheets_cache["data"],
+            "source": "cache",
+            "stale": False,
+            "warning": None,
+        }
+
+    try:
+        content = await _fetch_google_sheet_csv(sheet_url, tab_name=sheet_tab)
+        roles_data = _parse_average_salary_rows(content)
+        if not roles_data:
+            raise ValueError(f"No role rows found in tab '{sheet_tab}'")
+
+        sheets_cache["data"] = roles_data
+        sheets_cache["timestamp"] = current_time
+        sheets_cache["url"] = cache_key
+
+        return {
+            "status": "success",
+            "data": roles_data,
+            "source": "live",
+            "stale": False,
+            "warning": None,
+        }
+    except Exception as exc:
+        warning = str(exc)
+        if sheets_cache["data"] is not None:
+            return {
+                "status": "success",
+                "data": sheets_cache["data"],
+                "source": "cache",
+                "stale": True,
+                "warning": warning or "Using cached roles; live sheet fetch failed.",
+            }
+        return {
+            "status": "error",
+            "message": warning,
+            "data": [],
+            "source": "error",
+            "stale": False,
+            "warning": None,
+        }
 
 
 # ==================== SALES DASHBOARD DATA ====================
@@ -1577,16 +1676,7 @@ async def compute_internal_labor_cost(team_members, hr_config, std_monthly_hours
         member_hours = 0
 
         if member.employee_type == 'seconded':
-            role = await db.roles.find_one({"id": member.role_id}, {"_id": 0})
-            role_monthly_cost = 0
-            if role:
-                role_monthly_cost = (
-                    role.get('total_monthly_cost')
-                    or role.get('monthly_salary')
-                    or 0
-                )
-
-            base_salary = member.custom_salary or role_monthly_cost or member.monthly_salary or 0
+            base_salary = member.custom_salary or member.monthly_salary or 0
             base_cost = base_salary + (member.custom_allowance or 0)
             default_seconded_markup = hr_config.get('seconded_markup_percent', 20)
             admin_fee_percent = member.admin_fee_percent if member.admin_fee_percent > 0 else default_seconded_markup
@@ -1596,16 +1686,7 @@ async def compute_internal_labor_cost(team_members, hr_config, std_monthly_hours
             member_cost = with_admin_fee * utilization * duration
             member_hours = std_monthly_hours * utilization * duration
         elif member.calc_mode == 'utilization':
-            role = await db.roles.find_one({"id": member.role_id}, {"_id": 0})
-            if role:
-                salary = role.get('monthly_salary', 0)
-                social_ins = salary * hr_config['social_insurance_percent'] / 100
-                medical_ins = salary * hr_config['medical_insurance_percent'] / 100
-                eos = salary / hr_config['end_of_service_divisor'] if hr_config['end_of_service_divisor'] > 0 else 0
-                monthly_cost = salary + social_ins + medical_ins + eos
-            else:
-                monthly_cost = member.monthly_salary or 0
-
+            monthly_cost = member.monthly_salary or 0
             utilization = (member.utilization_percent or 0) / 100
             duration = member.duration_months or 1
             member_cost = monthly_cost * utilization * duration
@@ -2325,88 +2406,27 @@ async def root():
 
 # ---------- ROLES ----------
 @api_router.get("/roles", response_model=List[Dict])
-async def get_roles(force_refresh: bool = False):
+async def get_roles(response: Response, force_refresh: bool = False):
     hr_config = await _get_hr_config()
-    if hr_config.get("google_sheets_enabled") and hr_config.get("google_sheets_url", "").strip():
-        sheets_result = await fetch_roles_from_sheet(force_refresh=force_refresh)
-        if sheets_result.get("status") == "success" and sheets_result.get("data"):
-            mongo_roles = await db.roles.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(1000)
-            name_to_id = {
-                (r.get("name") or "").strip(): r.get("id")
-                for r in mongo_roles
-                if r.get("name")
-            }
-            return _map_sheet_rows_to_api_roles(
-                sheets_result["data"],
-                name_to_id,
-                _standard_monthly_hours(hr_config),
-            )
+    sheets_result = await _load_roles_sheet_data(force_refresh=force_refresh)
 
-    if not hr_config:
-        hr_config = {"social_insurance_percent": 12, "medical_insurance_percent": 3, "end_of_service_divisor": 2}
-
-    roles = await db.roles.find({}, {"_id": 0}).to_list(1000)
-
-    for role in roles:
-        salary = role.get("monthly_salary", 0)
-        role["social_insurance"] = round(
-            salary * hr_config.get("social_insurance_percent", 0) / 100, 2
+    if sheets_result.get("status") != "success" or not sheets_result.get("data"):
+        raise HTTPException(
+            status_code=503,
+            detail=sheets_result.get("message")
+            or sheets_result.get("warning")
+            or "Google Sheets roles are unavailable. Check HR configuration.",
         )
-        role["medical_insurance"] = round(
-            salary * hr_config.get("medical_insurance_percent", 0) / 100, 2
-        )
-        divisor = hr_config.get("end_of_service_divisor", 0)
-        role["end_of_service"] = (
-            round(salary / divisor, 2) if divisor > 0 else 0
-        )
-        if not role.get("total_monthly_cost"):
-            role["total_monthly_cost"] = round(
-                salary
-                + role["social_insurance"]
-                + role["medical_insurance"]
-                + role["end_of_service"],
-                2,
-            )
 
-    return roles
+    if response is not None and sheets_result.get("stale"):
+        response.headers["X-Roles-Stale"] = "true"
+        if sheets_result.get("warning"):
+            response.headers["X-Roles-Warning"] = sheets_result["warning"]
 
-@api_router.post("/roles", response_model=Dict)
-async def create_role(role: RoleCreate, _: bool = Depends(verify_admin)):
-    role_obj = RoleModel(**role.model_dump())
-    doc = role_obj.model_dump()
-    doc['created_at'] = doc['created_at'].isoformat()
-    await db.roles.insert_one(doc)
-    return serialize_doc(doc)
-
-# Quick create role (no admin auth required for inline creation)
-class QuickRoleCreate(BaseModel):
-    name: str
-    hourly_rate: float = 0
-    monthly_salary: float = 0
-
-@api_router.post("/roles/quick", response_model=Dict)
-async def quick_create_role(role: QuickRoleCreate):
-    role_obj = RoleModel(**role.model_dump())
-    doc = role_obj.model_dump()
-    doc['created_at'] = doc['created_at'].isoformat()
-    await db.roles.insert_one(doc)
-    return serialize_doc(doc)
-
-@api_router.put("/roles/{role_id}", response_model=Dict)
-async def update_role(role_id: str, role: RoleCreate, _: bool = Depends(verify_admin)):
-    update_data = role.model_dump()
-    result = await db.roles.update_one({"id": role_id}, {"$set": update_data})
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Role not found")
-    updated = await db.roles.find_one({"id": role_id}, {"_id": 0})
-    return updated
-
-@api_router.delete("/roles/{role_id}")
-async def delete_role(role_id: str, _: bool = Depends(verify_admin)):
-    result = await db.roles.delete_one({"id": role_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Role not found")
-    return {"status": "deleted"}
+    return _map_sheet_rows_to_api_roles(
+        sheets_result["data"],
+        _standard_monthly_hours(hr_config),
+    )
 
 # ---------- PRODUCT TEMPLATES ----------
 @api_router.get("/product-templates", response_model=List[Dict])
@@ -2657,146 +2677,7 @@ async def update_hr_config(data: HRConfigUpdate, _: bool = Depends(verify_admin)
     await db.hr_config.update_one({}, {"$set": update_data}, upsert=True)
     return await db.hr_config.find_one({}, {"_id": 0})
 
-# ---------- GOOGLE SHEETS IMPORT ----------
-import httpx
-
-@api_router.post("/import-google-sheet", response_model=Dict)
-async def import_google_sheet(url: str, _: bool = Depends(verify_admin)):
-    """Import roles from Google Sheets"""
-    hr_config = await _get_hr_config()
-    std_monthly_hours = _standard_monthly_hours(hr_config)
-    try:
-        # Convert Google Sheets URL to CSV export format
-        # URL format: https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit
-        # CSV format: https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv
-        
-        if '/edit' in url:
-            csv_url = url.replace('/edit', '/export?format=csv').split('#')[0].split('?')[0] + '/export?format=csv'
-        elif 'export' not in url:
-            # Extract sheet ID and create CSV URL
-            parts = url.split('/d/')
-            if len(parts) > 1:
-                sheet_id = parts[1].split('/')[0]
-                csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
-            else:
-                csv_url = url
-        else:
-            csv_url = url
-        
-        async with httpx.AsyncClient() as client:
-            response = await client.get(csv_url, follow_redirects=True, timeout=30)
-            response.raise_for_status()
-            
-        # Parse CSV
-        import csv
-        import io
-        
-        content = response.text
-        reader = csv.DictReader(io.StringIO(content))
-        
-        imported_count = 0
-        for row in reader:
-            # Try to map columns (flexible column names)
-            name = row.get('Role Name') or row.get('role_name') or row.get('Role') or row.get('name') or row.get('الدور')
-            salary = row.get('Average Salary') or row.get('monthly_salary') or row.get('Salary') or row.get('متوسط الراتب') or '0'
-            
-            if not name:
-                continue
-                
-            # Clean and parse salary
-            try:
-                salary_clean = ''.join(c for c in str(salary) if c.isdigit() or c == '.')
-                salary_float = float(salary_clean) if salary_clean else 0
-            except (ValueError, TypeError):
-                salary_float = 0
-            
-            hourly_rate = salary_float / std_monthly_hours if salary_float > 0 else 0
-            
-            # Check if role exists
-            existing = await db.roles.find_one({"name": name})
-            if existing:
-                # Update existing
-                await db.roles.update_one(
-                    {"name": name},
-                    {"$set": {"monthly_salary": salary_float, "hourly_rate": round(hourly_rate, 2)}}
-                )
-            else:
-                # Create new
-                role_obj = RoleModel(name=name, monthly_salary=salary_float, hourly_rate=round(hourly_rate, 2))
-                doc = role_obj.model_dump()
-                doc['created_at'] = doc['created_at'].isoformat()
-                await db.roles.insert_one(doc)
-            
-            imported_count += 1
-        
-        return {"status": "success", "imported": imported_count}
-        
-    except httpx.HTTPError as e:
-        raise HTTPException(status_code=400, detail=f"Failed to fetch Google Sheet: {str(e)}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
-
-# ---------- GOOGLE SHEETS LIVE FETCH ----------
-@api_router.get("/sheets/roles", response_model=Dict)
-async def fetch_roles_from_sheet(force_refresh: bool = False):
-    """Fetch roles from Google Sheets with caching"""
-    global sheets_cache
-
-    hr_config = await _get_hr_config()
-    if not hr_config.get("google_sheets_enabled"):
-        return {"status": "disabled", "data": [], "source": "sheets_disabled"}
-
-    sheet_url = hr_config.get("google_sheets_url", "")
-    sheet_tab = hr_config.get("google_sheets_tab", "Average Emp. Salary")
-
-    if not sheet_url:
-        return {"status": "error", "message": "No Google Sheets URL configured", "data": []}
-
-    current_time = datetime.now(timezone.utc)
-    cache_key = f"{sheet_url}|{sheet_tab}"
-    if (
-        not force_refresh
-        and sheets_cache["data"] is not None
-        and sheets_cache["url"] == cache_key
-        and sheets_cache["timestamp"]
-        and (current_time - sheets_cache["timestamp"]).total_seconds() < CACHE_TTL_SECONDS
-    ):
-        return {
-            "status": "success",
-            "data": sheets_cache["data"],
-            "source": "cache",
-            "cached_at": sheets_cache["timestamp"].isoformat(),
-        }
-
-    try:
-        content = await _fetch_google_sheet_csv(sheet_url, tab_name=sheet_tab)
-        roles_data = _parse_average_salary_rows(content)
-        if not roles_data:
-            return {
-                "status": "error",
-                "message": f"No role rows found in tab '{sheet_tab}'",
-                "data": [],
-            }
-
-        sheets_cache["data"] = roles_data
-        sheets_cache["timestamp"] = current_time
-        sheets_cache["url"] = cache_key
-
-        return {
-            "status": "success",
-            "data": roles_data,
-            "source": "live",
-            "fetched_at": current_time.isoformat(),
-            "count": len(roles_data),
-            "tab": sheet_tab,
-        }
-
-    except httpx.HTTPError as e:
-        return {"status": "error", "message": f"Failed to fetch sheet: {str(e)}", "data": []}
-    except Exception as e:
-        return {"status": "error", "message": f"Error: {str(e)}", "data": []}
-
-
+# ---------- GOOGLE SHEETS (products pricing) ----------
 @api_router.get("/sheets/products-pricing", response_model=Dict)
 async def fetch_products_pricing_from_sheet(force_refresh: bool = False):
     """Fetch services pricing from MongoDB or sync from Google Sheets Full-DB-V1 tab."""
@@ -2870,78 +2751,23 @@ async def sync_products_pricing_to_database(_: bool = Depends(verify_admin)):
     return result
 
 
-@api_router.post("/sheets/sync-to-db", response_model=Dict)
-async def sync_sheets_to_database(_: bool = Depends(verify_admin)):
-    """Sync roles from Google Sheets to database - uses Total Monthly directly from sheet"""
-    hr_config = await _get_hr_config()
-    std_monthly_hours = _standard_monthly_hours(hr_config)
-    # First fetch from sheets
-    sheets_result = await fetch_roles_from_sheet(force_refresh=True)
-    
-    if sheets_result.get("status") != "success":
-        raise HTTPException(status_code=400, detail=sheets_result.get("message", "Failed to fetch from sheets"))
-    
-    synced_count = 0
-    created_count = 0
-    updated_count = 0
-    
-    for role_data in sheets_result.get("data", []):
-        role_name = role_data.get("role_name", "")
-        if not role_name:
-            continue
-        
-        total_monthly = role_data.get("total_monthly", 0)
-        hourly_rate = role_data.get("hourly_rate", 0)
-        department = role_data.get("department", "")
-        
-        # If hourly rate is 0 but total_monthly exists, calculate it
-        if hourly_rate == 0 and total_monthly > 0:
-            hourly_rate = round(total_monthly / std_monthly_hours, 2)
-        
-        # Check if role exists
-        existing = await db.roles.find_one({"name": role_name})
-        
-        # Use total_monthly directly from sheet (column D) without calculating benefits
-        role_doc = {
-            "name": role_name,
-            "hourly_rate": hourly_rate,
-            "monthly_salary": total_monthly,
-            "department": department,
-            "total_monthly_cost": total_monthly  # Direct from Google Sheets column D
-        }
-        
-        if existing:
-            await db.roles.update_one({"name": role_name}, {"$set": role_doc})
-            updated_count += 1
-        else:
-            role_doc["id"] = str(uuid.uuid4())
-            role_doc["created_at"] = datetime.now(timezone.utc).isoformat()
-            role_doc["description"] = ""
-            await db.roles.insert_one(role_doc)
-            created_count += 1
-        
-        synced_count += 1
-    
-    return {
-        "status": "success",
-        "synced": synced_count,
-        "created": created_count,
-        "updated": updated_count
-    }
-
-@api_router.delete("/sheets/cache", response_model=Dict)
-async def clear_sheets_cache(_: bool = Depends(verify_admin)):
-    """Clear the Google Sheets cache"""
-    global sheets_cache
-    sheets_cache = {"data": None, "timestamp": None, "url": None}
-    return {"status": "success", "message": "Cache cleared"}
-
 @api_router.get("/departments", response_model=List[str])
-async def get_unique_departments():
-    """Get unique department values from roles"""
-    departments = await db.roles.distinct("department")
-    # Filter out None and empty strings
-    return [d for d in departments if d]
+async def get_unique_departments(force_refresh: bool = False):
+    """Get unique department values from the roles Google Sheet."""
+    sheets_result = await _load_roles_sheet_data(force_refresh=force_refresh)
+    if sheets_result.get("status") != "success" or not sheets_result.get("data"):
+        raise HTTPException(
+            status_code=503,
+            detail=sheets_result.get("message")
+            or sheets_result.get("warning")
+            or "Google Sheets roles are unavailable.",
+        )
+    departments = {
+        (row.get("department") or "").strip()
+        for row in sheets_result["data"]
+        if (row.get("department") or "").strip()
+    }
+    return sorted(departments)
 
 # ---------- PRICING GUIDELINES ----------
 @api_router.get("/pricing-guidelines", response_model=List[Dict])
@@ -3191,8 +3017,7 @@ async def delete_opportunity(opp_id: str):
 async def seed_database(_: bool = Depends(verify_admin)):
     """Seed database with sample data"""
     
-    # Clear existing data
-    await db.roles.delete_many({})
+    # Clear existing data (roles are sourced from Google Sheets, not seeded)
     await db.product_templates.delete_many({})
     await db.scope_templates.delete_many({})
     await db.vendor_services.delete_many({})
@@ -3200,23 +3025,6 @@ async def seed_database(_: bool = Depends(verify_admin)):
     await db.risk_multipliers.delete_many({})
     await db.overhead_rates.delete_many({})
     await db.sales_incentives.delete_many({})
-    
-    # Roles
-    roles = [
-        {"id": "role-1", "name": "Creative Director", "hourly_rate": 450, "monthly_salary": 45000, "description": "Leads creative vision"},
-        {"id": "role-2", "name": "Art Director", "hourly_rate": 350, "monthly_salary": 35000, "description": "Visual design leadership"},
-        {"id": "role-3", "name": "Senior Designer", "hourly_rate": 280, "monthly_salary": 28000, "description": "Senior level design"},
-        {"id": "role-4", "name": "Designer", "hourly_rate": 200, "monthly_salary": 20000, "description": "Design execution"},
-        {"id": "role-5", "name": "Strategist", "hourly_rate": 400, "monthly_salary": 40000, "description": "Brand strategy"},
-        {"id": "role-6", "name": "Copywriter", "hourly_rate": 250, "monthly_salary": 25000, "description": "Content creation"},
-        {"id": "role-7", "name": "Account Manager", "hourly_rate": 220, "monthly_salary": 22000, "description": "Client relations"},
-        {"id": "role-8", "name": "Project Manager", "hourly_rate": 280, "monthly_salary": 28000, "description": "Project coordination"},
-        {"id": "role-9", "name": "Motion Designer", "hourly_rate": 300, "monthly_salary": 30000, "description": "Animation and motion"},
-        {"id": "role-10", "name": "Junior Designer", "hourly_rate": 150, "monthly_salary": 15000, "description": "Entry level design"},
-    ]
-    for role in roles:
-        role['created_at'] = datetime.now(timezone.utc).isoformat()
-    await db.roles.insert_many(roles)
     
     # Product Templates
     product_templates = [

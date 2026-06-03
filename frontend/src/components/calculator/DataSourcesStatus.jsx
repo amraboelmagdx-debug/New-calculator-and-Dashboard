@@ -1,8 +1,5 @@
-import { Button } from '@/components/ui/button';
-import { RefreshCw } from 'lucide-react';
-
-function formatSyncedAt(iso) {
-  if (!iso) return 'Not synced';
+function formatLoadedAt(iso) {
+  if (!iso) return 'Not loaded';
   try {
     const d = new Date(iso);
     const mins = Math.floor((Date.now() - d.getTime()) / 60000);
@@ -18,12 +15,9 @@ function formatSyncedAt(iso) {
 
 export default function DataSourcesStatus({
   isDarkMode,
-  productsPricingLoading,
   productsPricingSyncedAt,
   productsPricingStale = false,
   rolesCount,
-  onRefreshProducts,
-  onRefreshRoles,
 }) {
   const ageStale = productsPricingSyncedAt
     ? Date.now() - new Date(productsPricingSyncedAt).getTime() > 24 * 60 * 60 * 1000
@@ -40,23 +34,10 @@ export default function DataSourcesStatus({
       <span className={isDarkMode ? 'text-neutral-500' : 'text-slate-500'}>Data</span>
       <span className={`inline-flex items-center gap-1 ${stale ? 'text-amber-500' : 'text-emerald-500'}`}>
         <span className={`w-1.5 h-1.5 rounded-full ${stale ? 'bg-amber-500' : 'bg-emerald-500'}`} />
-        Products · {formatSyncedAt(productsPricingSyncedAt)}
+        Products · {formatLoadedAt(productsPricingSyncedAt)}
       </span>
       <span className={isDarkMode ? 'text-neutral-600' : 'text-slate-400'}>·</span>
       <span className={isDarkMode ? 'text-neutral-400' : 'text-slate-600'}>{rolesCount} roles</span>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-7 px-2 ml-auto"
-        disabled={productsPricingLoading}
-        onClick={() => {
-          onRefreshProducts?.(true);
-          onRefreshRoles?.(true);
-        }}
-      >
-        <RefreshCw className={`w-3.5 h-3.5 ${productsPricingLoading ? 'animate-spin' : ''}`} />
-        Sync
-      </Button>
     </div>
   );
 }

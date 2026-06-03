@@ -299,9 +299,9 @@ function RolesHRManager() {
         google_sheets_products_tab: config.google_sheets_products_tab || 'Products Pricing Full-DB-V1'
       });
       
-      // Load roles from database
-      const rolesData = await getRoles();
-      setRoles(rolesData);
+      // Load roles (force refresh when Google Sheets is the source of truth)
+      const rolesResult = await getRoles(Boolean(config.google_sheets_enabled && config.google_sheets_url));
+      setRoles(rolesResult.roles || []);
       
       // If Google Sheets is enabled, fetch live data
       if (config.google_sheets_enabled && config.google_sheets_url) {
@@ -365,10 +365,10 @@ function RolesHRManager() {
     setSyncing(true);
     try {
       const result = await syncSheetsToDb();
-      toast.success(`Synced ${result.synced} roles (${result.created} created, ${result.updated} updated)`);
+      toast.success(`Synced ${result.synced} roles (${result.created} created, ${result.updated} updated, ${result.deleted || 0} removed)`);
       // Reload roles from DB
-      const rolesData = await getRoles();
-      setRoles(rolesData);
+      const rolesResult = await getRoles();
+      setRoles(rolesResult.roles || []);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to sync data');
     } finally {
@@ -534,10 +534,12 @@ function RolesHRManager() {
               </Button>
             </>
           )}
+          {!hrConfig.google_sheets_enabled && (
           <Button onClick={openCreate} className="gap-2 bg-indigo-600 text-white shadow-sm hover:bg-indigo-700" data-testid="add-role-btn">
             <Plus className="w-4 h-4" />
             Add Role
           </Button>
+          )}
         </div>
       </div>
 
@@ -545,7 +547,7 @@ function RolesHRManager() {
         <TabsList className="bg-slate-100">
           <TabsTrigger value="roles" className="data-[state=active]:bg-white">
             <Users className="w-4 h-4 mr-2" />
-            Database Roles ({filteredDbRoles.length})
+            {hrConfig.google_sheets_enabled ? 'Synced Roles' : 'Database Roles'} ({filteredDbRoles.length})
           </TabsTrigger>
           <TabsTrigger value="sheets" className="data-[state=active]:bg-white" disabled={!hrConfig.google_sheets_enabled}>
             <FileSpreadsheet className="w-4 h-4 mr-2" />
@@ -620,14 +622,18 @@ function RolesHRManager() {
                     <TableCell className="font-mono text-sm text-right">{formatCurrency(role.hourly_rate, false)}</TableCell>
                     <TableCell className="font-mono text-sm font-semibold text-emerald-600 text-right">{formatCurrency(role.total_monthly_cost || role.monthly_salary, false)}</TableCell>
                     <TableCell>
-                      <div className="flex items-center justify-center gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => openEdit(role)} data-testid={`edit-role-${role.id}`}>
-                          <Pencil className="w-4 h-4" />
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => handleDeleteRole(role.id)} className="text-red-500 hover:text-red-700" data-testid={`delete-role-${role.id}`}>
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
+                      {!hrConfig.google_sheets_enabled ? (
+                        <div className="flex items-center justify-center gap-1">
+                          <Button variant="ghost" size="sm" onClick={() => openEdit(role)} data-testid={`edit-role-${role.id}`}>
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => handleDeleteRole(role.id)} className="text-red-500 hover:text-red-700" data-testid={`delete-role-${role.id}`}>
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-slate-400">Sheet managed</span>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

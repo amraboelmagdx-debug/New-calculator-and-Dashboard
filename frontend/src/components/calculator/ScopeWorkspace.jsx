@@ -3,7 +3,6 @@ import { LayoutTemplate } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import ScopeContextStrip from './ScopeContextStrip';
 import ScopeRiskPanel from './ScopeRiskPanel';
-import TeamSyncBanner from './TeamSyncBanner';
 import StepProducts from './StepProducts';
 import StepTeam from './StepTeam';
 import StepContinueFooter from './StepContinueFooter';
@@ -18,9 +17,6 @@ export default function ScopeWorkspace({
   isDarkMode,
   expandAllSections,
   onContinue,
-  teamOutOfSync,
-  onReviewTeamChanges,
-  onSyncTeam,
   contextStripProps,
   productsProps,
   teamProps,
@@ -110,14 +106,6 @@ export default function ScopeWorkspace({
         )}
 
         <CardContent className="px-6 py-5 space-y-4">
-          {teamOutOfSync && (
-            <TeamSyncBanner
-              isDarkMode={isDarkMode}
-              onReviewChanges={onReviewTeamChanges}
-              onSyncTeam={onSyncTeam}
-            />
-          )}
-
           {panel('products', 'Products', <StepProducts embedded isDarkMode={isDarkMode} onOpenTeamTab={openTeamTab} {...productsProps} />)}
           {panel('team', 'Team',
             <StepTeam
