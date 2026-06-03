@@ -1,9 +1,14 @@
 import { Button } from '@/components/ui/button';
 import { ChevronRight } from 'lucide-react';
 
-export default function StepContinueFooter({ label, onContinue, isDarkMode, sticky = false }) {
+export default function StepContinueFooter({ label, onContinue, isDarkMode, sticky = false, contextLine }) {
   return (
-    <div className={`flex justify-end ${sticky ? '' : 'pt-4'}`}>
+    <div className={`flex flex-col items-stretch sm:items-end gap-2 ${sticky ? '' : 'pt-4'}`}>
+      {contextLine && (
+        <p className={`text-xs text-center sm:text-right ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>
+          {contextLine}
+        </p>
+      )}
       <Button
         type="button"
         onClick={onContinue}

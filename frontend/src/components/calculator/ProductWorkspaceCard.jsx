@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import ServicePricingDetail from '@/components/ServicePricingDetail';
 import ProductEconomicsBar from '@/components/calculator/ProductEconomicsBar';
 import ProductControlTabs from '@/components/calculator/ProductControlTabs';
+import ProductContextStickyHeader from '@/components/calculator/ProductContextStickyHeader';
 import TeamTabPanel from '@/components/calculator/TeamTabPanel';
 import VendorTabPanel from '@/components/calculator/VendorTabPanel';
 import RiskTabPanel from '@/components/calculator/RiskTabPanel';
@@ -297,54 +298,68 @@ export default function ProductWorkspaceCard({
   );
 
   const viewHeader = (
-    <div className="px-3 pt-3 pb-0 space-y-3">
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className={`text-base font-semibold flex-1 min-w-0 truncate ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+    <div className="px-3 pt-3 pb-0 space-y-5">
+      <div className="flex items-start justify-between gap-3">
+        <h3
+          className={`text-xl sm:text-2xl font-bold tracking-tight flex-1 min-w-0 line-clamp-2 break-words mb-2 ${
+            isDarkMode ? 'text-white' : 'text-slate-900'
+          }`}
+        >
           {item.product_name || 'Untitled service'}
-        </span>
-        {item.source === 'opportunity' && (
-          <Badge variant="outline" className={`text-[10px] shrink-0 ${isDarkMode ? 'border-blue-500/40 text-blue-400' : 'border-blue-200 text-blue-700'}`}>
-            Opportunity
-          </Badge>
-        )}
-        {item.is_standalone && (
-          <Badge variant="outline" className={`text-[10px] shrink-0 ${isDarkMode ? 'border-violet-500/40 text-violet-400' : 'border-violet-200 text-violet-700'}`}>
-            Custom
-          </Badge>
-        )}
-        {!item.is_standalone && item.size && (
-          <Badge variant="outline" className={`text-[10px] font-mono shrink-0 ${isDarkMode ? 'border-neutral-700 text-neutral-400' : 'border-slate-200 text-slate-500'}`}>
-            {item.size.toUpperCase()}
-          </Badge>
-        )}
-        <Badge variant="outline" className={`text-[10px] shrink-0 ${isDarkMode ? 'border-neutral-700 text-neutral-400' : 'border-slate-200 text-slate-500'}`}>
-          Qty {item.quantity}
-        </Badge>
-        {execMode && (
-          <Badge variant="outline" className={`text-[10px] shrink-0 ${isDarkMode ? 'border-neutral-700 text-neutral-400' : 'border-slate-200 text-slate-500'}`}>
-            {execMode}
-          </Badge>
-        )}
-        <div className="flex items-center gap-0.5 ml-auto">
+        </h3>
+        <div className="flex items-center gap-1 shrink-0">
           <Button
             type="button"
             variant="ghost"
             size="sm"
             onClick={() => setIsEditing(true)}
-            className={`h-7 w-7 p-0 ${isDarkMode ? 'text-neutral-600 hover:text-neutral-300' : 'text-slate-300 hover:text-slate-600'}`}
+            className={`min-h-[44px] px-2.5 gap-1.5 ${
+              isDarkMode ? 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
+            }`}
             title="Edit service"
           >
-            <Pencil className="w-3.5 h-3.5" />
+            <Pencil className="w-4 h-4 shrink-0" />
+            <span className="text-xs font-medium">Edit</span>
           </Button>
           <Button
             variant="ghost"
             size="sm"
             onClick={onRemove}
-            className={`h-7 w-7 p-0 ${isDarkMode ? 'text-neutral-600 hover:text-red-400' : 'text-slate-300 hover:text-red-600'}`}
+            className={`min-h-[44px] px-2.5 gap-1.5 ${
+              isDarkMode ? 'text-neutral-500 hover:text-red-400 hover:bg-red-500/10' : 'text-slate-400 hover:text-red-600 hover:bg-red-50'
+            }`}
+            title="Remove service"
           >
-            <Trash2 className="w-3.5 h-3.5" />
+            <Trash2 className="w-4 h-4 shrink-0" />
+            <span className="text-xs font-medium">Delete</span>
           </Button>
         </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1.5 mt-0 mb-1">
+        {item.source === 'opportunity' && (
+          <Badge variant="outline" className={`text-[10px] shrink-0 opacity-80 ${isDarkMode ? 'border-blue-500/30 text-blue-400/90' : 'border-blue-200 text-blue-600'}`}>
+            Opportunity
+          </Badge>
+        )}
+        {item.is_standalone && (
+          <Badge variant="outline" className={`text-[10px] shrink-0 opacity-80 ${isDarkMode ? 'border-violet-500/30 text-violet-400/90' : 'border-violet-200 text-violet-600'}`}>
+            Custom
+          </Badge>
+        )}
+        {!item.is_standalone && item.size && (
+          <Badge variant="outline" className={`text-[10px] font-mono shrink-0 opacity-80 ${isDarkMode ? 'border-neutral-700/80 text-neutral-500' : 'border-slate-200 text-slate-500'}`}>
+            {item.size.toUpperCase()}
+          </Badge>
+        )}
+        <Badge variant="outline" className={`text-[10px] shrink-0 opacity-80 ${isDarkMode ? 'border-neutral-700/80 text-neutral-500' : 'border-slate-200 text-slate-500'}`}>
+          Qty {item.quantity}
+        </Badge>
+        {execMode && (
+          <Badge variant="outline" className={`text-[10px] shrink-0 opacity-80 ${isDarkMode ? 'border-neutral-700/80 text-neutral-500' : 'border-slate-200 text-slate-500'}`}>
+            {execMode}
+          </Badge>
+        )}
       </div>
 
       <ProductEconomicsBar
@@ -353,20 +368,22 @@ export default function ProductWorkspaceCard({
         teamMembers={teamMembers}
         roles={roles}
         standardMonthlyHours={standardMonthlyHours}
-        vendorCount={vendors.length}
         marginPercent={item.margin_percent}
         isDarkMode={isDarkMode}
       />
 
-      <ProductControlTabs
-        activeTab={openSection}
-        onTabChange={handleTabChange}
-        isDarkMode={isDarkMode}
-        teamLabel={teamMembers.length > 0 ? `Team · ${teamMembers.length}` : 'Team'}
-        vendorsLabel={vendors.length > 0 ? `Vendors · ${vendors.length}` : 'Vendors'}
-        riskLabel={riskMultLabel ? `Risk · ${riskMultLabel}` : riskActive ? 'Risk •' : 'Risk'}
-        showInsights={hasDetail}
-      />
+      {!openSection ? (
+        <ProductControlTabs
+          activeTab={openSection}
+          onTabChange={handleTabChange}
+          isDarkMode={isDarkMode}
+          teamLabel={teamMembers.length > 0 ? `Team · ${teamMembers.length}` : 'Team'}
+          vendorsLabel={vendors.length > 0 ? `Vendors · ${vendors.length}` : 'Vendors'}
+          riskLabel={riskMultLabel ? `Risk · ${riskMultLabel}` : riskActive ? 'Risk •' : 'Risk'}
+          showInsights={hasDetail}
+          panelOpen={false}
+        />
+      ) : null}
     </div>
   );
 
@@ -375,7 +392,31 @@ export default function ProductWorkspaceCard({
       {isEditing ? editControls : viewHeader}
 
       {!isEditing && openSection && (
-        <div className={`px-3 pb-3 border-t ${sectionDivider}`}>
+        <div
+          className={`mx-3 mb-3 -mt-1 rounded-b-xl border border-t-0 ${
+            isDarkMode
+              ? 'border-indigo-500/20 bg-neutral-900/40'
+              : 'border-indigo-200/60 bg-slate-50/50'
+          }`}
+        >
+          <ProductControlTabs
+            activeTab={openSection}
+            onTabChange={handleTabChange}
+            isDarkMode={isDarkMode}
+            teamLabel={teamMembers.length > 0 ? `Team · ${teamMembers.length}` : 'Team'}
+            vendorsLabel={vendors.length > 0 ? `Vendors · ${vendors.length}` : 'Vendors'}
+            riskLabel={riskMultLabel ? `Risk · ${riskMultLabel}` : riskActive ? 'Risk •' : 'Risk'}
+            showInsights={hasDetail}
+            panelOpen
+          />
+          <ProductContextStickyHeader
+            productName={item.product_name}
+            tier={!item.is_standalone ? item.size : null}
+            line={line}
+            item={item}
+            isDarkMode={isDarkMode}
+          />
+          <div className={`px-3 pb-24 lg:pb-4 ${isDarkMode ? 'bg-neutral-900/30' : 'bg-white/80'}`}>
           {openSection === 'team' && (
             <TeamTabPanel
               expanded={teamExpanded}
@@ -433,6 +474,7 @@ export default function ProductWorkspaceCard({
               />
             </div>
           )}
+          </div>
         </div>
       )}
     </div>

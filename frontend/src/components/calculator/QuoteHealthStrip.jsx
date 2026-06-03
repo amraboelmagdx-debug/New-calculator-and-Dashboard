@@ -57,7 +57,7 @@ export default function QuoteHealthStrip({
             </div>
             <span className={`hidden sm:block h-4 w-px ${isDarkMode ? 'bg-neutral-800' : 'bg-slate-200'}`} />
             <div className="flex items-baseline gap-2">
-              <span className={`text-xs ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>Margin</span>
+              <span className={`text-xs ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>Quote margin</span>
               <span className={`font-bold font-mono tabular-nums ${marginColor}`}>{margin.toFixed(1)}%</span>
             </div>
             {results?.incentive_breakdown?.deal_size && (
@@ -112,7 +112,7 @@ export default function QuoteHealthStrip({
 
           <div>
             <p className={`text-xs font-medium ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>
-              Margin
+              Quote margin
             </p>
             <p className={`text-lg font-bold font-mono tabular-nums ${marginColor}`}>
               {margin.toFixed(1)}%

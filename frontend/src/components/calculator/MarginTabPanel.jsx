@@ -41,7 +41,7 @@ export default function MarginTabPanel({ item, segmentPayload, line, isDarkMode,
             </p>
           </div>
           <div>
-            <p className={`text-[10px] font-medium uppercase tracking-wider ${muted}`}>Current</p>
+            <p className={`text-[10px] font-medium uppercase tracking-wider ${muted}`}>Product margin</p>
             <p className={`text-lg font-semibold tabular-nums ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
               {Math.round(current)}%
             </p>

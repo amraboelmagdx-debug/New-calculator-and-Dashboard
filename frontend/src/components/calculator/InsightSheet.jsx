@@ -18,7 +18,7 @@ export default function InsightSheet({
 }) {
   const margin = results?.contribution_margin_percent ?? 0;
   const pillLabel = results
-    ? `${formatCurrency(results.selling_price)} · ${margin.toFixed(0)}% margin`
+    ? `${formatCurrency(results.selling_price)} · ${margin.toFixed(0)}% quote margin`
     : 'Tap for quote insights';
 
   return (

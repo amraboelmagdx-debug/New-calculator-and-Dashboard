@@ -1170,7 +1170,7 @@ export default function Calculator() {
       </div>
 
       {/* Main Layout */}
-      <div className="max-w-[1600px] mx-auto grid grid-cols-1 lg:grid-cols-[240px_1fr_360px] gap-6 p-4 sm:p-6 pb-28 lg:pb-6">
+      <div className="max-w-[1600px] mx-auto grid grid-cols-1 lg:grid-cols-[240px_1fr_360px] gap-6 p-4 sm:p-6 pb-32 lg:pb-6">
         <div className="hidden lg:block space-y-3">
           <DealStepper
             activeStep={activeDealStep}

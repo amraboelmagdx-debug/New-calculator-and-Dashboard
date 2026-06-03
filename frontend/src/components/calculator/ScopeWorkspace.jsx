@@ -105,7 +105,7 @@ export default function ScopeWorkspace({
           </div>
         )}
 
-        <CardContent className="px-6 py-5 space-y-4">
+        <CardContent className="px-6 py-5 space-y-4 pb-24 lg:pb-5">
           {panel('products', 'Products', <StepProducts embedded isDarkMode={isDarkMode} onOpenTeamTab={openTeamTab} {...productsProps} />)}
           {panel('team', 'Team',
             <StepTeam
@@ -125,11 +125,17 @@ export default function ScopeWorkspace({
         </CardContent>
 
         <div
-          className={`sticky bottom-0 z-10 px-6 py-4 border-t safe-area-pb ${
+          className={`sticky bottom-0 z-10 px-6 py-4 border-t safe-area-pb shadow-[0_-8px_24px_-8px_rgba(0,0,0,0.35)] ${
             isDarkMode ? 'bg-neutral-900/95 border-neutral-800 backdrop-blur-sm' : 'bg-white/95 border-slate-200 backdrop-blur-sm'
           }`}
         >
-          <StepContinueFooter label="Continue to Economics" onContinue={onContinue} isDarkMode={isDarkMode} sticky />
+          <StepContinueFooter
+            label="Continue to Economics"
+            contextLine="Products configured — review economics next"
+            onContinue={onContinue}
+            isDarkMode={isDarkMode}
+            sticky
+          />
         </div>
       </Card>
     </section>

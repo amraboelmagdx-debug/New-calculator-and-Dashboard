@@ -77,7 +77,7 @@ function VendorEditorRows({ vendors, vendorServices, isDarkMode, onAddVendor, on
         variant="outline"
         size="sm"
         onClick={onAddVendor}
-        className={isDarkMode ? 'border-neutral-700 text-neutral-200 hover:bg-neutral-800' : 'border-slate-300 text-slate-700 hover:bg-slate-50'}
+        className={`mb-20 lg:mb-0 ${isDarkMode ? 'border-neutral-700 text-neutral-200 hover:bg-neutral-800' : 'border-slate-300 text-slate-700 hover:bg-slate-50'}`}
       >
         <Plus className="w-3.5 h-3.5 mr-1" />
         Add vendor
