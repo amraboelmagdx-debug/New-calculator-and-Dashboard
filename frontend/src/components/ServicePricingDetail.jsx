@@ -73,7 +73,7 @@ function splitUrls(text) {
     .filter(s => /^https?:\/\//i.test(s));
 }
 
-export default function ServicePricingDetail({ segmentData, quantity = 1, isDarkMode }) {
+export default function ServicePricingDetail({ segmentData, quantity = 1, isDarkMode, compact = false }) {
   const [deliverablesOpen, setDeliverablesOpen] = useState(false);
   const [modificationsOpen, setModificationsOpen] = useState(false);
   const [referencesOpen, setReferencesOpen] = useState(false);
@@ -93,13 +93,15 @@ export default function ServicePricingDetail({ segmentData, quantity = 1, isDark
 
   return (
     <div
-      className={`col-span-12 mt-2 rounded-xl border p-4 space-y-3 ${
-        isDarkMode ? 'border-violet-500/30 bg-violet-500/5' : 'border-violet-200 bg-violet-50/50'
+      className={`rounded-lg border space-y-3 ${
+        compact ? 'p-3' : 'col-span-12 mt-2 p-4 rounded-xl'
+      } ${
+        isDarkMode ? 'border-neutral-700 bg-neutral-900/60' : 'border-slate-200 bg-slate-50/80'
       }`}
     >
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-1">
-          <p className={`text-xs uppercase tracking-wider ${isDarkMode ? 'text-violet-300' : 'text-violet-700'}`}>
+          <p className={`text-xs uppercase tracking-wider ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`}>
             Sheet pricing (×{qty})
           </p>
           <div className="flex flex-wrap gap-4">

@@ -1,15 +1,6 @@
-import StepProducts from './StepProducts';
-import StepTeam from './StepTeam';
+import ScopeWorkspace from './ScopeWorkspace';
 
-/** Scope step: products catalog + internal team */
+/** Scope step: unified workspace (products + team + risk) */
 export default function StepCompose(props) {
-  const { showProducts, showTeam, onContinue, ...rest } = props;
-  return (
-    <>
-      {showProducts && (
-        <StepProducts {...rest} onContinue={showTeam ? undefined : onContinue} />
-      )}
-      {showTeam && <StepTeam {...rest} onContinue={onContinue} />}
-    </>
-  );
+  return <ScopeWorkspace {...props} />;
 }

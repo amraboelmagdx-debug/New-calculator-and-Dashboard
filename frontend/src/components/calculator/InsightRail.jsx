@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { AlertTriangle, ChevronDown, Save } from 'lucide-react';
@@ -19,10 +18,12 @@ export default function InsightRail({
   onSaveTemplate,
   onGoToScope,
   className = '',
+  variant = 'full',
 }) {
   const [cogsOpen, setCogsOpen] = useState(false);
   const [deductionsOpen, setDeductionsOpen] = useState(false);
   const [marginStackOpen, setMarginStackOpen] = useState(true);
+  const slim = variant === 'slim';
 
   const margin = results?.contribution_margin_percent ?? 0;
   const marginColor =
@@ -30,10 +31,13 @@ export default function InsightRail({
 
   return (
     <div
-      className={`h-full flex flex-col p-6 overflow-y-auto rounded-2xl shadow-xl border quote-panel-enter ${
+      className={`h-full flex flex-col overflow-y-auto rounded-2xl border quote-panel-enter ${
+        slim ? 'p-4 shadow-md' : 'p-6 shadow-xl'
+      } ${
         isDarkMode ? 'bg-neutral-900 border-neutral-800 shadow-black/30' : 'bg-white border-slate-200 shadow-slate-200/70'
       } ${className}`}
       data-testid="dashboard"
+      data-variant={variant}
     >
       {!results && !calculating ? (
         <QuoteEmptyState
@@ -43,6 +47,37 @@ export default function InsightRail({
           onAction={onGoToScope}
           isDarkMode={isDarkMode}
         />
+      ) : slim ? (
+        <>
+          <p className={`text-xs font-medium mb-3 ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>
+            Live quote
+          </p>
+          <IntelligenceAlerts
+            results={results}
+            sheetPriceFloorWarning={sheetPriceFloorWarning}
+            productsTeamLink={productsTeamLink}
+            calcData={calcData}
+            isDarkMode={isDarkMode}
+            maxAlerts={2}
+          />
+          {results?.warnings?.length > 0 && (
+            <div className="space-y-2 mb-3">
+              {results.warnings.slice(0, 1).map((warning, idx) => (
+                <div
+                  key={idx}
+                  className={`p-2 rounded-lg text-xs flex items-start gap-2 ${
+                    isDarkMode
+                      ? 'bg-amber-500/10 text-amber-300 border border-amber-500/30'
+                      : 'bg-amber-50 text-amber-800 border border-amber-200'
+                  }`}
+                >
+                  <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                  <span className="line-clamp-2">{warning.message}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       ) : (
         <>
           <div className="mb-4">
@@ -78,13 +113,6 @@ export default function InsightRail({
               />
             </div>
           </div>
-
-          {results?.incentive_breakdown?.deal_size && (
-            <div className="flex items-center gap-2 mb-4">
-              <span className={`text-xs ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>Deal size</span>
-              <Badge className="text-xs uppercase font-mono">{results.incentive_breakdown.deal_size}</Badge>
-            </div>
-          )}
 
           <div className="mb-2">
             <p className={`text-xs ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>Net profit</p>

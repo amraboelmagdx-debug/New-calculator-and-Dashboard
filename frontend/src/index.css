@@ -210,6 +210,14 @@ code {
     padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+.scope-workspace .scope-tab-active {
+    @apply bg-indigo-600/15 text-indigo-300;
+}
+
+.light-theme .scope-workspace .scope-tab-active {
+    @apply bg-white text-indigo-800 shadow-sm;
+}
+
 .quote-price-pulse {
     animation: quotePricePulse 0.6s ease-out;
 }

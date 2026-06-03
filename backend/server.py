@@ -137,13 +137,25 @@ def _hr_config_from_env() -> Dict[str, Any]:
 
 
 async def _get_hr_config() -> Dict[str, Any]:
+    env_cfg = _hr_config_from_env()
     try:
         config = await db.hr_config.find_one({}, {"_id": 0})
         if config:
+            # If DB has sheets disabled/empty but .env provides a URL, prefer env so
+            # local dev isn't blocked by a stale hr_config document.
+            if not config.get("google_sheets_enabled") and env_cfg.get("google_sheets_enabled"):
+                merged = {**config, **env_cfg}
+                merged["id"] = config.get("id", "hr_config")
+                return merged
+            if not (config.get("google_sheets_url") or "").strip() and env_cfg.get("google_sheets_url"):
+                merged = {**config, "google_sheets_url": env_cfg["google_sheets_url"]}
+                if env_cfg.get("google_sheets_enabled"):
+                    merged["google_sheets_enabled"] = True
+                return merged
             return config
     except Exception as exc:
         logger.warning("Could not read hr_config from database: %s", exc)
-    return _hr_config_from_env()
+    return env_cfg
 
 
 def _standard_monthly_hours(hr_config: Optional[Dict[str, Any]] = None) -> float:
@@ -999,6 +1011,7 @@ class RiskFactorsInput(BaseModel):
     rush: str = "none"
     execution: str = "none"
     custom_multiplier: float = 0  # If > 0, overrides calculated risk
+    risk_mode: str = "default"  # "default" (weighted factors) | "custom" (use custom_multiplier)
 
 class ProductTemplateModel(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -1259,6 +1272,11 @@ class ProductLineMarginInput(BaseModel):
     sheet_min_margin_percent: float = 0
     sheet_min_selling: float = 0
     margin_percent: float = 30
+    # Product-owned workspace (v1): when provided, the line is priced from its
+    # own team + manual vendors + per-line risk instead of the sheet package cost.
+    team_members: List[TeamMemberInput] = []
+    vendors: List[VendorInput] = []
+    risk: Optional[RiskFactorsInput] = None
 
 
 class SimpleCalculationInput(BaseModel):
@@ -1341,6 +1359,11 @@ async def get_risk_config():
 
 async def calculate_risk_multiplier(risk_input: RiskFactorsInput):
     """Calculate risk multiplier from risk factors"""
+    risk_mode = getattr(risk_input, "risk_mode", "default") or "default"
+    # Custom mode: use the explicit multiplier directly (1.0 = no adjustment)
+    if risk_mode == "custom":
+        return risk_input.custom_multiplier if risk_input.custom_multiplier > 0 else 1.0
+    # Backward compat: a positive custom_multiplier still overrides in default mode
     if risk_input.custom_multiplier > 0:
         return risk_input.custom_multiplier
     
@@ -1540,29 +1563,19 @@ async def calculate_incentives(selling_price: float, deal_size: str, client_type
 
 # ==================== CALCULATION ENGINE ====================
 
-async def calculate_simple(data: SimpleCalculationInput):
-    """Calculate pricing for simple mode with split margins, risk factors, and dynamic incentives"""
-    overhead_rate = await get_overhead_rate()
-    risk_config = await get_risk_config()
-    
-    # Get HR config for benefit calculations
-    hr_config = await db.hr_config.find_one({}, {"_id": 0})
-    if not hr_config:
-        hr_config = {"social_insurance_percent": 12, "medical_insurance_percent": 3, "end_of_service_divisor": 2}
-    std_monthly_hours = _standard_monthly_hours(hr_config)
-    
-    # Calculate risk multipliers
-    internal_risk_mult = await calculate_risk_multiplier(data.internal_risk)
-    vendor_risk_mult = await calculate_risk_multiplier(data.vendor_risk)
-    
-    # Internal labor cost
-    internal_labor_cost = 0
-    total_hours = 0
-    
-    for member in data.team_members:
+async def compute_internal_labor_cost(team_members, hr_config, std_monthly_hours):
+    """Compute internal labor cost and chargeable hours for a set of team members.
+
+    Single source of truth shared by the global path and per-product lines.
+    Returns (labor_cost, total_hours).
+    """
+    labor_cost = 0.0
+    total_hrs = 0.0
+
+    for member in team_members:
         member_cost = 0
         member_hours = 0
-        
+
         if member.employee_type == 'seconded':
             role = await db.roles.find_one({"id": member.role_id}, {"_id": 0})
             role_monthly_cost = 0
@@ -1592,7 +1605,7 @@ async def calculate_simple(data: SimpleCalculationInput):
                 monthly_cost = salary + social_ins + medical_ins + eos
             else:
                 monthly_cost = member.monthly_salary or 0
-            
+
             utilization = (member.utilization_percent or 0) / 100
             duration = member.duration_months or 1
             member_cost = monthly_cost * utilization * duration
@@ -1606,29 +1619,53 @@ async def calculate_simple(data: SimpleCalculationInput):
             )
             member_hours = chargeable_hours if chargeable_hours > 0 else 0
             member_cost = member_hours * (member.hourly_rate or 0)
-        
+
         # Apply quantity multiplier
         quantity = getattr(member, 'quantity', 1) or 1
         member_cost *= quantity
         member_hours *= quantity
-        
-        internal_labor_cost += member_cost
-        total_hours += member_hours
+
+        labor_cost += member_cost
+        total_hrs += member_hours
+
+    return labor_cost, total_hrs
+
+
+def compute_vendor_cost(vendors):
+    """Compute (cost, revenue_with_markup) for a set of vendor lines."""
+    cost = 0.0
+    revenue = 0.0
+    for v in vendors:
+        qty = getattr(v, 'quantity', 1) or 1
+        unit_cost = getattr(v, 'unit_cost', 0) or v.cost or 0
+        total = unit_cost * qty
+        cost += total
+        revenue += total * (1 + (v.markup_percent or 0) / 100)
+    return cost, revenue
+
+
+async def calculate_simple(data: SimpleCalculationInput):
+    """Calculate pricing for simple mode with split margins, risk factors, and dynamic incentives"""
+    overhead_rate = await get_overhead_rate()
+    risk_config = await get_risk_config()
+    
+    # Get HR config for benefit calculations
+    hr_config = await db.hr_config.find_one({}, {"_id": 0})
+    if not hr_config:
+        hr_config = {"social_insurance_percent": 12, "medical_insurance_percent": 3, "end_of_service_divisor": 2}
+    std_monthly_hours = _standard_monthly_hours(hr_config)
+    
+    # Calculate risk multipliers
+    internal_risk_mult = await calculate_risk_multiplier(data.internal_risk)
+    vendor_risk_mult = await calculate_risk_multiplier(data.vendor_risk)
+    
+    # Internal labor cost (shared helper - single source of truth)
+    internal_labor_cost, total_hours = await compute_internal_labor_cost(
+        data.team_members, hr_config, std_monthly_hours
+    )
     
     # Vendor costs (with quantity support)
-    vendor_cost = 0
-    for v in data.vendors:
-        qty = getattr(v, 'quantity', 1) or 1
-        unit_cost = getattr(v, 'unit_cost', 0) or v.cost or 0
-        vendor_cost += unit_cost * qty
-    
-    vendor_revenue = 0
-    for v in data.vendors:
-        qty = getattr(v, 'quantity', 1) or 1
-        unit_cost = getattr(v, 'unit_cost', 0) or v.cost or 0
-        total_cost = unit_cost * qty
-        vendor_revenue += total_cost * (1 + v.markup_percent / 100)
-    
+    vendor_cost, vendor_revenue = compute_vendor_cost(data.vendors)
     vendor_markup_revenue = vendor_revenue - vendor_cost
     
     # Overhead
@@ -1666,34 +1703,76 @@ async def calculate_simple(data: SimpleCalculationInput):
 
     if margin_mode == "granular" and product_lines:
         for line in product_lines:
-            seg = {
-                "execution_mode": getattr(line, "execution_mode", "") or "",
-                "direct_cost_per_unit": float(getattr(line, "direct_cost_per_unit", 0) or 0),
-                "oh_cost_value": float(getattr(line, "oh_cost_value", 0) or 0),
-                "total_cost": float(getattr(line, "total_cost", 0) or line.cost or 0),
-            }
             qty = int(getattr(line, "quantity", 1) or 1)
-            cost, exec_mode, cost_basis, cost_fallback = resolve_product_line_cost(seg, qty)
             floor = float(line.sheet_min_selling or 0)
             margin_pct = float(line.margin_percent or 0)
-            line_sell = _line_selling_from_margin(cost, margin_pct, floor)
-            product_cogs += cost
-            product_selling += line_sell
-            achieved = ((line_sell - cost) / line_sell * 100) if line_sell > 0 else 0
-            product_lines_breakdown.append({
-                "id": line.id,
-                "product_name": line.product_name,
-                "segment": line.segment,
-                "execution_mode": exec_mode,
-                "cost_basis": cost_basis,
-                "cost_fallback": cost_fallback,
-                "cost": round(cost, 2),
-                "margin_percent": round(margin_pct, 2),
-                "sheet_min_margin_percent": round(float(line.sheet_min_margin_percent or 0), 2),
-                "sheet_min_selling": round(floor, 2),
-                "selling": round(line_sell, 2),
-                "margin_achieved": round(achieved, 2),
-            })
+
+            line_team_members = getattr(line, "team_members", None) or []
+            line_vendors = getattr(line, "vendors", None) or []
+            product_owned = bool(line_team_members or line_vendors)
+
+            if product_owned:
+                # Product-owned line: price from its own team + manual vendors + per-line risk.
+                line_team_cost, line_hours = await compute_internal_labor_cost(
+                    line_team_members, hr_config, std_monthly_hours
+                )
+                line_overhead = line_hours * overhead_rate
+                line_vendor_cost, _line_vendor_rev = compute_vendor_cost(line_vendors)
+                base_cost = line_team_cost + line_overhead + line_vendor_cost
+                line_risk_mult = await calculate_risk_multiplier(line.risk) if getattr(line, "risk", None) else 1.0
+                risk_adjusted_cost = base_cost * line_risk_mult
+                line_sell = _line_selling_from_margin(risk_adjusted_cost, margin_pct, floor)
+                product_cogs += base_cost
+                product_selling += line_sell
+                achieved = ((line_sell - base_cost) / line_sell * 100) if line_sell > 0 else 0
+                product_lines_breakdown.append({
+                    "id": line.id,
+                    "product_name": line.product_name,
+                    "segment": line.segment,
+                    "execution_mode": getattr(line, "execution_mode", "") or "",
+                    "cost_basis": "product_owned",
+                    "cost_fallback": False,
+                    "team_cost": round(line_team_cost, 2),
+                    "overhead_cost": round(line_overhead, 2),
+                    "vendor_cost": round(line_vendor_cost, 2),
+                    "internal_cost": round(line_team_cost + line_overhead, 2),
+                    "cost": round(base_cost, 2),
+                    "risk_multiplier": round(line_risk_mult, 3),
+                    "hours": round(line_hours, 2),
+                    "margin_percent": round(margin_pct, 2),
+                    "sheet_min_margin_percent": round(float(line.sheet_min_margin_percent or 0), 2),
+                    "sheet_min_selling": round(floor, 2),
+                    "selling": round(line_sell, 2),
+                    "margin_achieved": round(achieved, 2),
+                })
+            else:
+                # Legacy granular line: price from the sheet package cost (unchanged behavior).
+                seg = {
+                    "execution_mode": getattr(line, "execution_mode", "") or "",
+                    "direct_cost_per_unit": float(getattr(line, "direct_cost_per_unit", 0) or 0),
+                    "oh_cost_value": float(getattr(line, "oh_cost_value", 0) or 0),
+                    "total_cost": float(getattr(line, "total_cost", 0) or line.cost or 0),
+                }
+                cost, exec_mode, cost_basis, cost_fallback = resolve_product_line_cost(seg, qty)
+                line_sell = _line_selling_from_margin(cost, margin_pct, floor)
+                product_cogs += cost
+                product_selling += line_sell
+                achieved = ((line_sell - cost) / line_sell * 100) if line_sell > 0 else 0
+                product_lines_breakdown.append({
+                    "id": line.id,
+                    "product_name": line.product_name,
+                    "segment": line.segment,
+                    "execution_mode": exec_mode,
+                    "cost_basis": cost_basis,
+                    "cost_fallback": cost_fallback,
+                    "cost": round(cost, 2),
+                    "risk_multiplier": 1.0,
+                    "margin_percent": round(margin_pct, 2),
+                    "sheet_min_margin_percent": round(float(line.sheet_min_margin_percent or 0), 2),
+                    "sheet_min_selling": round(floor, 2),
+                    "selling": round(line_sell, 2),
+                    "margin_achieved": round(achieved, 2),
+                })
         cogs += product_cogs
     
     # ==================== NEW INCENTIVE CALCULATION ====================

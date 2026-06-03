@@ -38,7 +38,6 @@ import {
 import { enrichScopeItemsWithCatalog, parseScopeText } from '@/lib/opportunityScope';
 
 import DepartmentRolePicker from '@/components/DepartmentRolePicker';
-import ServicePricingDetail from '@/components/ServicePricingDetail';
 
 import TeamMemberRow from '@/components/TeamMemberRow';
 import VendorRow from '@/components/VendorRow';
@@ -64,8 +63,7 @@ import {
   utilizationFromHours,
 } from '@/lib/utils';
 import {
-  buildProductLines,
-  buildProductLinesForApi,
+  buildProductOwnedLinesForApi,
   MARGIN_MODES,
   shouldAutoSyncTeamFromSegment,
   normalizeExecutionMode,
@@ -96,12 +94,53 @@ function applyScopeEntriesToProducts(prev, entries) {
         product_name,
         size: 'standard',
         quantity: qty,
+        source: 'opportunity',
       });
       addedRows += 1;
     }
   });
 
   return { next, addedRows, mergedRows };
+}
+
+function teamMembersMatch(current, generated) {
+  if (current.length !== generated.length) return false;
+  const sortFn = (a, b) => String(a.role_id || '').localeCompare(String(b.role_id || ''));
+  const a = [...current].sort(sortFn);
+  const b = [...generated].sort(sortFn);
+  return a.every((m, i) => {
+    const g = b[i];
+    return (
+      m.role_id === g.role_id &&
+      m.hours === g.hours &&
+      (m.baseline_hours || 0) === (g.baseline_hours || 0)
+    );
+  });
+}
+
+function computeTeamSyncDiff(current, generated) {
+  const currentByRole = new Map((current || []).filter(m => m.role_id).map(m => [m.role_id, m]));
+  const genByRole = new Map((generated || []).filter(m => m.role_id).map(m => [m.role_id, m]));
+  const changes = [];
+  genByRole.forEach((g, id) => {
+    const c = currentByRole.get(id);
+    if (!c) {
+      changes.push({ type: 'add', role_name: g.role_name || 'Role', hours: g.hours });
+    } else if (c.hours !== g.hours || (c.baseline_hours || 0) !== (g.baseline_hours || 0)) {
+      changes.push({
+        type: 'change',
+        role_name: g.role_name || c.role_name || 'Role',
+        before: c.hours,
+        after: g.hours,
+      });
+    }
+  });
+  currentByRole.forEach((c, id) => {
+    if (!genByRole.has(id)) {
+      changes.push({ type: 'remove', role_name: c.role_name || 'Role', hours: c.hours });
+    }
+  });
+  return changes;
 }
 
 export default function Calculator() {
@@ -115,12 +154,26 @@ export default function Calculator() {
   const [scopeTemplates, setScopeTemplates] = useState([]);
   const [productsPricingCatalog, setProductsPricingCatalog] = useState([]);
   const [selectedSection, setSelectedSection] = useState('all');
-  const [selectedProducts, setSelectedProducts] = useState([{ id: `pp-${Date.now()}`, product_name: '', size: 'tiny', quantity: 1 }]);
+  const [selectedProducts, setSelectedProducts] = useState([
+    {
+      id: `pp-${Date.now()}`,
+      product_name: '',
+      size: 'standard',
+      quantity: 1,
+      team_members: [],
+      vendors: [],
+      risk: { complexity: 'none', rush: 'none', execution: 'none', custom_multiplier: 0, risk_mode: 'default' },
+      margin_percent: null,
+      margin_source: null,
+      is_standalone: false,
+    },
+  ]);
   const [productsPricingLoading, setProductsPricingLoading] = useState(false);
   const [productsPricingSyncedAt, setProductsPricingSyncedAt] = useState(null);
   const [productsPricingStale, setProductsPricingStale] = useState(false);
   const [sheetPriceFloorWarning, setSheetPriceFloorWarning] = useState(null);
   const [applyProductsDialogOpen, setApplyProductsDialogOpen] = useState(false);
+  const [teamSyncReviewOpen, setTeamSyncReviewOpen] = useState(false);
   const [pendingTeamMembers, setPendingTeamMembers] = useState([]);
   /** When 'replace', team hours stay in sync with product qty/selection changes */
   const [productsTeamLink, setProductsTeamLink] = useState(null);
@@ -174,7 +227,6 @@ export default function Calculator() {
   const [activeDealStep, setActiveDealStep] = useState('frame');
   const [expandAllSections, setExpandAllSections] = useState(false);
   const [mobileInsightOpen, setMobileInsightOpen] = useState(false);
-  const [composeSubTab, setComposeSubTab] = useState('products');
   const [isLg, setIsLg] = useState(
     typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)').matches : true
   );
@@ -439,6 +491,43 @@ export default function Calculator() {
     return { members, unmatched };
   }, [selectedProducts, productsPricingCatalog, roles, standardMonthlyHours]);
 
+  // Scoped: build suggested team members for ONE product (used by ProductWorkspaceCard
+  // on service select). Returns members tagged source:'sheet', fully editable after.
+  const buildProductTeam = useCallback((productName, size, quantity) => {
+    const product = findCatalogProduct(productName);
+    const seg = getSegmentPayload(product, size);
+    if (!seg || !shouldAutoSyncTeamFromSegment(seg)) return [];
+    const mode = normalizeExecutionMode(seg.execution_mode, seg);
+    const roleList = seg?.internal_roles?.length
+      ? seg.internal_roles
+      : (product?.sizes?.[size] || []);
+    if (!roleList.length) return [];
+    const qty = Number(quantity) || 1;
+    const members = [];
+    roleList.forEach(roleItem => {
+      const matched = findRoleMatch(roleItem.role_name);
+      if (!matched) return;
+      const hours = Math.round((Number(roleItem.hours) || 0) * qty * 100) / 100;
+      members.push({
+        id: `tm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        role_id: matched.id,
+        role_name: matched.name,
+        hours,
+        baseline_hours: mode === EXECUTION_HYBRID ? hours : 0,
+        labor_charge_context: mode === EXECUTION_HYBRID ? EXECUTION_HYBRID : 'resource',
+        hourly_rate: matched.hourly_rate || 0,
+        monthly_salary: matched.monthly_salary || 0,
+        utilization_percent: utilizationFromHours(hours, standardMonthlyHours),
+        duration_months: 1,
+        calc_mode: 'hours',
+        employee_type: 'internal',
+        quantity: 1,
+        source: 'sheet',
+      });
+    });
+    return members;
+  }, [productsPricingCatalog, roles, standardMonthlyHours]);
+
   const hasValidProductSelections = selectedProducts.some(
     item => item.product_name && item.size && (Number(item.quantity) || 0) > 0
   );
@@ -452,28 +541,35 @@ export default function Calculator() {
     });
   }, [selectedProducts, productsPricingCatalog]);
 
-  // Auto-sync team from resource/hybrid products only (all-in: no labor double-count)
-  useEffect(() => {
-    if (!hasValidProductSelections || !hasSyncableProductSelections) return;
+  const generatedTeamFromProducts = useMemo(
+    () => buildTeamMembersFromProducts(calcData.team_members),
+    [buildTeamMembersFromProducts, calcData.team_members]
+  );
 
-    const timer = setTimeout(() => {
-      setProductsTeamLink('replace');
-      setCalcData(prev => {
-        const { members } = buildTeamMembersFromProducts(prev.team_members);
-        if (members.length === 0) return prev;
+  const teamOutOfSync = useMemo(() => {
+    if (!hasValidProductSelections || !hasSyncableProductSelections) return false;
+    const { members } = generatedTeamFromProducts;
+    if (members.length === 0) return false;
+    return !teamMembersMatch(calcData.team_members, members);
+  }, [
+    hasValidProductSelections,
+    hasSyncableProductSelections,
+    generatedTeamFromProducts,
+    calcData.team_members,
+  ]);
 
-        const sameHours =
-          prev.team_members.length === members.length &&
-          members.every(m =>
-            prev.team_members.some(tm => tm.role_id === m.role_id && tm.hours === m.hours)
-          );
-        if (sameHours) return prev;
-        return { ...prev, team_members: members };
-      });
-    }, 300);
+  const teamSyncDiff = useMemo(
+    () => computeTeamSyncDiff(calcData.team_members, generatedTeamFromProducts.members),
+    [calcData.team_members, generatedTeamFromProducts.members]
+  );
 
-    return () => clearTimeout(timer);
-  }, [selectedProducts, hasValidProductSelections, hasSyncableProductSelections, buildTeamMembersFromProducts]);
+  const validProductCount = useMemo(
+    () =>
+      selectedProducts.filter(
+        p => p.product_name && p.size && (Number(p.quantity) || 0) > 0
+      ).length,
+    [selectedProducts]
+  );
 
   const sectionOptions = ['all', ...Array.from(new Set((productsPricingCatalog || []).map(
     p => p.service_family || p.section_name || 'General'
@@ -493,7 +589,7 @@ export default function Calculator() {
     }));
   };
 
-  const handleApplyProducts = () => {
+  const openTeamSyncDialog = useCallback(() => {
     const { members, unmatched } = buildTeamMembersFromProducts();
     if (members.length === 0) {
       toast.error('No matching roles were found for selected products.');
@@ -504,23 +600,62 @@ export default function Calculator() {
     }
     setPendingTeamMembers(members);
     setApplyProductsDialogOpen(true);
-  };
+  }, [buildTeamMembersFromProducts]);
+
+  const handleApplyProducts = openTeamSyncDialog;
+
+  const handleUpdateProductRisk = useCallback((productId, riskField, value) => {
+    setSelectedProducts(prev =>
+      prev.map(item =>
+        item.id === productId
+          ? { ...item, risk: { ...(item.risk || { complexity: 'none', rush: 'none', execution: 'none' }), [riskField]: value } }
+          : item
+      )
+    );
+  }, []);
+
+  const onAddMemberWithRole = useCallback((roleId) => {
+    const role = roles.find(r => r.id === roleId);
+    if (!role) return;
+    setProductsTeamLink(null);
+    setCalcData(prev => ({
+      ...prev,
+      team_members: [
+        ...prev.team_members,
+        {
+          id: `tm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          role_id: roleId,
+          role_name: role.name || '',
+          hours: 0,
+          hourly_rate: role.hourly_rate || 0,
+          monthly_salary: role.monthly_salary || 0,
+          utilization_percent: 0,
+          duration_months: 1,
+          calc_mode: 'hours',
+          employee_type: 'internal',
+        },
+      ],
+    }));
+  }, [roles]);
+
+  const handleReviewTeamChanges = useCallback(() => {
+    setTeamSyncReviewOpen(true);
+  }, []);
 
   // Calculate pricing
   const handleCalculate = useCallback(async () => {
-    const productLines = buildProductLines(
+    // Product-owned model: each product carries its own team / vendors / risk / margin.
+    const productOwnedLines = buildProductOwnedLinesForApi(
       selectedProducts,
       findCatalogProduct,
       getSegmentPayload,
       calcData
     );
-    const marginMode = calcData.margin_mode || MARGIN_MODES.UNIFIED;
-    const hasGranularProducts =
-      marginMode === MARGIN_MODES.GRANULAR && productLines.length > 0;
+    const hasProductLines = productOwnedLines.length > 0;
     const hasLaborOrVendors =
       calcData.team_members.length > 0 || calcData.vendors.length > 0;
 
-    if (!hasLaborOrVendors && !hasGranularProducts) {
+    if (!hasLaborOrVendors && !hasProductLines) {
       setResults(null);
       return;
     }
@@ -529,8 +664,12 @@ export default function Calculator() {
     try {
       const payload = {
         ...calcData,
-        margin_mode: marginMode,
-        product_lines: hasGranularProducts ? buildProductLinesForApi(productLines) : [],
+        // Product-owned quotes price per line via granular mode; the global team/vendor
+        // buckets are emptied so totals roll up purely from the lines (no double-count).
+        margin_mode: hasProductLines ? MARGIN_MODES.GRANULAR : (calcData.margin_mode || MARGIN_MODES.UNIFIED),
+        product_lines: hasProductLines ? productOwnedLines : [],
+        team_members: hasProductLines ? [] : calcData.team_members,
+        vendors: hasProductLines ? [] : calcData.vendors,
       };
       const result = await calculateSimple(payload);
       
@@ -1022,14 +1161,12 @@ export default function Calculator() {
       stepId === 'review'
         ? 'review'
         : stepId === 'compose'
-          ? composeSubTab === 'team'
-            ? 'team'
-            : 'products'
+          ? 'scope'
           : dealStepToPrimarySection(stepId);
     requestAnimationFrame(() => {
       document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
-  }, [composeSubTab]);
+  }, []);
 
   const proceedToComposeStep = useCallback(() => {
     goToDealStep('compose');
@@ -1068,18 +1205,22 @@ export default function Calculator() {
     (sectionId) => {
       if (expandAllSections) return true;
       if (sectionId === 'review') return activeDealStep === 'review';
+      if (sectionId === 'products' || sectionId === 'team') {
+        return activeDealStep === 'compose';
+      }
       const step = DEAL_STEPS.find(s => s.sectionIds.includes(sectionId));
       if (!step || step.id !== activeDealStep) return false;
-      if (step.id === 'compose' && !isLg) {
-        return sectionId === (composeSubTab === 'team' ? 'team' : 'products');
-      }
       return true;
     },
-    [expandAllSections, activeDealStep, composeSubTab, isLg]
+    [expandAllSections, activeDealStep]
   );
 
+  const showScopeWorkspace = activeDealStep === 'compose' || expandAllSections;
+  const insightVariant = activeDealStep === 'compose' ? 'slim' : 'full';
+  const healthStripVariant = activeDealStep === 'compose' ? 'compact' : 'full';
+
   useEffect(() => {
-    const sectionIds = ['project', 'products', 'team', 'vendors', 'pricing', 'review'];
+    const sectionIds = ['project', 'scope', 'vendors', 'pricing', 'review'];
     const elements = sectionIds.map(id => document.getElementById(id)).filter(Boolean);
     if (!elements.length) return undefined;
 
@@ -1088,15 +1229,16 @@ export default function Calculator() {
         const visible = entries
           .filter(e => e.isIntersecting)
           .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
-        if (visible[0]?.target?.id) {
-          setActiveDealStep(sectionIdToDealStep(visible[0].target.id));
+        const id = visible[0]?.target?.id;
+        if (id) {
+          setActiveDealStep(id === 'scope' ? 'compose' : sectionIdToDealStep(id));
         }
       },
       { rootMargin: '-20% 0px -55% 0px', threshold: [0.1, 0.25, 0.5] }
     );
     elements.forEach(el => observer.observe(el));
     return () => observer.disconnect();
-  }, [expandAllSections, isLg, composeSubTab]);
+  }, [expandAllSections]);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -1123,7 +1265,6 @@ export default function Calculator() {
       });
       return;
     }
-    if (tabId === 'compose') setComposeSubTab('products');
     goToDealStep(tabId);
   };
 
@@ -1213,6 +1354,7 @@ export default function Calculator() {
         readiness={readiness}
         isDarkMode={isDarkMode}
         sheetPriceFloorWarning={sheetPriceFloorWarning}
+        variant={healthStripVariant}
       />
 
       <div className="max-w-[1600px] mx-auto px-4 sm:px-6 pt-4">
@@ -1248,16 +1390,18 @@ export default function Calculator() {
 
         <main className="space-y-6 min-w-0">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <DataSourcesStatus
-              isDarkMode={isDarkMode}
-              productsPricingLoading={productsPricingLoading}
-              productsPricingSyncedAt={productsPricingSyncedAt}
-              productsPricingStale={productsPricingStale}
-              rolesCount={roles.length}
-              onRefreshProducts={loadProductsPricingCatalog}
-              onRefreshRoles={refreshRoles}
-            />
-            <div className="flex items-center gap-2">
+            {activeDealStep !== 'compose' && (
+              <DataSourcesStatus
+                isDarkMode={isDarkMode}
+                productsPricingLoading={productsPricingLoading}
+                productsPricingSyncedAt={productsPricingSyncedAt}
+                productsPricingStale={productsPricingStale}
+                rolesCount={roles.length}
+                onRefreshProducts={loadProductsPricingCatalog}
+                onRefreshRoles={refreshRoles}
+              />
+            )}
+            <div className={`flex items-center gap-2 ${activeDealStep === 'compose' ? 'ml-auto' : ''}`}>
               <Label className={`text-xs ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>
                 Show all sections
               </Label>
@@ -1268,32 +1412,6 @@ export default function Calculator() {
               />
             </div>
           </div>
-
-          {activeDealStep === 'compose' && !isLg && (
-            <div className={`flex gap-1 p-1 rounded-lg ${isDarkMode ? 'bg-neutral-900' : 'bg-slate-100'}`}>
-              {['products', 'team'].map(tab => (
-                <button
-                  key={tab}
-                  type="button"
-                  onClick={() => {
-                    setComposeSubTab(tab);
-                    document.getElementById(tab)?.scrollIntoView({ behavior: 'smooth' });
-                  }}
-                  className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${
-                    composeSubTab === tab
-                      ? isDarkMode
-                        ? 'bg-neutral-800 text-white'
-                        : 'bg-white text-slate-900 shadow-sm'
-                      : isDarkMode
-                        ? 'text-neutral-500'
-                        : 'text-slate-600'
-                  }`}
-                >
-                  {tab === 'products' ? 'Products' : 'Team'}
-                </button>
-              ))}
-            </div>
-          )}
 
           {isSectionVisible('project') && (
             <>
@@ -1320,32 +1438,58 @@ export default function Calculator() {
             </>
           )}
 
-          {(isSectionVisible('products') || isSectionVisible('team')) && (
+          {showScopeWorkspace && (
             <StepCompose
-              showProducts={isSectionVisible('products')}
-              showTeam={isSectionVisible('team')}
               isDarkMode={isDarkMode}
-              productsPricingSyncedAt={productsPricingSyncedAt}
-              productsPricingLoading={productsPricingLoading}
-              loadProductsPricingCatalog={loadProductsPricingCatalog}
-              selectedSection={selectedSection}
-              setSelectedSection={setSelectedSection}
-              sectionOptions={sectionOptions}
-              selectedProducts={selectedProducts}
-              setSelectedProducts={setSelectedProducts}
-              handleApplyProducts={handleApplyProducts}
-              findCatalogProduct={findCatalogProduct}
-              getSegmentPayload={getSegmentPayload}
-              filteredProductsCatalog={filteredProductsCatalog}
+              expandAllSections={expandAllSections}
               onContinue={() => goToDealStep('economics')}
-              roles={roles}
+              teamOutOfSync={teamOutOfSync}
+              onReviewTeamChanges={handleReviewTeamChanges}
+              onSyncTeam={openTeamSyncDialog}
+              contextStripProps={{
+                isDarkMode,
+                productsPricingLoading,
+                productsPricingSyncedAt,
+                productsPricingStale,
+                productCount: validProductCount,
+                teamCount: calcData.team_members.length,
+                sheetPriceFloorWarning,
+                readiness,
+                onRefresh: () => {
+                  loadProductsPricingCatalog(true);
+                  refreshRoles(true);
+                },
+              }}
+              productsProps={{
+                productsPricingLoading,
+                selectedSection,
+                setSelectedSection,
+                sectionOptions,
+                selectedProducts,
+                setSelectedProducts,
+                findCatalogProduct,
+                getSegmentPayload,
+                filteredProductsCatalog,
+                loadProductsPricingCatalog,
+                roles,
+                calcData,
+                results,
+                standardMonthlyHours,
+                buildProductTeam,
+                refreshRoles,
+                vendorServices,
+              }}
+              teamProps={{
+                roles,
+                calcData,
+                selectedProducts,
+                findCatalogProduct,
+                getSegmentPayload,
+                results,
+                standardMonthlyHours,
+              }}
               calcData={calcData}
               setCalcData={setCalcData}
-              addTeamMember={addTeamMember}
-              updateTeamMember={updateTeamMember}
-              removeTeamMember={removeTeamMember}
-              refreshRoles={refreshRoles}
-              standardMonthlyHours={standardMonthlyHours}
             />
           )}
           {(isSectionVisible('vendors') || isSectionVisible('pricing')) && (
@@ -1399,6 +1543,7 @@ export default function Calculator() {
         <aside className="hidden lg:block sticky top-[140px] h-[calc(100vh-9rem)] min-h-0">
           <InsightRail
             className="h-full"
+            variant={insightVariant}
             results={results}
             calculating={calculating}
             isDarkMode={isDarkMode}
@@ -1441,6 +1586,7 @@ export default function Calculator() {
             isDarkMode={isDarkMode}
           />
         }
+        variant={insightVariant}
       />
 
       <BottomNav
@@ -1547,6 +1693,61 @@ export default function Calculator() {
               data-testid="delete-template-confirm-btn"
             >
               {deletingTemplate ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={teamSyncReviewOpen} onOpenChange={setTeamSyncReviewOpen}>
+        <DialogContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700 text-white' : 'bg-white border-slate-200'}>
+          <DialogHeader>
+            <DialogTitle className={isDarkMode ? 'text-white' : 'text-slate-900'}>Team changes from products</DialogTitle>
+            <DialogDescription className={isDarkMode ? 'text-neutral-400' : 'text-slate-500'}>
+              Compare your current team with what products would generate.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[50vh] overflow-y-auto space-y-2 py-2">
+            {teamSyncDiff.length === 0 ? (
+              <p className={`text-sm ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`}>No differences detected.</p>
+            ) : (
+              teamSyncDiff.map((row, idx) => (
+                <div
+                  key={`${row.type}-${row.role_name}-${idx}`}
+                  className={`text-sm rounded-lg px-3 py-2 ${
+                    isDarkMode ? 'bg-neutral-800/80 text-neutral-200' : 'bg-slate-50 text-slate-800'
+                  }`}
+                >
+                  {row.type === 'add' && (
+                    <span>
+                      <strong>+ {row.role_name}</strong> — {row.hours}h
+                    </span>
+                  )}
+                  {row.type === 'remove' && (
+                    <span>
+                      <strong>− {row.role_name}</strong> — was {row.hours}h
+                    </span>
+                  )}
+                  {row.type === 'change' && (
+                    <span>
+                      <strong>{row.role_name}</strong> — {row.before}h → {row.after}h
+                    </span>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTeamSyncReviewOpen(false)}>
+              Close
+            </Button>
+            <Button
+              className="bg-indigo-600 hover:bg-indigo-700 text-white"
+              onClick={() => {
+                setTeamSyncReviewOpen(false);
+                openTeamSyncDialog();
+              }}
+            >
+              Sync team
             </Button>
           </DialogFooter>
         </DialogContent>

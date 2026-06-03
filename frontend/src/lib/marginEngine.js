@@ -121,6 +121,82 @@ export function buildProductLinesForApi(lines) {
   }));
 }
 
+// ─── Product-owned lines (v1): each product carries its own team / vendors / risk ──
+
+function sanitizeTeamMemberForApi(m) {
+  return {
+    role_id: m.role_id || '',
+    role_name: m.role_name || '',
+    quantity: Number(m.quantity) || 1,
+    hours: Number(m.hours) || 0,
+    baseline_hours: Number(m.baseline_hours) || 0,
+    labor_charge_context: m.labor_charge_context || '',
+    utilization_percent: Number(m.utilization_percent) || 0,
+    duration_months: Number(m.duration_months) || 1,
+    hourly_rate: Number(m.hourly_rate) || 0,
+    monthly_salary: Number(m.monthly_salary) || 0,
+    calc_mode: m.calc_mode || 'hours',
+    employee_type: m.employee_type || 'internal',
+    custom_salary: Number(m.custom_salary) || 0,
+    custom_allowance: Number(m.custom_allowance) || 0,
+    admin_fee_percent: Number(m.admin_fee_percent) || 0,
+  };
+}
+
+function sanitizeVendorForApi(v) {
+  return {
+    service_id: v.service_id || '',
+    service_name: v.service_name || '',
+    quantity: Number(v.quantity) || 1,
+    unit_cost: Number(v.unit_cost) || Number(v.cost) || 0,
+    cost: Number(v.cost) || 0,
+    unit: v.unit || '',
+    markup_percent: Number(v.markup_percent) || 0,
+  };
+}
+
+/**
+ * Build API product lines from product-owned selections. Each line carries its own
+ * team_members, manual vendors, risk, and margin. Sheet cost fields are included so
+ * the backend can fall back to the sheet package cost when a line has no team yet.
+ */
+export function buildProductOwnedLinesForApi(selectedProducts, findCatalogProduct, getSegmentPayload, calcData) {
+  return (selectedProducts || [])
+    .filter(item => item.product_name)
+    .map(item => {
+      const qty = Math.max(1, Number(item.quantity) || 1);
+      const product = item.is_standalone ? null : findCatalogProduct(item.product_name);
+      const segment = product ? getSegmentPayload(product, item.size) : null;
+      const sheetMinMargin = Number(segment?.minimum_margin_percent) || 0;
+      const sheetMinSelling = (Number(segment?.base_minimum_selling_price) || 0) * qty;
+      const marginPercent = resolveDefaultMarginPercent(item, segment, calcData);
+      return {
+        id: item.id,
+        product_name: item.product_name,
+        segment: item.size || '',
+        quantity: qty,
+        execution_mode: segment?.execution_mode || '',
+        direct_cost_per_unit: Number(segment?.direct_cost_per_unit) || 0,
+        oh_cost_value: Number(segment?.oh_cost_value) || 0,
+        total_cost: Number(segment?.total_cost) || 0,
+        sheet_min_margin_percent: sheetMinMargin,
+        sheet_min_selling: Math.round(sheetMinSelling * 100) / 100,
+        margin_percent: marginPercent,
+        team_members: (item.team_members || []).map(sanitizeTeamMemberForApi),
+        vendors: (item.vendors || []).map(sanitizeVendorForApi),
+        risk: item.risk
+          ? {
+              complexity: item.risk.complexity || 'none',
+              rush: item.risk.rush || 'none',
+              execution: item.risk.execution || 'none',
+              custom_multiplier: Number(item.risk.custom_multiplier) || 0,
+              risk_mode: item.risk.risk_mode || 'default',
+            }
+          : null,
+      };
+    });
+}
+
 export function getDealComposition(selectedProducts, calcData, findCatalogProduct, getSegmentPayload) {
   const hasProducts = (selectedProducts || []).some(p => p.product_name && p.size);
   const hasTeam = (calcData?.team_members?.length || 0) > 0;

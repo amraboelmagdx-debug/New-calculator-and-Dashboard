@@ -7,6 +7,7 @@ export default function IntelligenceAlerts({
   productsTeamLink,
   calcData,
   isDarkMode,
+  maxAlerts,
 }) {
   const alerts = [];
 
@@ -69,6 +70,8 @@ export default function IntelligenceAlerts({
 
   if (alerts.length === 0) return null;
 
+  const shown = maxAlerts != null ? alerts.slice(0, maxAlerts) : alerts;
+
   const toneClass = (tone) => {
     if (tone === 'amber') {
       return isDarkMode
@@ -87,7 +90,7 @@ export default function IntelligenceAlerts({
 
   return (
     <div className="space-y-2 mb-4" data-testid="intelligence-alerts">
-      {alerts.map(({ key, tone, icon: Icon, message }) => (
+      {shown.map(({ key, tone, icon: Icon, message }) => (
         <div
           key={key}
           className={`p-3 rounded-lg text-xs flex items-start gap-2 border ${toneClass(tone)}`}

@@ -1,13 +1,13 @@
 import { Button } from '@/components/ui/button';
 import { ChevronRight } from 'lucide-react';
 
-export default function StepContinueFooter({ label, onContinue, isDarkMode }) {
+export default function StepContinueFooter({ label, onContinue, isDarkMode, sticky = false }) {
   return (
-    <div className="flex justify-end pt-4">
+    <div className={`flex justify-end ${sticky ? '' : 'pt-4'}`}>
       <Button
         type="button"
         onClick={onContinue}
-        className={`gap-1 min-h-[44px] ${
+        className={`gap-1 min-h-[44px] w-full sm:w-auto ${
           isDarkMode ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-indigo-600 hover:bg-indigo-700 text-white'
         }`}
       >

@@ -15,6 +15,7 @@ export default function InsightSheet({
   exportPdfSlot,
   onSaveTemplate,
   onGoToScope,
+  variant = 'full',
 }) {
   const margin = results?.contribution_margin_percent ?? 0;
   const pillLabel = results
@@ -75,6 +76,7 @@ export default function InsightSheet({
               exportPdfSlot={exportPdfSlot}
               onSaveTemplate={onSaveTemplate}
               onGoToScope={onGoToScope}
+              variant={variant}
               className="rounded-none border-0 shadow-none h-full"
             />
           </div>

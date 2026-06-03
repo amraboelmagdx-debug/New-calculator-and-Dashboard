@@ -19,8 +19,10 @@ export default function TeamMemberRow({
   onRemove,
   onRolesRefresh,
   darkMode = false,
+  compact = false,
   secondedMarkupPercent = 20,  // Default 20% markup for seconded employees
   standardMonthlyHours = 160,
+  sourceBadges = [],
 }) {
   const [showAddRole, setShowAddRole] = useState(false);
   const [newRole, setNewRole] = useState({ name: '', hourly_rate: 0, monthly_salary: 0 });
@@ -28,8 +30,8 @@ export default function TeamMemberRow({
 
   // Dark mode classes
   const cardClass = darkMode 
-    ? "p-4 rounded-lg bg-neutral-800/50 border border-neutral-700 space-y-3" 
-    : "p-4 rounded-lg bg-white border border-slate-200 shadow-sm space-y-3";
+    ? `${compact ? 'p-2.5 space-y-2' : 'p-4 space-y-3'} rounded-lg bg-neutral-800/50 border border-neutral-700` 
+    : `${compact ? 'p-2.5 space-y-2' : 'p-4 space-y-3'} rounded-lg bg-white border border-slate-200 ${compact ? '' : 'shadow-sm'}`;
   const inputClass = darkMode
     ? "bg-neutral-900 border-neutral-700 text-white placeholder:text-neutral-500"
     : "bg-white border-slate-200 text-slate-900 placeholder:text-slate-400";
@@ -136,6 +138,24 @@ export default function TeamMemberRow({
   return (
     <>
       <div className={cardClass} data-testid={`team-member-${index}`}>
+        {/* Source badges — shown above inputs when member originates from a product sheet */}
+        {sourceBadges.length > 0 && (
+          <div className="flex flex-wrap gap-1 mb-1">
+            {sourceBadges.map(name => (
+              <span
+                key={name}
+                className={`inline-block text-[10px] px-1.5 py-0.5 rounded border ${
+                  darkMode
+                    ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
+                    : 'bg-indigo-50 text-indigo-600 border-indigo-100'
+                }`}
+              >
+                {name}
+              </span>
+            ))}
+          </div>
+        )}
+
         {/* Row 1: Role, Employee Type, Calc Mode Toggle */}
         <div className="flex items-center gap-3">
           {/* Role Select */}
