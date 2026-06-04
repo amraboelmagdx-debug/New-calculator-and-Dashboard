@@ -1,8 +1,10 @@
 # Product Workspace UX Review
 
 **Date:** 2026-06-03  
-**Scope:** Documentation only — no implementation in this phase  
+**Status:** Implemented — Option A/C hybrid (workspace hierarchy pass)  
 **Surfaces reviewed:** Scope workspace tabs vs product-level control tabs in the Product Control Center
+
+See [`workspace-hierarchy-rationale.md`](workspace-hierarchy-rationale.md) for the implemented model.
 
 ---
 
@@ -75,6 +77,9 @@ Remove Team and Risk from workspace tabs; keep Products + a quote-level Risk sum
 
 ---
 
-## Explicit scope note
+## Implementation outcome (2026-06-03)
 
-**No workspace structural refactor is planned in the Product Control Center polish pass.** This document captures overlap and options for a future phase. Current polish improvements (name-first hierarchy, sticky product context, margin label clarity, mobile economics) apply only to product-level surfaces.
+- **Products tab** — Primary command center with portfolio rows, `ProductsCommandStrip`, and per-product icon tabs for editing.
+- **Team / Risk tabs** — Read-only `QuoteTeamDashboard` and `QuoteRiskDashboard`; analysis banners direct edits to Products.
+- **Quote internal risk** — Relocated to Economics (“Quote risk factors” collapsible).
+- **Portfolio density** — Collapsed rows expose six scan metrics only; full economics bar appears when Margin tab is open.

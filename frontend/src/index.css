@@ -218,6 +218,29 @@ code {
     @apply bg-white text-indigo-800 shadow-sm;
 }
 
+.product-portfolio-row {
+    box-shadow: none;
+}
+
+.product-portfolio-row:not(.product-portfolio-row--expanded) {
+    min-height: 0;
+    max-height: 88px;
+    overflow: hidden;
+}
+
+.products-command-strip {
+    max-height: 40px;
+    line-height: 1.25;
+}
+
+.products-command-strip--inline {
+    max-height: 32px;
+}
+
+.scope-workspace .scope-tab-inactive {
+    opacity: 0.85;
+}
+
 .quote-price-pulse {
     animation: quotePricePulse 0.6s ease-out;
 }

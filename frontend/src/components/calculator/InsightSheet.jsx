@@ -15,6 +15,8 @@ export default function InsightSheet({
   onSaveTemplate,
   onGoToScope,
   variant = 'full',
+  readiness,
+  productCount = 0,
 }) {
   const margin = results?.contribution_margin_percent ?? 0;
   const pillLabel = results
@@ -71,6 +73,8 @@ export default function InsightSheet({
               isDarkMode={isDarkMode}
               sheetPriceFloorWarning={sheetPriceFloorWarning}
               calcData={calcData}
+              readiness={readiness}
+              productCount={productCount}
               exportPdfSlot={exportPdfSlot}
               onSaveTemplate={onSaveTemplate}
               onGoToScope={onGoToScope}

@@ -8,6 +8,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import VendorRow from '@/components/VendorRow';
 import MarginControlCenter from './MarginControlCenter';
 import StickyPricingSummary from './StickyPricingSummary';
+import ScopeRiskPanel from './ScopeRiskPanel';
 
 export default function StepEconomics({
   isDarkMode,
@@ -216,6 +217,32 @@ export default function StepEconomics({
               Affects financing cost on calculated price
             </p>
           </div>
+          <Collapsible
+            className={`mb-4 rounded-xl border ${isDarkMode ? 'border-neutral-800' : 'border-slate-200'}`}
+            defaultOpen={false}
+          >
+            <CollapsibleTrigger
+              className={`flex items-center justify-between w-full px-4 py-3 text-sm font-medium ${
+                isDarkMode ? 'text-neutral-200 hover:bg-neutral-900' : 'text-slate-800 hover:bg-slate-50'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Shield className="w-4 h-4" />
+                <span>Quote risk factors</span>
+              </div>
+              <Badge className={`text-xs ${isDarkMode ? 'badge-neutral' : 'bg-slate-100 text-slate-600'}`}>
+                {calcData?.internal_risk &&
+                [calcData.internal_risk.complexity, calcData.internal_risk.rush, calcData.internal_risk.execution].filter(
+                  r => r !== 'none'
+                ).length > 0
+                  ? `${[calcData.internal_risk.complexity, calcData.internal_risk.rush, calcData.internal_risk.execution].filter(r => r !== 'none').length} active`
+                  : 'None'}
+              </Badge>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="px-4 pb-4">
+              <ScopeRiskPanel isDarkMode={isDarkMode} calcData={calcData} setCalcData={setCalcData} compact />
+            </CollapsibleContent>
+          </Collapsible>
           <MarginControlCenter
           isDarkMode={isDarkMode}
           calcData={calcData}

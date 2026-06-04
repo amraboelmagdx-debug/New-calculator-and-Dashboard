@@ -5,6 +5,7 @@ import { AlertTriangle, ChevronDown, Save } from 'lucide-react';
 import DashboardMetricAmount from './DashboardMetricAmount';
 import QuoteEmptyState from './QuoteEmptyState';
 import IntelligenceAlerts from './IntelligenceAlerts';
+import LiveQuoteSummary from './LiveQuoteSummary';
 import { formatCurrency } from '@/lib/utils';
 
 export default function InsightRail({
@@ -18,11 +19,15 @@ export default function InsightRail({
   onGoToScope,
   className = '',
   variant = 'full',
+  readiness,
+  productCount = 0,
 }) {
   const [cogsOpen, setCogsOpen] = useState(false);
   const [deductionsOpen, setDeductionsOpen] = useState(false);
   const [marginStackOpen, setMarginStackOpen] = useState(true);
+  const liveQuote = variant === 'liveQuote';
   const slim = variant === 'slim';
+  const compactPadding = liveQuote || slim;
 
   const margin = results?.contribution_margin_percent ?? 0;
   const marginColor =
@@ -31,7 +36,7 @@ export default function InsightRail({
   return (
     <div
       className={`h-full flex flex-col overflow-y-auto rounded-2xl border quote-panel-enter ${
-        slim ? 'p-4 shadow-md' : 'p-6 shadow-xl'
+        compactPadding ? 'p-4 shadow-md' : 'p-6 shadow-xl'
       } ${
         isDarkMode ? 'bg-neutral-900 border-neutral-800 shadow-black/30' : 'bg-white border-slate-200 shadow-slate-200/70'
       } ${className}`}
@@ -46,36 +51,26 @@ export default function InsightRail({
           onAction={onGoToScope}
           isDarkMode={isDarkMode}
         />
+      ) : liveQuote ? (
+        <LiveQuoteSummary
+          results={results}
+          calculating={calculating}
+          isDarkMode={isDarkMode}
+          sheetPriceFloorWarning={sheetPriceFloorWarning}
+          calcData={calcData}
+          readiness={readiness}
+          productCount={productCount}
+        />
       ) : slim ? (
-        <>
-          <p className={`text-xs font-medium mb-3 ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>
-            Live quote
-          </p>
-          <IntelligenceAlerts
-            results={results}
-            sheetPriceFloorWarning={sheetPriceFloorWarning}
-            calcData={calcData}
-            isDarkMode={isDarkMode}
-            maxAlerts={2}
-          />
-          {results?.warnings?.length > 0 && (
-            <div className="space-y-2 mb-3">
-              {results.warnings.slice(0, 1).map((warning, idx) => (
-                <div
-                  key={idx}
-                  className={`p-2 rounded-lg text-xs flex items-start gap-2 ${
-                    isDarkMode
-                      ? 'bg-amber-500/10 text-amber-300 border border-amber-500/30'
-                      : 'bg-amber-50 text-amber-800 border border-amber-200'
-                  }`}
-                >
-                  <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                  <span className="line-clamp-2">{warning.message}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </>
+        <LiveQuoteSummary
+          results={results}
+          calculating={calculating}
+          isDarkMode={isDarkMode}
+          sheetPriceFloorWarning={sheetPriceFloorWarning}
+          calcData={calcData}
+          readiness={readiness}
+          productCount={productCount}
+        />
       ) : (
         <>
           <div className="mb-4">

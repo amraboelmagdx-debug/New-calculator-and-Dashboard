@@ -2,39 +2,29 @@ import { useState } from 'react';
 import { LayoutTemplate } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import ScopeContextStrip from './ScopeContextStrip';
-import ScopeRiskPanel from './ScopeRiskPanel';
+import QuoteRiskDashboard from './QuoteRiskDashboard';
 import StepProducts from './StepProducts';
 import StepTeam from './StepTeam';
-import StepContinueFooter from './StepContinueFooter';
 
 const TABS = [
-  { id: 'products', label: 'Products' },
-  { id: 'team', label: 'Team' },
-  { id: 'risk', label: 'Risk' },
+  { id: 'products', label: 'Products', subtitle: 'Build and price your quote' },
+  { id: 'team', label: 'Team analysis', subtitle: 'Optional — quote-level labor overview' },
+  { id: 'risk', label: 'Risk analysis', subtitle: 'Optional — quote-level exposure overview' },
 ];
 
 export default function ScopeWorkspace({
   isDarkMode,
   expandAllSections,
-  onContinue,
   contextStripProps,
   productsProps,
   teamProps,
-  calcData,
-  setCalcData,
 }) {
   const [scopeTab, setScopeTab] = useState('products');
-  const [activeProductFilter, setActiveProductFilter] = useState(null);
   const stacked = expandAllSections;
 
-  const openTeamTab = (productName) => {
-    setScopeTab('team');
-    setActiveProductFilter(productName || null);
-  };
-
   const tabBtnClass = tab =>
-    `flex-1 py-2 text-sm font-medium rounded-md transition-colors scope-tab ${
-      scopeTab === tab ? 'scope-tab-active' : ''
+    `flex-1 py-2 text-sm rounded-md transition-colors scope-tab ${
+      scopeTab === tab ? 'scope-tab-active font-semibold' : 'font-medium scope-tab-inactive'
     } ${
       scopeTab === tab
         ? isDarkMode
@@ -42,7 +32,7 @@ export default function ScopeWorkspace({
           : 'bg-white text-slate-900 shadow-sm'
         : isDarkMode
           ? 'text-neutral-500 hover:text-neutral-300'
-          : 'text-slate-600 hover:text-slate-900'
+          : 'text-slate-500 hover:text-slate-800'
     }`;
 
   const panel = (id, title, children) => (
@@ -56,6 +46,8 @@ export default function ScopeWorkspace({
     </div>
   );
 
+  const activeTabMeta = TABS.find(t => t.id === scopeTab);
+
   return (
     <section id="scope" className="animate-fade-in quote-panel-enter" data-testid="scope-workspace">
       <ScopeContextStrip {...contextStripProps} />
@@ -66,28 +58,28 @@ export default function ScopeWorkspace({
         }`}
       >
         <div
-          className={`flex items-center gap-3 px-6 pt-5 pb-3 border-b ${
+          className={`flex items-center gap-2.5 px-6 py-3 border-b ${
             isDarkMode ? 'border-neutral-800' : 'border-slate-200'
           }`}
         >
           <div
-            className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+            className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
               isDarkMode ? 'bg-indigo-500/10' : 'bg-indigo-50'
             }`}
           >
-            <LayoutTemplate className={`w-5 h-5 ${isDarkMode ? 'text-indigo-300' : 'text-indigo-700'}`} />
+            <LayoutTemplate className={`w-4 h-4 ${isDarkMode ? 'text-indigo-300' : 'text-indigo-700'}`} />
           </div>
-          <div>
-            <h2 className={`text-lg font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Scope workspace</h2>
-            <p className={`text-xs ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>
-              Products, team, and risk in one place
+          <div className="min-w-0">
+            <h2 className={`text-base font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Scope workspace</h2>
+            <p className={`text-xs truncate ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>
+              {activeTabMeta?.subtitle || 'Products command center'}
             </p>
           </div>
         </div>
 
         {!stacked && (
           <div
-            className={`mx-6 mt-4 flex gap-1 p-1 rounded-lg ${isDarkMode ? 'bg-neutral-900' : 'bg-slate-100'}`}
+            className={`mx-6 mt-3 flex gap-1 p-1 rounded-lg ${isDarkMode ? 'bg-neutral-900' : 'bg-slate-100'}`}
             role="tablist"
           >
             {TABS.map(tab => (
@@ -105,38 +97,19 @@ export default function ScopeWorkspace({
           </div>
         )}
 
-        <CardContent className="px-6 py-5 space-y-4 pb-24 lg:pb-5">
-          {panel('products', 'Products', <StepProducts embedded isDarkMode={isDarkMode} onOpenTeamTab={openTeamTab} {...productsProps} />)}
-          {panel('team', 'Team',
-            <StepTeam
-              embedded
-              isDarkMode={isDarkMode}
-              {...teamProps}
-              activeProductFilter={activeProductFilter}
-              onSetProductFilter={setActiveProductFilter}
-              onClearProductFilter={() => setActiveProductFilter(null)}
-            />
-          )}
+        <CardContent className="px-6 py-4 space-y-4 pb-5">
+          {panel('products', 'Products', <StepProducts embedded isDarkMode={isDarkMode} {...productsProps} />)}
+          {panel('team', 'Team analysis', <StepTeam embedded isDarkMode={isDarkMode} {...teamProps} />)}
           {panel(
             'risk',
-            'Risk',
-            <ScopeRiskPanel isDarkMode={isDarkMode} calcData={calcData} setCalcData={setCalcData} />
+            'Risk analysis',
+            <QuoteRiskDashboard
+              isDarkMode={isDarkMode}
+              selectedProducts={productsProps?.selectedProducts}
+              results={productsProps?.results}
+            />
           )}
         </CardContent>
-
-        <div
-          className={`sticky bottom-0 z-10 px-6 py-4 border-t safe-area-pb shadow-[0_-8px_24px_-8px_rgba(0,0,0,0.35)] ${
-            isDarkMode ? 'bg-neutral-900/95 border-neutral-800 backdrop-blur-sm' : 'bg-white/95 border-slate-200 backdrop-blur-sm'
-          }`}
-        >
-          <StepContinueFooter
-            label="Continue to Economics"
-            contextLine="Products configured — review economics next"
-            onContinue={onContinue}
-            isDarkMode={isDarkMode}
-            sticky
-          />
-        </div>
       </Card>
     </section>
   );

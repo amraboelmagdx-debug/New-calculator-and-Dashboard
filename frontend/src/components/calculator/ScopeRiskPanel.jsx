@@ -2,12 +2,13 @@ import { Shield } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
-export default function ScopeRiskPanel({ calcData, setCalcData, isDarkMode }) {
+export default function ScopeRiskPanel({ calcData, setCalcData, isDarkMode, compact = false }) {
   const risk = calcData?.internal_risk || { complexity: 'none', rush: 'none', execution: 'none' };
   const activeCount = [risk.complexity, risk.rush, risk.execution].filter(r => r !== 'none').length;
 
   return (
     <div className="space-y-4" data-testid="scope-risk-panel">
+      {!compact && (
       <div className="flex items-start gap-3">
         <div
           className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
@@ -31,6 +32,7 @@ export default function ScopeRiskPanel({ calcData, setCalcData, isDarkMode }) {
           )}
         </div>
       </div>
+      )}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {['complexity', 'rush', 'execution'].map(factor => (
           <div key={factor}>

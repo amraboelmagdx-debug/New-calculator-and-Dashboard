@@ -1005,6 +1005,9 @@ export default function Calculator() {
 
   const isSectionVisible = useCallback(
     (sectionId) => {
+      if (sectionId === 'vendors' || sectionId === 'pricing') {
+        return activeDealStep === 'economics';
+      }
       if (expandAllSections) return true;
       if (sectionId === 'review') return activeDealStep === 'review';
       if (sectionId === 'products' || sectionId === 'team') {
@@ -1018,7 +1021,7 @@ export default function Calculator() {
   );
 
   const showScopeWorkspace = activeDealStep === 'compose' || expandAllSections;
-  const insightVariant = activeDealStep === 'compose' ? 'slim' : 'full';
+  const insightVariant = activeDealStep === 'compose' ? 'liveQuote' : 'full';
   const healthStripVariant = activeDealStep === 'compose' ? 'compact' : 'full';
 
   useEffect(() => {
@@ -1244,7 +1247,6 @@ export default function Calculator() {
             <StepCompose
               isDarkMode={isDarkMode}
               expandAllSections={expandAllSections}
-              onContinue={() => goToDealStep('economics')}
               contextStripProps={{
                 isDarkMode,
                 productsPricingSyncedAt,
@@ -1343,6 +1345,8 @@ export default function Calculator() {
             isDarkMode={isDarkMode}
             sheetPriceFloorWarning={sheetPriceFloorWarning}
             calcData={calcData}
+            readiness={readiness}
+            productCount={validProductCount}
             onGoToScope={() => goToDealStep('compose')}
             onSaveTemplate={openCreateTemplateDialog}
             exportPdfSlot={
@@ -1367,6 +1371,8 @@ export default function Calculator() {
         isDarkMode={isDarkMode}
         sheetPriceFloorWarning={sheetPriceFloorWarning}
         calcData={calcData}
+        readiness={readiness}
+        productCount={validProductCount}
         onGoToScope={() => goToDealStep('compose')}
         onSaveTemplate={openCreateTemplateDialog}
         exportPdfSlot={

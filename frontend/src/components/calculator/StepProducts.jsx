@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { Plus, Briefcase, ChevronDown } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -27,11 +27,9 @@ export default function StepProducts({
   buildProductTeam,
   refreshRoles,
   vendorServices,
-  onOpenTeamTab,
 }) {
   const catalogReloadAttempted = useRef(false);
   const showEmpty = productsPricingLoading === false && filteredProductsCatalog.length === 0;
-
   useEffect(() => {
     if (catalogReloadAttempted.current || productsPricingLoading) return;
     if (filteredProductsCatalog.length === 0 && loadProductsPricingCatalog) {
@@ -40,7 +38,7 @@ export default function StepProducts({
     }
   }, [productsPricingLoading, filteredProductsCatalog.length, loadProductsPricingCatalog]);
 
-  const blankProduct = (isStandalone) => ({
+  const blankProduct = isStandalone => ({
     id: `pp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     product_name: '',
     size: 'standard',
@@ -66,29 +64,27 @@ export default function StepProducts({
   };
 
   const handleChangeItemFields = (id, patch) => {
-    setSelectedProducts(prev =>
-      prev.map(item => (item.id === id ? { ...item, ...patch } : item))
-    );
+    setSelectedProducts(prev => prev.map(item => (item.id === id ? { ...item, ...patch } : item)));
   };
 
   const handleRemoveItem = id => {
     setSelectedProducts(prev => (prev.length === 1 ? prev : prev.filter(p => p.id !== id)));
   };
 
+  const selectTriggerClass = isDarkMode
+    ? 'h-8 text-xs border-neutral-700 bg-neutral-950 text-neutral-200'
+    : 'h-8 text-xs border-slate-300 bg-white text-slate-700';
+
   const toolbar = (
     <div
-      className={`flex flex-wrap items-center gap-2 ${embedded ? 'pb-4' : 'px-6 pb-4 border-b'} ${
-        isDarkMode ? 'border-neutral-800' : 'border-slate-200'
+      className={`flex items-center gap-2 min-h-8 ${embedded ? 'mb-2' : 'px-6 pb-4 border-b'} ${
+        !embedded && (isDarkMode ? 'border-neutral-800' : 'border-slate-200')
       }`}
       data-testid="products-pricing-toolbar"
     >
-      <div className="w-full sm:w-[220px]">
+      <div className="flex items-center gap-2 shrink-0">
         <Select value={selectedSection} onValueChange={setSelectedSection}>
-          <SelectTrigger
-            className={
-              isDarkMode ? 'border-neutral-700 bg-neutral-950 text-neutral-100 h-9' : 'border-slate-300 bg-white text-slate-700 h-9'
-            }
-          >
+          <SelectTrigger className={`${selectTriggerClass} min-w-[140px] max-w-[200px] w-[160px]`}>
             <SelectValue placeholder="Filter by family" />
           </SelectTrigger>
           <SelectContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700' : 'bg-white border-slate-200'}>
@@ -99,46 +95,46 @@ export default function StepProducts({
             ))}
           </SelectContent>
         </Select>
-      </div>
 
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="outline"
-            size="sm"
-            className={
-              isDarkMode
-                ? 'border-neutral-700 text-neutral-200 hover:bg-neutral-800'
-                : 'border-slate-300 text-slate-700 hover:bg-slate-50'
-            }
-          >
-            <Plus className="w-4 h-4 mr-1" />
-            Add service
-            <ChevronDown className="w-3 h-3 ml-1" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700' : 'bg-white border-slate-200'}>
-          <DropdownMenuItem
-            onClick={addCatalogProduct}
-            className={isDarkMode ? 'text-neutral-200 hover:bg-neutral-800 cursor-pointer' : 'text-slate-700 hover:bg-slate-50 cursor-pointer'}
-          >
-            <Plus className="w-3.5 h-3.5 mr-2" />
-            From catalog
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={addStandaloneService}
-            className={isDarkMode ? 'text-neutral-200 hover:bg-neutral-800 cursor-pointer' : 'text-slate-700 hover:bg-slate-50 cursor-pointer'}
-          >
-            <Briefcase className="w-3.5 h-3.5 mr-2" />
-            Standalone service
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className={`h-8 text-xs px-2.5 ${
+                isDarkMode
+                  ? 'border-neutral-700 text-neutral-300 hover:bg-neutral-800'
+                  : 'border-slate-300 text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <Plus className="w-3.5 h-3.5 mr-1" />
+              Add service
+              <ChevronDown className="w-3 h-3 ml-0.5 opacity-60" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700' : 'bg-white border-slate-200'}>
+            <DropdownMenuItem
+              onClick={addCatalogProduct}
+              className={isDarkMode ? 'text-neutral-200 hover:bg-neutral-800 cursor-pointer' : 'text-slate-700 hover:bg-slate-50 cursor-pointer'}
+            >
+              <Plus className="w-3.5 h-3.5 mr-2" />
+              From catalog
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={addStandaloneService}
+              className={isDarkMode ? 'text-neutral-200 hover:bg-neutral-800 cursor-pointer' : 'text-slate-700 hover:bg-slate-50 cursor-pointer'}
+            >
+              <Briefcase className="w-3.5 h-3.5 mr-2" />
+              Standalone service
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
     </div>
   );
 
   const cards = (
-    <div className="space-y-3">
+    <div className="space-y-1">
       {showEmpty ? (
         <QuoteEmptyState
           title="Pick a service from your catalog"
