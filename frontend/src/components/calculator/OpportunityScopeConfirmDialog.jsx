@@ -9,7 +9,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
@@ -20,13 +19,46 @@ import {
   getCatalogTierKeys,
   buildInitialTierPlan,
   validateTierPlan,
-  buildScopeImportEntries,
+  buildScopeImportPlan,
+  defaultScopeRowAction,
   summarizeScopeImport,
   getTierSheetHints,
   estimateCardTeamHours,
   estimateCardMinRevenue,
   normalizeTierKey,
 } from '@/lib/opportunityScope';
+
+const MATCHED_ACTIONS = [
+  { value: 'catalog', label: 'Match Catalog' },
+  { value: 'standalone', label: 'Import as Standalone' },
+  { value: 'ignore', label: 'Ignore' },
+];
+const UNMATCHED_ACTIONS = [
+  { value: 'standalone', label: 'Import as Standalone' },
+  { value: 'ignore', label: 'Ignore' },
+];
+
+function RowActionSelect({ value, onChange, options, isDarkMode }) {
+  return (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger
+        className={`h-8 w-[170px] text-xs shrink-0 ${
+          isDarkMode ? 'bg-neutral-950 border-neutral-800 text-neutral-200' : 'bg-white border-slate-300 text-slate-700'
+        }`}
+        data-testid="scope-row-action"
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700' : 'bg-white border-slate-200'}>
+        {options.map(opt => (
+          <SelectItem key={opt.value} value={opt.value}>
+            {opt.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
 
 function clampQty(value) {
   const n = Math.floor(Number(value));
@@ -150,30 +182,33 @@ export default function OpportunityScopeConfirmDialog({
   const matched = useMemo(() => scopeItems.filter(i => i.matched && i.catalog_product_name), [scopeItems]);
   const unmatched = useMemo(() => scopeItems.filter(i => !i.matched), [scopeItems]);
 
-  const [selected, setSelected] = useState(() => new Set());
+  const [rowActions, setRowActions] = useState({});
   const [tierPlans, setTierPlans] = useState({});
 
   useEffect(() => {
     if (open) {
-      const keys = matched.map(scopeRowKey);
-      setSelected(new Set(keys));
+      const actions = {};
       const initial = {};
-      matched.forEach(item => {
+      scopeItems.forEach(item => {
         const key = scopeRowKey(item);
-        const catalogProduct = findCatalogProduct?.(item.catalog_product_name);
-        initial[key] = buildInitialTierPlan(item, catalogProduct);
+        actions[key] = defaultScopeRowAction(item);
+        if (item.matched && item.catalog_product_name) {
+          const catalogProduct = findCatalogProduct?.(item.catalog_product_name);
+          initial[key] = buildInitialTierPlan(item, catalogProduct);
+        }
       });
+      setRowActions(actions);
       setTierPlans(initial);
     }
-  }, [open, matched, findCatalogProduct]);
+  }, [open, scopeItems, findCatalogProduct]);
 
   const importResult = useMemo(() => {
-    return buildScopeImportEntries(matched, tierPlans, selected, {
+    return buildScopeImportPlan(scopeItems, tierPlans, rowActions, {
       findCatalogProduct,
       getSegmentPayload,
       existingProducts: selectedProducts,
     });
-  }, [matched, tierPlans, selected, findCatalogProduct, getSegmentPayload, selectedProducts]);
+  }, [scopeItems, tierPlans, rowActions, findCatalogProduct, getSegmentPayload, selectedProducts]);
 
   const footerSummary = useMemo(() => {
     return summarizeScopeImport(
@@ -196,19 +231,7 @@ export default function OpportunityScopeConfirmDialog({
     return map;
   }, [matched, tierPlans, findCatalogProduct]);
 
-  const selectedCount = useMemo(
-    () => matched.filter(item => selected.has(scopeRowKey(item))).length,
-    [matched, selected]
-  );
-
-  const toggle = key => {
-    setSelected(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
+  const setAction = (key, value) => setRowActions(prev => ({ ...prev, [key]: value }));
 
   const updateTierPlan = (key, updater) => {
     setTierPlans(prev => ({
@@ -224,6 +247,7 @@ export default function OpportunityScopeConfirmDialog({
       previewRows: importResult.previewRows,
       validLineCount: importResult.validLineCount,
       invalidLineCount: importResult.invalidLineCount,
+      standaloneCount: importResult.standaloneCount,
     });
     onOpenChange(false);
   };
@@ -234,53 +258,72 @@ export default function OpportunityScopeConfirmDialog({
   };
 
   const canConfirm = importResult.entries.length > 0;
+  const sectionHeader = isDarkMode ? 'text-neutral-400' : 'text-slate-500';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className={`max-w-2xl ${isDarkMode ? 'bg-neutral-900 border-neutral-700 text-white' : 'bg-white border-slate-200'}`}
+        className={`max-w-3xl ${isDarkMode ? 'bg-neutral-900 border-neutral-700 text-white' : 'bg-white border-slate-200'}`}
         data-testid="opportunity-scope-confirm-dialog"
       >
         <DialogHeader>
           <DialogTitle>Add products from opportunity scope?</DialogTitle>
           <DialogDescription className={isDarkMode ? 'text-neutral-400' : 'text-slate-500'}>
-            Matched catalog services from BDsMastersheet. Split each line into tiers before importing.
+            Choose how each scope line is imported: match it to a catalog service, bring it in as a standalone line, or
+            ignore it.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="max-h-[45vh] overflow-y-auto space-y-2 py-2">
-          {matched.map(item => {
-            const key = scopeRowKey(item);
-            const isChecked = selected.has(key);
-            const sheetLabel = item.label || item.raw;
-            const catalogProduct = findCatalogProduct?.(item.catalog_product_name);
-            const availableTiers = getCatalogTierKeys(catalogProduct);
-            const singleTier = availableTiers.length === 1;
-            const rows = tierPlans[key] || [{ tier: '', quantity: 1 }];
-            const validation = lineValidation[key];
-            const showWarning = isChecked && validation && !validation.valid;
+        <div className="max-h-[48vh] overflow-y-auto space-y-4 py-2">
+          {matched.length > 0 && (
+            <div className="space-y-2">
+              <p className={`text-[11px] font-semibold uppercase tracking-wider px-0.5 ${sectionHeader}`}>
+                Matched ({matched.length})
+              </p>
+              {matched.map(item => {
+                const key = scopeRowKey(item);
+                const action = rowActions[key] || defaultScopeRowAction(item);
+                const isCatalog = action === 'catalog';
+                const sheetLabel = item.label || item.raw;
+                const catalogProduct = findCatalogProduct?.(item.catalog_product_name);
+                const availableTiers = getCatalogTierKeys(catalogProduct);
+                const singleTier = availableTiers.length === 1;
+                const rows = tierPlans[key] || [{ tier: '', quantity: 1 }];
+                const validation = lineValidation[key];
+                const showWarning = isCatalog && validation && !validation.valid;
 
-            return (
-              <div
-                key={key}
-                className={`rounded-lg border p-3 space-y-2 ${
-                  isDarkMode ? 'border-neutral-800' : 'border-slate-200'
-                }`}
-              >
-                <div className="flex items-start gap-3">
-                  <Checkbox checked={isChecked} onCheckedChange={() => toggle(key)} className="mt-0.5" />
-                  <div className="min-w-0 flex-1 space-y-2">
-                    <div>
-                      <p className={`text-sm font-medium ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                        {sheetLabel}
-                      </p>
-                      <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`}>
-                        → {item.catalog_product_name}
-                      </p>
+                return (
+                  <div
+                    key={key}
+                    className={`rounded-lg border p-3 space-y-2 ${
+                      action === 'ignore' ? 'opacity-60' : ''
+                    } ${isDarkMode ? 'border-neutral-800' : 'border-slate-200'}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className={`text-sm font-medium truncate ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                          {sheetLabel}
+                        </p>
+                        <p className={`text-xs mt-0.5 flex items-center gap-1.5 ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`}>
+                          → {item.catalog_product_name}
+                          <Badge
+                            variant="outline"
+                            className={`text-[9px] ${isDarkMode ? 'border-emerald-500/30 text-emerald-300' : 'border-emerald-200 text-emerald-700'}`}
+                          >
+                            Matched
+                          </Badge>
+                        </p>
+                      </div>
+                      <RowActionSelect
+                        value={action}
+                        onChange={v => setAction(key, v)}
+                        options={MATCHED_ACTIONS}
+                        isDarkMode={isDarkMode}
+                      />
                     </div>
 
-                    {isChecked && (
-                      <>
+                    {isCatalog && (
+                      <div className="space-y-2 pt-1">
                         <div className="space-y-2">
                           {rows.map((row, rowIndex) => {
                             const usedTiers = new Set(
@@ -300,7 +343,7 @@ export default function OpportunityScopeConfirmDialog({
                                 getSegmentPayload={getSegmentPayload}
                                 catalogProduct={catalogProduct}
                                 isDarkMode={isDarkMode}
-                                isChecked={isChecked}
+                                isChecked
                                 canRemove={rows.length > 1}
                                 onTierChange={value =>
                                   updateTierPlan(key, prev =>
@@ -333,9 +376,7 @@ export default function OpportunityScopeConfirmDialog({
                                   ? 'h-7 text-xs border-neutral-700 text-neutral-200'
                                   : 'h-7 text-xs border-slate-300'
                               }
-                              onClick={() =>
-                                updateTierPlan(key, prev => [...prev, { tier: '', quantity: 1 }])
-                              }
+                              onClick={() => updateTierPlan(key, prev => [...prev, { tier: '', quantity: 1 }])}
                             >
                               <Plus className="w-3 h-3 mr-1" />
                               Add tier
@@ -360,9 +401,7 @@ export default function OpportunityScopeConfirmDialog({
                               variant="ghost"
                               size="sm"
                               className={`h-7 text-xs ${isDarkMode ? 'text-neutral-400' : 'text-slate-500'}`}
-                              onClick={() =>
-                                updateTierPlan(key, () => [{ tier: '', quantity: 1 }])
-                              }
+                              onClick={() => updateTierPlan(key, () => [{ tier: '', quantity: 1 }])}
                             >
                               Clear tiers
                             </Button>
@@ -380,29 +419,49 @@ export default function OpportunityScopeConfirmDialog({
                             {validation.errors.join(' · ')} — this line will be skipped on import
                           </p>
                         )}
-                      </>
+                      </div>
+                    )}
+
+                    {action === 'standalone' && (
+                      <p className={`text-[11px] pt-1 ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>
+                        Imported as a standalone line. Add team or vendors on its portfolio card.
+                      </p>
                     )}
                   </div>
-                </div>
-              </div>
-            );
-          })}
-
-          {unmatched.map(item => (
-            <div
-              key={`unmatched-${item.index}`}
-              className={`flex items-start justify-between gap-3 rounded-lg border p-3 opacity-70 ${
-                isDarkMode ? 'border-neutral-800 bg-neutral-900/20' : 'border-slate-200 bg-slate-50/50'
-              }`}
-            >
-              <p className={`text-sm ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`}>
-                {item.label || item.raw}
-              </p>
-              <span className={`text-[11px] shrink-0 ${isDarkMode ? 'text-neutral-600' : 'text-slate-400'}`}>
-                No Catalog Match
-              </span>
+                );
+              })}
             </div>
-          ))}
+          )}
+
+          {unmatched.length > 0 && (
+            <div className="space-y-2">
+              <p className={`text-[11px] font-semibold uppercase tracking-wider px-0.5 ${sectionHeader}`}>
+                Not in catalog ({unmatched.length})
+              </p>
+              {unmatched.map(item => {
+                const key = scopeRowKey(item);
+                const action = rowActions[key] || 'standalone';
+                return (
+                  <div
+                    key={`unmatched-${item.index}`}
+                    className={`flex items-center justify-between gap-3 rounded-lg border p-3 ${
+                      action === 'ignore' ? 'opacity-60' : ''
+                    } ${isDarkMode ? 'border-neutral-800 bg-neutral-900/20' : 'border-slate-200 bg-slate-50/50'}`}
+                  >
+                    <p className={`text-sm min-w-0 truncate ${isDarkMode ? 'text-neutral-300' : 'text-slate-700'}`}>
+                      {item.label || item.raw}
+                    </p>
+                    <RowActionSelect
+                      value={action}
+                      onChange={v => setAction(key, v)}
+                      options={UNMATCHED_ACTIONS}
+                      isDarkMode={isDarkMode}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {importResult.previewRows.length > 0 && (
@@ -438,8 +497,8 @@ export default function OpportunityScopeConfirmDialog({
           data-testid="scope-confirm-summary"
         >
           <span>Matched: {matched.length}</span>
-          <span>Selected: {selectedCount}</span>
-          <span>Valid: {importResult.validLineCount}</span>
+          <span>Standalone: {importResult.standaloneCount}</span>
+          <span>Ignored: {importResult.ignoredCount}</span>
           <span>Rows: {footerSummary.rowCount}</span>
           <span>Team: {footerSummary.totalTeamHours}h</span>
           <span>Est. Min Revenue: {formatCurrency(footerSummary.totalMinRevenue)}</span>

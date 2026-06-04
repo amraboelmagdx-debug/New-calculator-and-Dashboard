@@ -3,7 +3,7 @@ import { Briefcase, LayoutTemplate, Target, FileText } from 'lucide-react';
 export const DEAL_STEPS = [
   { id: 'frame', label: 'Opportunity', sectionIds: ['project'], icon: Briefcase },
   { id: 'compose', label: 'Portfolio', sectionIds: ['products'], icon: LayoutTemplate },
-  { id: 'economics', label: 'Quote settings', sectionIds: ['vendors', 'pricing'], icon: Target },
+  { id: 'economics', label: 'Resources', sectionIds: ['vendors'], icon: Target },
   { id: 'review', label: 'Review', sectionIds: ['review'], icon: FileText },
 ];
 

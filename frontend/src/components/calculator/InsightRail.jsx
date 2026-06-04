@@ -23,6 +23,9 @@ export default function InsightRail({
   paymentTerms = [],
   setCalcData,
   onOpenQuoteSettings,
+  setSelectedProducts,
+  findCatalogProduct,
+  getSegmentPayload,
   variant: _variant = 'executive',
 }) {
   return (
@@ -46,6 +49,9 @@ export default function InsightRail({
       paymentTerms={paymentTerms}
       setCalcData={setCalcData}
       onOpenQuoteSettings={onOpenQuoteSettings}
+      setSelectedProducts={setSelectedProducts}
+      findCatalogProduct={findCatalogProduct}
+      getSegmentPayload={getSegmentPayload}
     />
   );
 }

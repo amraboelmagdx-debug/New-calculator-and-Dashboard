@@ -1,8 +1,7 @@
-import { Users, Building2, ShieldAlert, Percent, BarChart2 } from 'lucide-react';
+import { Users, ShieldAlert, Percent, BarChart2 } from 'lucide-react';
 
 const TABS = [
   { id: 'team', label: 'Team', icon: Users },
-  { id: 'vendors', label: 'Vendors', icon: Building2 },
   { id: 'risk', label: 'Risk', icon: ShieldAlert },
   { id: 'margin', label: 'Margin', icon: Percent },
   { id: 'insights', label: 'Insights', icon: BarChart2 },
@@ -13,14 +12,12 @@ export default function ProductControlTabs({
   onTabChange,
   isDarkMode,
   teamLabel,
-  vendorsLabel,
   riskLabel,
   showInsights,
   panelOpen = false,
 }) {
   const labels = {
     team: teamLabel || 'Team',
-    vendors: vendorsLabel || 'Vendors',
     risk: riskLabel || 'Risk',
     margin: 'Margin',
     insights: 'Insights',

@@ -1,8 +1,7 @@
-import { Users, Building2, ShieldAlert, Percent, BarChart2 } from 'lucide-react';
+import { Users, ShieldAlert, Percent, BarChart2 } from 'lucide-react';
 
 const TABS = [
   { id: 'team', icon: Users, label: 'Team' },
-  { id: 'vendors', icon: Building2, label: 'Vendors' },
   { id: 'risk', icon: ShieldAlert, label: 'Risk' },
   { id: 'margin', icon: Percent, label: 'Margin' },
   { id: 'insights', icon: BarChart2, label: 'Insights' },

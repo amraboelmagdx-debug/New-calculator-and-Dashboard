@@ -1,11 +1,14 @@
-import { useEffect, useRef } from 'react';
-import { Plus, Briefcase, ChevronDown } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Plus } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import ProductWorkspaceCard from './ProductWorkspaceCard';
 import QuoteEmptyState from './QuoteEmptyState';
+import AddServiceDialog from './AddServiceDialog';
+import { getRecentServices, recordRecentService } from '@/lib/recentServices';
+import { resolveTierForProduct } from '@/lib/opportunityScope';
+
+const isBlankRow = row => !row.is_standalone && !row.product_name && (row.team_members || []).length === 0;
 
 export default function StepProducts({
   embedded = false,
@@ -26,10 +29,14 @@ export default function StepProducts({
   standardMonthlyHours,
   buildProductTeam,
   refreshRoles,
-  vendorServices,
+  scopeTemplates = [],
+  onAddTemplateProducts,
 }) {
   const catalogReloadAttempted = useRef(false);
-  const showEmpty = productsPricingLoading === false && filteredProductsCatalog.length === 0;
+  const [addOpen, setAddOpen] = useState(false);
+  const [recentServices, setRecentServices] = useState(() => getRecentServices());
+  const visibleProducts = selectedProducts.filter(p => !p.vendor_only);
+  const showEmpty = !visibleProducts.length;
   useEffect(() => {
     if (catalogReloadAttempted.current || productsPricingLoading) return;
     if (filteredProductsCatalog.length === 0 && loadProductsPricingCatalog) {
@@ -38,7 +45,7 @@ export default function StepProducts({
     }
   }, [productsPricingLoading, filteredProductsCatalog.length, loadProductsPricingCatalog]);
 
-  const blankProduct = isStandalone => ({
+  const newRow = patch => ({
     id: `pp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     product_name: '',
     size: 'standard',
@@ -48,15 +55,31 @@ export default function StepProducts({
     risk: { complexity: 'none', rush: 'none', execution: 'none', custom_multiplier: 0, risk_mode: 'default' },
     margin_percent: null,
     margin_source: null,
-    is_standalone: isStandalone,
+    is_standalone: false,
+    ...patch,
   });
 
-  const addCatalogProduct = () => {
-    setSelectedProducts(prev => [...prev, blankProduct(false)]);
+  const appendRow = row => setSelectedProducts(prev => [...prev.filter(p => !isBlankRow(p)), row]);
+
+  const addFromCatalog = serviceName => {
+    const product = findCatalogProduct?.(serviceName);
+    const tier = resolveTierForProduct(product, 'standard');
+    const { members } = buildProductTeam?.(serviceName, tier, 1) || { members: [] };
+    appendRow(
+      newRow({
+        product_name: serviceName,
+        size: tier,
+        team_members: members,
+        team_source: 'sheet',
+        team_edited: false,
+        team_qty_basis: 1,
+      })
+    );
+    setRecentServices(recordRecentService(serviceName));
   };
 
   const addStandaloneService = () => {
-    setSelectedProducts(prev => [...prev, blankProduct(true)]);
+    appendRow(newRow({ is_standalone: true }));
   };
 
   const handleChangeItem = (id, field, value) => {
@@ -68,68 +91,32 @@ export default function StepProducts({
   };
 
   const handleRemoveItem = id => {
-    setSelectedProducts(prev => (prev.length === 1 ? prev : prev.filter(p => p.id !== id)));
+    setSelectedProducts(prev => prev.filter(p => p.id !== id));
   };
 
-  const selectTriggerClass = isDarkMode
-    ? 'h-8 text-xs border-neutral-700 bg-neutral-950 text-neutral-200'
-    : 'h-8 text-xs border-slate-300 bg-white text-slate-700';
+  const productCount = visibleProducts.filter(p => p.is_standalone || p.product_name).length;
 
   const toolbar = (
     <div
-      className={`flex items-center gap-2 min-h-8 ${embedded ? 'mb-2' : 'px-6 pb-4 border-b'} ${
+      className={`flex items-center justify-between gap-2 min-h-8 ${embedded ? 'mb-2' : 'px-6 pb-4 border-b'} ${
         !embedded && (isDarkMode ? 'border-neutral-800' : 'border-slate-200')
       }`}
       data-testid="products-pricing-toolbar"
     >
-      <div className="flex items-center gap-2 shrink-0">
-        <Select value={selectedSection} onValueChange={setSelectedSection}>
-          <SelectTrigger className={`${selectTriggerClass} min-w-[140px] max-w-[200px] w-[160px]`}>
-            <SelectValue placeholder="Filter by family" />
-          </SelectTrigger>
-          <SelectContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700' : 'bg-white border-slate-200'}>
-            {sectionOptions.map(section => (
-              <SelectItem key={section} value={section}>
-                {section === 'all' ? 'All families' : section}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="outline"
-              size="sm"
-              className={`h-8 text-xs px-2.5 ${
-                isDarkMode
-                  ? 'border-neutral-700 text-neutral-300 hover:bg-neutral-800'
-                  : 'border-slate-300 text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              <Plus className="w-3.5 h-3.5 mr-1" />
-              Add service
-              <ChevronDown className="w-3 h-3 ml-0.5 opacity-60" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent className={isDarkMode ? 'bg-neutral-900 border-neutral-700' : 'bg-white border-slate-200'}>
-            <DropdownMenuItem
-              onClick={addCatalogProduct}
-              className={isDarkMode ? 'text-neutral-200 hover:bg-neutral-800 cursor-pointer' : 'text-slate-700 hover:bg-slate-50 cursor-pointer'}
-            >
-              <Plus className="w-3.5 h-3.5 mr-2" />
-              From catalog
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={addStandaloneService}
-              className={isDarkMode ? 'text-neutral-200 hover:bg-neutral-800 cursor-pointer' : 'text-slate-700 hover:bg-slate-50 cursor-pointer'}
-            >
-              <Briefcase className="w-3.5 h-3.5 mr-2" />
-              Standalone service
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
+      <span className={`text-xs ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>
+        {productCount} service{productCount === 1 ? '' : 's'}
+      </span>
+      <Button
+        size="sm"
+        onClick={() => setAddOpen(true)}
+        className={`h-8 text-xs px-3 font-semibold ${
+          isDarkMode ? 'bg-indigo-500 text-white hover:bg-indigo-400' : 'bg-indigo-600 text-white hover:bg-indigo-700'
+        }`}
+        data-testid="add-service-btn"
+      >
+        <Plus className="w-3.5 h-3.5 mr-1" />
+        Add service
+      </Button>
     </div>
   );
 
@@ -137,12 +124,14 @@ export default function StepProducts({
     <div className="space-y-1">
       {showEmpty ? (
         <QuoteEmptyState
-          title="Pick a service from your catalog"
-          description="Connect pricing data or load a saved template to get started."
+          title="No services yet"
+          description="Click Add service to pick from your catalog, reuse a template, or build a standalone line."
+          actionLabel="Add service"
+          onAction={() => setAddOpen(true)}
           isDarkMode={isDarkMode}
         />
       ) : (
-        selectedProducts.map(item => (
+        visibleProducts.map(item => (
           <ProductWorkspaceCard
             key={item.id}
             item={item}
@@ -159,11 +148,27 @@ export default function StepProducts({
             standardMonthlyHours={standardMonthlyHours}
             buildProductTeam={buildProductTeam}
             refreshRoles={refreshRoles}
-            vendorServices={vendorServices}
           />
         ))
       )}
     </div>
+  );
+
+  const addServiceDialog = (
+    <AddServiceDialog
+      open={addOpen}
+      onOpenChange={setAddOpen}
+      isDarkMode={isDarkMode}
+      filteredProductsCatalog={filteredProductsCatalog}
+      selectedSection={selectedSection}
+      setSelectedSection={setSelectedSection}
+      sectionOptions={sectionOptions}
+      recentServices={recentServices}
+      onSelectCatalog={addFromCatalog}
+      onSelectStandalone={addStandaloneService}
+      scopeTemplates={scopeTemplates}
+      onSelectTemplate={onAddTemplateProducts}
+    />
   );
 
   if (embedded) {
@@ -171,6 +176,7 @@ export default function StepProducts({
       <div id="products" data-testid="products-section-embedded">
         {toolbar}
         {cards}
+        {addServiceDialog}
       </div>
     );
   }
@@ -189,6 +195,7 @@ export default function StepProducts({
         {toolbar}
         <CardContent className="pt-4">{cards}</CardContent>
       </Card>
+      {addServiceDialog}
     </section>
   );
 }

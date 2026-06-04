@@ -8,7 +8,6 @@ import ProductCardSummary from '@/components/calculator/ProductCardSummary';
 import ProductControlTabs from '@/components/calculator/ProductControlTabs';
 import ProductContextStickyHeader from '@/components/calculator/ProductContextStickyHeader';
 import TeamTabPanel from '@/components/calculator/TeamTabPanel';
-import VendorTabPanel from '@/components/calculator/VendorTabPanel';
 import RiskTabPanel from '@/components/calculator/RiskTabPanel';
 import MarginTabPanel from '@/components/calculator/MarginTabPanel';
 import { utilizationFromHours } from '@/lib/utils';
@@ -30,7 +29,6 @@ export default function ProductWorkspaceCard({
   standardMonthlyHours,
   buildProductTeam,
   refreshRoles,
-  vendorServices,
 }) {
   const [isEditing, setIsEditing] = useState(!item.product_name);
   const [openSection, setOpenSection] = useState(null);
@@ -137,13 +135,6 @@ export default function ProductWorkspaceCard({
       team_edited: true,
     });
   };
-
-  const setVendors = next => onChangeItem(item.id, 'vendors', next);
-  const addVendor = () =>
-    setVendors([...vendors, { id: `v-${Date.now()}`, service_id: '', service_name: '', cost: 0, quantity: 1, markup_percent: 15 }]);
-  const updateVendor = (index, field, value) =>
-    setVendors(vendors.map((v, i) => (i === index ? { ...v, [field]: value } : v)));
-  const removeVendor = index => setVendors(vendors.filter((_, i) => i !== index));
 
   const setRisk = patch => onChangeItem(item.id, 'risk', { ...risk, ...patch });
 
@@ -293,7 +284,6 @@ export default function ProductWorkspaceCard({
 
   const tabLabels = {
     teamLabel: teamMembers.length > 0 ? `Team · ${teamMembers.length}` : 'Team',
-    vendorsLabel: vendors.length > 0 ? `Vendors · ${vendors.length}` : 'Vendors',
     riskLabel: riskMultLabel ? `Risk · ${riskMultLabel}` : riskActive ? 'Risk •' : 'Risk',
   };
 
@@ -340,7 +330,6 @@ export default function ProductWorkspaceCard({
             onTabChange={handleTabChange}
             isDarkMode={isDarkMode}
             teamLabel={tabLabels.teamLabel}
-            vendorsLabel={tabLabels.vendorsLabel}
             riskLabel={tabLabels.riskLabel}
             showInsights={hasDetail}
             panelOpen
@@ -382,17 +371,6 @@ export default function ProductWorkspaceCard({
               onUpdateMember={updateMember}
               onRemoveMember={removeMember}
               onAddRole={addRole}
-            />
-          )}
-          {openSection === 'vendors' && (
-            <VendorTabPanel
-              vendors={vendors}
-              line={line}
-              vendorServices={vendorServices}
-              isDarkMode={isDarkMode}
-              onAddVendor={addVendor}
-              onUpdateVendor={updateVendor}
-              onRemoveVendor={removeVendor}
             />
           )}
           {openSection === 'risk' && (

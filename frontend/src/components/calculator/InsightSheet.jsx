@@ -23,6 +23,9 @@ export default function InsightSheet({
   paymentTerms = [],
   setCalcData,
   onOpenQuoteSettings,
+  setSelectedProducts,
+  findCatalogProduct,
+  getSegmentPayload,
 }) {
   const margin = results?.contribution_margin_percent ?? 0;
   const pillLabel = results
@@ -89,6 +92,9 @@ export default function InsightSheet({
               setProjectInfo={setProjectInfo}
               paymentTerms={paymentTerms}
               onOpenQuoteSettings={onOpenQuoteSettings}
+              setSelectedProducts={setSelectedProducts}
+              findCatalogProduct={findCatalogProduct}
+              getSegmentPayload={getSegmentPayload}
               exportPdfSlot={exportPdfSlot}
               onSaveTemplate={onSaveTemplate}
               onGoToScope={onGoToScope}

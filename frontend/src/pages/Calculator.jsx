@@ -56,7 +56,7 @@ import DataSourcesStatus from '@/components/calculator/DataSourcesStatus';
 import StepFrame from '@/components/calculator/StepFrame';
 import OpportunityScopeConfirmDialog from '@/components/calculator/OpportunityScopeConfirmDialog';
 import StepCompose from '@/components/calculator/StepCompose';
-import StepEconomics from '@/components/calculator/StepEconomics';
+import ResourcesWorkspace from '@/components/calculator/ResourcesWorkspace';
 import StepReview from '@/components/calculator/StepReview';
 import { DEAL_STEPS, dealStepToPrimarySection, sectionIdToDealStep } from '@/components/calculator/quoteSteps';
 import { useQuoteWorkflow } from '@/hooks/useQuoteCalculator';
@@ -73,8 +73,9 @@ import {
   EXECUTION_HYBRID,
 } from '@/lib/marginEngine';
 import { buildSheetTeamMembers } from '@/lib/roleMatching';
+import { collectPreferredVendors } from '@/lib/vendorRegistry';
 
-function createOpportunityProductRow(product_name, size, quantity, entryIdx) {
+function createOpportunityProductRow(product_name, size, quantity, entryIdx, isStandalone = false) {
   return {
     id: `pp-opp-${Date.now()}-${entryIdx}-${Math.random().toString(36).slice(2, 6)}`,
     product_name,
@@ -85,7 +86,7 @@ function createOpportunityProductRow(product_name, size, quantity, entryIdx) {
     risk: { complexity: 'none', rush: 'none', execution: 'none', custom_multiplier: 0, risk_mode: 'default' },
     margin_percent: null,
     margin_source: null,
-    is_standalone: false,
+    is_standalone: isStandalone,
     source: 'opportunity',
   };
 }
@@ -95,10 +96,15 @@ function applyScopeEntriesToProducts(prev, entries) {
   let mergedRows = 0;
   const next = prev.map(row => ({ ...row }));
 
-  entries.forEach(({ product_name, size, quantity }, entryIdx) => {
+  entries.forEach(({ product_name, size, quantity, is_standalone }, entryIdx) => {
     if (!product_name) return;
     const qty = Math.max(1, Math.floor(Number(quantity)) || 1);
     const tier = normalizeTierKeyOrDefault(size);
+    if (is_standalone) {
+      next.push(createOpportunityProductRow(product_name, tier, qty, entryIdx, true));
+      addedRows += 1;
+      return;
+    }
     const existingIdx = findExistingProductIndex(next, product_name, tier);
     if (existingIdx >= 0) {
       const existing = next[existingIdx];
@@ -128,20 +134,7 @@ export default function Calculator() {
   const [scopeTemplates, setScopeTemplates] = useState([]);
   const [productsPricingCatalog, setProductsPricingCatalog] = useState([]);
   const [selectedSection, setSelectedSection] = useState('all');
-  const [selectedProducts, setSelectedProducts] = useState([
-    {
-      id: `pp-${Date.now()}`,
-      product_name: '',
-      size: 'standard',
-      quantity: 1,
-      team_members: [],
-      vendors: [],
-      risk: { complexity: 'none', rush: 'none', execution: 'none', custom_multiplier: 0, risk_mode: 'default' },
-      margin_percent: null,
-      margin_source: null,
-      is_standalone: false,
-    },
-  ]);
+  const [selectedProducts, setSelectedProducts] = useState([]);
   const [productsPricingLoading, setProductsPricingLoading] = useState(false);
   const [productsPricingSyncedAt, setProductsPricingSyncedAt] = useState(null);
   const [productsPricingStale, setProductsPricingStale] = useState(false);
@@ -246,7 +239,24 @@ export default function Calculator() {
         margin_percent: p.margin_percent,
         margin_source: p.margin_source,
         locked: p.locked,
+        is_standalone: !!p.is_standalone,
+        vendor_only: !!p.vendor_only,
+        team_members: p.team_members || [],
+        team_source: p.team_source,
+        team_edited: p.team_edited,
+        vendors: (p.vendors || []).map(v => ({
+          id: v.id,
+          preset_id: v.preset_id ?? null,
+          service_id: v.service_id ?? '',
+          service_name: v.service_name ?? '',
+          cost: Number(v.cost) || 0,
+          quantity: Number(v.quantity) || 1,
+          markup_percent: Number(v.markup_percent) || 0,
+          ...(v.risk ? { risk: v.risk } : {}),
+        })),
+        risk: p.risk || null,
       })),
+      preferred_vendors: collectPreferredVendors(selectedProducts),
       margin_mode: calcData.margin_mode || 'unified',
       target_margin_percent: calcData.target_margin_percent,
       internal_margin_percent: calcData.internal_margin_percent,
@@ -450,7 +460,7 @@ export default function Calculator() {
   const validProductCount = useMemo(
     () =>
       selectedProducts.filter(
-        p => p.product_name && p.size && (Number(p.quantity) || 0) > 0
+        p => !p.vendor_only && p.product_name && p.size && (Number(p.quantity) || 0) > 0
       ).length,
     [selectedProducts]
   );
@@ -563,43 +573,61 @@ export default function Calculator() {
     return () => clearTimeout(timer);
   }, [handleCalculate]);
 
-  // Vendor functions
-  const addVendor = () => {
-    setCalcData(prev => ({
-      ...prev,
-      vendors: [...prev.vendors, {
-        id: `v-${Date.now()}`,
-        service_id: '',
-        service_name: '',
-        cost: 0,
-        markup_percent: 15
-      }]
-    }));
-  };
+  // Deal-level vendors (calcData.vendors) are retained for backward compatibility only.
+  // Vendors are now managed per product line via the Resources workspace.
 
-  const updateVendor = (index, field, value) => {
-    setCalcData(prev => {
-      const updated = [...prev.vendors];
-      updated[index] = { ...updated[index], [field]: value };
-      
-      if (field === 'service_id' && value) {
-        const service = vendorServices.find(s => s.id === value);
-        if (service) {
-          updated[index].service_name = service.name;
-          updated[index].markup_percent = service.default_markup || 15;
+  // Restore saved pricing products (team/vendors/risk/margin) from a template payload.
+  const restorePricingProducts = useCallback(
+    (pricingProducts, { regenerateIds = false } = {}) =>
+      (pricingProducts || []).map((p, idx) => {
+        const base = {
+          id: regenerateIds || !p.id ? `pp-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}` : p.id,
+          product_name: p.product_name || '',
+          size: p.size || 'standard',
+          quantity: Math.max(1, Number(p.quantity) || 1),
+          margin_percent: p.margin_percent ?? null,
+          margin_source: p.margin_source ?? null,
+          locked: p.locked,
+          is_standalone: !!p.is_standalone,
+          vendor_only: !!p.vendor_only,
+          vendors: Array.isArray(p.vendors) ? p.vendors.map(v => ({ ...v })) : [],
+          risk: p.risk || { complexity: 'none', rush: 'none', execution: 'none', custom_multiplier: 0, risk_mode: 'default' },
+        };
+        if (Array.isArray(p.team_members) && p.team_members.length) {
+          base.team_members = p.team_members.map(tm => ({ ...tm }));
+          base.team_source = p.team_source || 'manual';
+          base.team_edited = p.team_edited ?? true;
+          base.team_qty_basis = p.team_qty_basis ?? base.quantity;
+        } else if (!base.is_standalone && base.product_name) {
+          const { members } = buildProductTeam(base.product_name, base.size, base.quantity);
+          base.team_members = members;
+          base.team_source = 'sheet';
+          base.team_edited = false;
+          base.team_qty_basis = base.quantity;
+        } else {
+          base.team_members = [];
         }
-      }
-      
-      return { ...prev, vendors: updated };
-    });
-  };
+        return base;
+      }),
+    [buildProductTeam]
+  );
 
-  const removeVendor = (index) => {
-    setCalcData(prev => ({
-      ...prev,
-      vendors: prev.vendors.filter((_, i) => i !== index)
-    }));
-  };
+  // Append a template's products (with team/vendors/risk) to the current quote.
+  const addScopeTemplateProducts = useCallback(
+    (templateId) => {
+      const template = scopeTemplates.find(t => t.id === templateId);
+      if (!template) return;
+      const pricingProducts = template.default_pricing_products || [];
+      if (!pricingProducts.length) {
+        toast.info('This template has no products to add');
+        return;
+      }
+      const restored = restorePricingProducts(pricingProducts, { regenerateIds: true });
+      setSelectedProducts(prev => [...prev.filter(p => p.is_standalone || p.product_name), ...restored]);
+      toast.success(`Added ${restored.length} product${restored.length === 1 ? '' : 's'} from ${template.name}`);
+    },
+    [scopeTemplates, restorePricingProducts]
+  );
 
   // Load scope template
   const loadScopeTemplate = async (templateId) => {
@@ -712,17 +740,9 @@ export default function Calculator() {
       }
 
       if (pricingProducts.length > 0) {
-        const restored = pricingProducts.map((p, idx) => ({
-          id: p.id || `pp-${Date.now()}-${idx}`,
-          product_name: p.product_name || '',
-          size: p.size || 'standard',
-          quantity: Math.max(1, Number(p.quantity) || 1),
-          margin_percent: p.margin_percent,
-          margin_source: p.margin_source,
-          locked: p.locked,
-        }));
+        const restored = restorePricingProducts(pricingProducts);
         setSelectedProducts(restored);
-        const firstName = restored[0]?.product_name;
+        const firstName = restored.find(p => !p.vendor_only)?.product_name;
         if (firstName) {
           const catProduct = findCatalogProduct(firstName);
           const family = catProduct?.service_family || catProduct?.section_name;
@@ -827,12 +847,6 @@ export default function Calculator() {
     } catch {
       toast.error('Failed to refresh roles');
     }
-  };
-
-  // Refresh vendor services
-  const refreshVendorServices = async () => {
-    const data = await getVendorServices();
-    setVendorServices(data);
   };
 
   useEffect(() => {
@@ -1005,8 +1019,11 @@ export default function Calculator() {
 
   const isSectionVisible = useCallback(
     (sectionId) => {
-      if (sectionId === 'vendors' || sectionId === 'pricing') {
+      if (sectionId === 'vendors') {
         return activeDealStep === 'economics';
+      }
+      if (sectionId === 'pricing') {
+        return false;
       }
       if (expandAllSections) return true;
       if (sectionId === 'review') return activeDealStep === 'review';
@@ -1273,34 +1290,17 @@ export default function Calculator() {
                 buildProductTeam,
                 refreshRoles,
                 vendorServices,
+                scopeTemplates,
+                onAddTemplateProducts: addScopeTemplateProducts,
               }}
             />
           )}
-          {(isSectionVisible('vendors') || isSectionVisible('pricing')) && (
-            <StepEconomics
-              showVendors={isSectionVisible('vendors')}
-              showPricing={isSectionVisible('pricing')}
+          {isSectionVisible('vendors') && (
+            <ResourcesWorkspace
               isDarkMode={isDarkMode}
-              projectInfo={projectInfo}
-              setProjectInfo={setProjectInfo}
-              paymentTerms={paymentTerms}
-              calcData={calcData}
-              setCalcData={setCalcData}
               selectedProducts={selectedProducts}
               setSelectedProducts={setSelectedProducts}
-              findCatalogProduct={findCatalogProduct}
-              getSegmentPayload={getSegmentPayload}
-              roles={roles}
-              results={results}
-              calculating={calculating}
-              sheetMinSellingTotal={sheetMinSellingTotal}
-              sheetPriceFloorWarning={sheetPriceFloorWarning}
               vendorServices={vendorServices}
-              addVendor={addVendor}
-              updateVendor={updateVendor}
-              removeVendor={removeVendor}
-              refreshVendorServices={refreshVendorServices}
-              onContinueToReview={() => goToDealStep('review')}
             />
           )}
           {isSectionVisible('review') && (
@@ -1342,6 +1342,9 @@ export default function Calculator() {
             setProjectInfo={setProjectInfo}
             paymentTerms={paymentTerms}
             onOpenQuoteSettings={() => goToDealStep('economics')}
+            setSelectedProducts={setSelectedProducts}
+            findCatalogProduct={findCatalogProduct}
+            getSegmentPayload={getSegmentPayload}
             onGoToScope={() => goToDealStep('compose')}
             onSaveTemplate={openCreateTemplateDialog}
             exportPdfSlot={
@@ -1387,6 +1390,9 @@ export default function Calculator() {
         setProjectInfo={setProjectInfo}
         paymentTerms={paymentTerms}
         onOpenQuoteSettings={() => goToDealStep('economics')}
+        setSelectedProducts={setSelectedProducts}
+        findCatalogProduct={findCatalogProduct}
+        getSegmentPayload={getSegmentPayload}
       />
 
       <BottomNav

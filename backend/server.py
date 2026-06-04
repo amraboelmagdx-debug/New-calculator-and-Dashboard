@@ -1139,6 +1139,7 @@ class ScopeTemplateModel(BaseModel):
     default_roles: List[Dict[str, Any]] = []  # Direct roles with hours (new format)
     default_vendors: List[Dict[str, Any]] = []
     default_pricing_products: List[Dict[str, Any]] = []  # Products Pricing Builder rows
+    preferred_vendors: List[Dict[str, Any]] = []  # Reusable vendor presets used in this template
     margin_mode: str = "unified"
     target_margin_percent: float = 30
     internal_margin_percent: float = 30
@@ -1154,6 +1155,7 @@ class ScopeTemplateCreate(BaseModel):
     default_roles: List[Dict[str, Any]] = []  # Direct roles with hours
     default_vendors: List[Dict[str, Any]] = []
     default_pricing_products: List[Dict[str, Any]] = []
+    preferred_vendors: List[Dict[str, Any]] = []
     margin_mode: str = "unified"
     target_margin_percent: float = 30
     internal_margin_percent: float = 30

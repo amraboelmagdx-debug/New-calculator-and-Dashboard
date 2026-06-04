@@ -246,6 +246,10 @@ export function getDealComposition(selectedProducts, calcData, findCatalogProduc
 
 export { shouldAutoSyncTeamFromSegment, normalizeExecutionMode, EXECUTION_HYBRID };
 
+export function recommendMarginMode(composition) {
+  return composition?.hasProducts ? MARGIN_MODES.GRANULAR : MARGIN_MODES.UNIFIED;
+}
+
 export function applyMarginModeToCalcData(prev, mode) {
   const next = { ...prev, margin_mode: mode };
   if (mode === MARGIN_MODES.SPLIT) {

@@ -5,16 +5,18 @@ import { AlertTriangle, ChevronDown, Save, Settings2 } from 'lucide-react';
 import DashboardMetricAmount from './DashboardMetricAmount';
 import QuoteEmptyState from './QuoteEmptyState';
 import IntelligenceAlerts from './IntelligenceAlerts';
-import LiveQuoteSummary from './LiveQuoteSummary';
+import QuoteHealthCenter from './QuoteHealthCenter';
 import QuoteTeamDashboard from './QuoteTeamDashboard';
 import QuoteRiskDashboard from './QuoteRiskDashboard';
 import QuoteControlsDrawer from './QuoteControlsDrawer';
+import QuoteMarginView from './QuoteMarginView';
 import { formatCurrency } from '@/lib/utils';
 
 const RAIL_TABS = [
   { id: 'summary', label: 'Summary' },
   { id: 'team', label: 'Team' },
   { id: 'risk', label: 'Risk' },
+  { id: 'margin', label: 'Margin' },
   { id: 'cogs', label: 'COGS' },
 ];
 
@@ -38,6 +40,9 @@ export default function ExecutiveQuoteRail({
   paymentTerms = [],
   setCalcData,
   onOpenQuoteSettings,
+  setSelectedProducts,
+  findCatalogProduct,
+  getSegmentPayload,
 }) {
   const [activeTab, setActiveTab] = useState('summary');
   const [controlsOpen, setControlsOpen] = useState(false);
@@ -103,7 +108,7 @@ export default function ExecutiveQuoteRail({
             />
           ) : activeTab === 'summary' ? (
             <div className="space-y-3">
-              <LiveQuoteSummary
+              <QuoteHealthCenter
                 results={results}
                 calculating={calculating}
                 isDarkMode={isDarkMode}
@@ -157,6 +162,15 @@ export default function ExecutiveQuoteRail({
               selectedProducts={selectedProducts}
               results={results}
               compact
+            />
+          ) : activeTab === 'margin' ? (
+            <QuoteMarginView
+              isDarkMode={isDarkMode}
+              selectedProducts={selectedProducts}
+              calcData={calcData}
+              results={results}
+              findCatalogProduct={findCatalogProduct}
+              getSegmentPayload={getSegmentPayload}
             />
           ) : (
             <div className="space-y-3">
@@ -304,6 +318,11 @@ export default function ExecutiveQuoteRail({
           setProjectInfo={setProjectInfo}
           paymentTerms={paymentTerms}
           onOpenQuoteSettings={onOpenQuoteSettings}
+          selectedProducts={selectedProducts}
+          setSelectedProducts={setSelectedProducts}
+          findCatalogProduct={findCatalogProduct}
+          getSegmentPayload={getSegmentPayload}
+          results={results}
         />
       )}
     </>

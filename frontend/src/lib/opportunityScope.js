@@ -417,6 +417,77 @@ export function buildScopeImportEntries(matchedItems, tierPlansByKey, selectedKe
   };
 }
 
+/** Default per-row import action: matched rows go to catalog, everything else is standalone. */
+export function defaultScopeRowAction(item) {
+  return item?.matched && item?.catalog_product_name ? 'catalog' : 'standalone';
+}
+
+/**
+ * Action-aware import planner used by the confirm dialog.
+ * Each scope row resolves to one of: 'catalog' (tier plan), 'standalone' (single vendor/labor-free line), or 'ignore'.
+ */
+export function buildScopeImportPlan(scopeItems, tierPlansByKey, rowActions = {}, options = {}) {
+  const { getSegmentPayload, findCatalogProduct, existingProducts } = options;
+  const entries = [];
+  const skippedLines = [];
+  let validLineCount = 0;
+  let invalidLineCount = 0;
+  let standaloneCount = 0;
+  let ignoredCount = 0;
+
+  (scopeItems || []).forEach(item => {
+    const key = scopeRowKey(item);
+    const action = rowActions[key] || defaultScopeRowAction(item);
+
+    if (action === 'ignore') {
+      ignoredCount += 1;
+      return;
+    }
+
+    if (action === 'standalone') {
+      const name = item.label || item.raw || 'Custom service';
+      entries.push({ product_name: name, size: 'standard', quantity: 1, is_standalone: true });
+      standaloneCount += 1;
+      validLineCount += 1;
+      return;
+    }
+
+    const catalogProduct = findCatalogProduct?.(item.catalog_product_name);
+    const availableTiers = getCatalogTierKeys(catalogProduct);
+    const tierRows = tierPlansByKey[key] || [];
+    const singleTier = availableTiers.length === 1;
+    const validation = validateTierPlan(tierRows, availableTiers, { singleTier });
+
+    if (!validation.valid) {
+      invalidLineCount += 1;
+      skippedLines.push({ key, label: item.label || item.raw, errors: validation.errors });
+      return;
+    }
+
+    validLineCount += 1;
+    tierRows.forEach(row => {
+      const tier = singleTier ? availableTiers[0] : normalizeTierKey(row.tier);
+      entries.push({
+        product_name: item.catalog_product_name,
+        size: tier,
+        quantity: Math.max(1, Math.floor(Number(row.quantity)) || 1),
+      });
+    });
+  });
+
+  const previewRows = buildScopeImportPreview(entries, existingProducts);
+
+  return {
+    entries,
+    skippedLines,
+    validLineCount,
+    invalidLineCount,
+    standaloneCount,
+    ignoredCount,
+    previewRows,
+  };
+}
+
 export function summarizeScopeImport(entries, previewRows, skippedLines, getSegmentPayload, findCatalogProduct) {
   let totalTeamHours = 0;
   let totalMinRevenue = 0;
