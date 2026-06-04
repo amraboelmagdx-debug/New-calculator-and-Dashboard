@@ -1,4 +1,4 @@
-import { Pencil, Trash2, ArrowUp, ArrowDown } from 'lucide-react';
+import { Pencil, Trash2, ArrowUp, ArrowDown, ChevronDown, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatCurrencyCompact } from '@/lib/utils';
 import {
@@ -30,6 +30,8 @@ export default function ProductCardSummary({
   onRemove,
   showInsights,
   riskActive,
+  isOpen = false,
+  onToggleCardOpen,
 }) {
   const validation = deriveLineValidation(line, item);
   const healthBadge = mapLineHealthBadge(validation, isDarkMode);
@@ -61,22 +63,105 @@ export default function ProductCardSummary({
 
   const tierQty = !item.is_standalone && item.size ? item.size.toUpperCase() : 'CUSTOM';
   const sep = isDarkMode ? 'text-neutral-700' : 'text-slate-300';
+  const compact = !isOpen;
+
+  const chevronBtn = onToggleCardOpen && (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      onClick={onToggleCardOpen}
+      className={`h-7 w-7 p-0 shrink-0 ${isDarkMode ? 'text-neutral-500 hover:text-neutral-200' : 'text-slate-400 hover:text-slate-700'}`}
+      title={compact ? 'Expand service row' : 'Collapse service row and close panels'}
+      aria-expanded={isOpen}
+      data-testid="product-toggle-details"
+    >
+      {compact ? (
+        <ChevronRight className="w-4 h-4" />
+      ) : (
+        <ChevronDown className="w-4 h-4" />
+      )}
+    </Button>
+  );
+
+  if (compact) {
+    return (
+      <div
+        className="product-portfolio-row__inner flex items-center gap-1.5 min-w-0"
+        data-testid="product-card-summary"
+      >
+        {chevronBtn}
+        <div className="flex-1 min-w-0 flex items-center gap-2">
+          <h3
+            className={`text-sm font-semibold min-w-0 truncate ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
+            title={item.product_name || 'Untitled service'}
+          >
+            {item.product_name || 'Untitled service'}
+          </h3>
+          <span className={`text-[10px] font-mono shrink-0 ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>
+            {tierQty}·Q{item.quantity}
+          </span>
+        </div>
+        <span
+          className={`text-sm font-semibold tabular-nums shrink-0 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}
+          data-testid="product-price-readout"
+        >
+          {selling != null ? formatCurrencyCompact(selling, true) : '—'}
+        </span>
+        <span className={`text-xs tabular-nums shrink-0 ${marginTone(margin, minMargin, isDarkMode)}`}>
+          {line ? `${Math.round(margin)}%` : '—%'}
+          {marginArrow}
+        </span>
+        <div className="flex items-center gap-0.5 shrink-0">
+          <ProductPortfolioTabIcons
+            activeTab={openSection}
+            onTabChange={onTabChange}
+            isDarkMode={isDarkMode}
+            showInsights={showInsights}
+            riskActive={riskActive}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onEdit}
+            className={`h-7 w-7 p-0 ${isDarkMode ? 'text-neutral-400 hover:text-neutral-200' : 'text-slate-500 hover:text-slate-800'}`}
+            title="Edit service"
+          >
+            <Pencil className="w-3.5 h-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onRemove}
+            className={`h-7 w-7 p-0 ${isDarkMode ? 'text-neutral-500 hover:text-red-400' : 'text-slate-400 hover:text-red-600'}`}
+            title="Remove service"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
       className="product-portfolio-row__inner flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 min-w-0"
       data-testid="product-card-summary"
     >
-      <div className="flex items-center gap-1.5 min-w-0 sm:max-w-[28%] shrink-0">
-        <h3
-          className={`text-sm font-semibold min-w-0 truncate ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
-          title={item.product_name || 'Untitled service'}
-        >
-          {item.product_name || 'Untitled service'}
-        </h3>
-        <span className={`text-[10px] font-mono shrink-0 ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>
-          {tierQty}·Q{item.quantity}
-        </span>
+      <div className="flex items-center gap-1 min-w-0 sm:max-w-[30%] shrink-0">
+        {chevronBtn}
+        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+          <h3
+            className={`text-sm font-semibold min-w-0 truncate ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
+            title={item.product_name || 'Untitled service'}
+          >
+            {item.product_name || 'Untitled service'}
+          </h3>
+          <span className={`text-[10px] font-mono shrink-0 ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>
+            {tierQty}·Q{item.quantity}
+          </span>
+        </div>
       </div>
 
       <div

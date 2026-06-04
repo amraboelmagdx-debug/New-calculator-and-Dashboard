@@ -222,7 +222,7 @@ code {
     box-shadow: none;
 }
 
-.product-portfolio-row:not(.product-portfolio-row--expanded) {
+.product-portfolio-row--compact {
     min-height: 0;
     max-height: 88px;
     overflow: hidden;

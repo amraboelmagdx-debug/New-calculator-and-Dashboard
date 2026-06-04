@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Trash2, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,17 +29,18 @@ export default function ProductWorkspaceCard({
   standardMonthlyHours,
   buildProductTeam,
   refreshRoles,
+  isOpen = false,
+  openSection = null,
+  teamEditorsOpen = false,
+  onToggleCardOpen,
+  onOpenSectionChange,
+  onTeamEditorsOpenChange,
 }) {
   const [isEditing, setIsEditing] = useState(!item.product_name);
-  const [openSection, setOpenSection] = useState(null);
-  const [teamExpanded, setTeamExpanded] = useState(false);
-
-  useEffect(() => {
-    if (openSection !== 'team') setTeamExpanded(false);
-  }, [openSection]);
 
   const handleTabChange = id => {
-    setOpenSection(prev => (prev === id ? null : id));
+    if (!onOpenSectionChange) return;
+    onOpenSectionChange(openSection === id ? null : id);
   };
 
   const product = item.is_standalone ? null : findCatalogProduct(item.product_name);
@@ -114,7 +115,7 @@ export default function ProductWorkspaceCard({
   const addRole = roleId => {
     const role = roles.find(r => r.id === roleId);
     if (!role) return;
-    setTeamExpanded(true);
+    onTeamEditorsOpenChange?.(true);
     patchItem({
       team_members: [
         ...teamMembers,
@@ -287,57 +288,57 @@ export default function ProductWorkspaceCard({
     riskLabel: riskMultLabel ? `Risk · ${riskMultLabel}` : riskActive ? 'Risk •' : 'Risk',
   };
 
-  const portfolioCollapsed = !isEditing && !openSection;
+  const showPanel = !isEditing && isOpen && openSection;
 
   return (
     <div
       id={`product-${item.id}`}
       className={`product-portfolio-row rounded-lg border transition-all ${cardBorder} ${
-        openSection ? 'product-portfolio-row--expanded' : ''
-      }`}
+        showPanel ? 'product-portfolio-row--expanded' : ''
+      } ${!isOpen ? 'product-portfolio-row--compact' : ''}`}
       data-testid="product-workspace-card"
-      aria-expanded={!!openSection}
+      aria-expanded={isOpen || !!openSection}
     >
       {isEditing ? (
         editControls
-      ) : portfolioCollapsed ? (
-        <div className="px-2.5 py-1.5">
-          <ProductCardSummary
-            item={item}
-            line={line}
-            teamMembers={teamMembers}
-            vendors={vendors}
-            roles={roles}
-            standardMonthlyHours={standardMonthlyHours}
-            isDarkMode={isDarkMode}
-            openSection={openSection}
-            onTabChange={handleTabChange}
-            onEdit={() => setIsEditing(true)}
-            onRemove={onRemove}
-            showInsights={hasDetail}
-            riskActive={riskActive}
-          />
-        </div>
       ) : (
-        <div className="px-3 pt-2 pb-0">
-          <h3
-            className={`text-sm font-semibold truncate mb-2 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
-          >
-            {item.product_name || 'Untitled service'}
-          </h3>
-          <ProductControlTabs
-            activeTab={openSection}
-            onTabChange={handleTabChange}
-            isDarkMode={isDarkMode}
-            teamLabel={tabLabels.teamLabel}
-            riskLabel={tabLabels.riskLabel}
-            showInsights={hasDetail}
-            panelOpen
-          />
-        </div>
+        <>
+          <div className="px-2.5 py-1.5">
+            <ProductCardSummary
+              item={item}
+              line={line}
+              teamMembers={teamMembers}
+              vendors={vendors}
+              roles={roles}
+              standardMonthlyHours={standardMonthlyHours}
+              isDarkMode={isDarkMode}
+              openSection={openSection}
+              onTabChange={handleTabChange}
+              onEdit={() => setIsEditing(true)}
+              onRemove={onRemove}
+              showInsights={hasDetail}
+              riskActive={riskActive}
+              isOpen={isOpen}
+              onToggleCardOpen={onToggleCardOpen}
+            />
+          </div>
+          {isOpen && openSection && (
+            <div className="px-3 pb-0">
+              <ProductControlTabs
+                activeTab={openSection}
+                onTabChange={handleTabChange}
+                isDarkMode={isDarkMode}
+                teamLabel={tabLabels.teamLabel}
+                riskLabel={tabLabels.riskLabel}
+                showInsights={hasDetail}
+                panelOpen
+              />
+            </div>
+          )}
+        </>
       )}
 
-      {!isEditing && openSection && (
+      {showPanel && (
         <div
           className={`mx-3 mb-3 rounded-b-lg border border-t-0 ${
             isDarkMode
@@ -357,8 +358,8 @@ export default function ProductWorkspaceCard({
           <div className={`px-3 pb-4 ${isDarkMode ? 'bg-neutral-900/30' : 'bg-white/80'}`}>
           {openSection === 'team' && (
             <TeamTabPanel
-              expanded={teamExpanded}
-              onExpand={() => setTeamExpanded(true)}
+              expanded={teamEditorsOpen}
+              onExpand={() => onTeamEditorsOpenChange?.(true)}
               teamMembers={teamMembers}
               teamHours={teamHours}
               line={line}
