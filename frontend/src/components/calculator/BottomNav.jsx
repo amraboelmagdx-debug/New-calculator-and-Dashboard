@@ -3,7 +3,7 @@ import { DollarSign, Briefcase, LayoutTemplate, Target, MoreHorizontal } from 'l
 const TABS = [
   { id: 'insight', label: 'Price', icon: DollarSign },
   { id: 'frame', label: 'Frame', icon: Briefcase },
-  { id: 'compose', label: 'Scope', icon: LayoutTemplate },
+  { id: 'compose', label: 'Portfolio', icon: LayoutTemplate },
   { id: 'economics', label: 'Econ', icon: Target },
   { id: 'more', label: 'More', icon: MoreHorizontal },
 ];

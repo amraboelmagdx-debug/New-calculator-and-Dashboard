@@ -31,6 +31,7 @@ export default function QuoteTeamDashboard({
   results,
   roles = [],
   standardMonthlyHours = 160,
+  compact = false,
 }) {
   const analytics = buildQuoteTeamAnalytics(selectedProducts, results, roles, standardMonthlyHours);
   const { totalTeamCost, totalHours, roleCount, topRoles, productShares, laborConcentration, productCount } =
@@ -42,10 +43,12 @@ export default function QuoteTeamDashboard({
   if (productCount === 0) {
     return (
       <div data-testid="quote-team-dashboard">
-        <WorkspaceAnalysisBanner
-          isDarkMode={isDarkMode}
-          message="Editing happens in the Products tab — this view is for analysis only."
-        />
+        {!compact && (
+          <WorkspaceAnalysisBanner
+            isDarkMode={isDarkMode}
+            message="Editing happens in the Products tab — this view is for analysis only."
+          />
+        )}
         <QuoteEmptyState
           title="No products yet"
           description="Add a service in the Products tab to build the quote."
@@ -57,11 +60,13 @@ export default function QuoteTeamDashboard({
   }
 
   return (
-    <div className="space-y-4" data-testid="quote-team-dashboard">
-      <WorkspaceAnalysisBanner
-        isDarkMode={isDarkMode}
-        message="Editing happens in the Products tab — this view is for analysis only."
-      />
+    <div className={`space-y-4 ${compact ? 'space-y-3' : ''}`} data-testid="quote-team-dashboard">
+      {!compact && (
+        <WorkspaceAnalysisBanner
+          isDarkMode={isDarkMode}
+          message="Editing happens in the Products tab — this view is for analysis only."
+        />
+      )}
 
       <div className={`grid grid-cols-3 gap-3 p-3 rounded-xl border ${card}`}>
         <div>

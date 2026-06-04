@@ -1021,7 +1021,6 @@ export default function Calculator() {
   );
 
   const showScopeWorkspace = activeDealStep === 'compose' || expandAllSections;
-  const insightVariant = activeDealStep === 'compose' ? 'liveQuote' : 'full';
   const healthStripVariant = activeDealStep === 'compose' ? 'compact' : 'full';
 
   useEffect(() => {
@@ -1275,17 +1274,6 @@ export default function Calculator() {
                 refreshRoles,
                 vendorServices,
               }}
-              teamProps={{
-                roles,
-                calcData,
-                selectedProducts,
-                findCatalogProduct,
-                getSegmentPayload,
-                results,
-                standardMonthlyHours,
-              }}
-              calcData={calcData}
-              setCalcData={setCalcData}
             />
           )}
           {(isSectionVisible('vendors') || isSectionVisible('pricing')) && (
@@ -1339,14 +1327,21 @@ export default function Calculator() {
         <aside className="hidden lg:block sticky top-[140px] h-[calc(100vh-9rem)] min-h-0">
           <InsightRail
             className="h-full"
-            variant={insightVariant}
             results={results}
             calculating={calculating}
             isDarkMode={isDarkMode}
             sheetPriceFloorWarning={sheetPriceFloorWarning}
             calcData={calcData}
+            setCalcData={setCalcData}
             readiness={readiness}
             productCount={validProductCount}
+            selectedProducts={selectedProducts}
+            roles={roles}
+            standardMonthlyHours={standardMonthlyHours}
+            projectInfo={projectInfo}
+            setProjectInfo={setProjectInfo}
+            paymentTerms={paymentTerms}
+            onOpenQuoteSettings={() => goToDealStep('economics')}
             onGoToScope={() => goToDealStep('compose')}
             onSaveTemplate={openCreateTemplateDialog}
             exportPdfSlot={
@@ -1384,7 +1379,14 @@ export default function Calculator() {
             isDarkMode={isDarkMode}
           />
         }
-        variant={insightVariant}
+        setCalcData={setCalcData}
+        selectedProducts={selectedProducts}
+        roles={roles}
+        standardMonthlyHours={standardMonthlyHours}
+        projectInfo={projectInfo}
+        setProjectInfo={setProjectInfo}
+        paymentTerms={paymentTerms}
+        onOpenQuoteSettings={() => goToDealStep('economics')}
       />
 
       <BottomNav

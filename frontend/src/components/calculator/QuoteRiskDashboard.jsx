@@ -5,7 +5,7 @@ import { healthScoreTone } from '@/lib/productWorkspaceUtils';
 import QuoteEmptyState from './QuoteEmptyState';
 import WorkspaceAnalysisBanner from './WorkspaceAnalysisBanner';
 
-export default function QuoteRiskDashboard({ isDarkMode, selectedProducts = [], results }) {
+export default function QuoteRiskDashboard({ isDarkMode, selectedProducts = [], results, compact = false }) {
   const analytics = buildQuoteRiskAnalytics(selectedProducts, results);
   const {
     quoteRiskScore,
@@ -25,10 +25,12 @@ export default function QuoteRiskDashboard({ isDarkMode, selectedProducts = [], 
   if (productCount === 0) {
     return (
       <div data-testid="quote-risk-dashboard">
-        <WorkspaceAnalysisBanner
-          isDarkMode={isDarkMode}
-          message="Product risk is edited in the Products tab — this view is for quote-level analysis only."
-        />
+        {!compact && (
+          <WorkspaceAnalysisBanner
+            isDarkMode={isDarkMode}
+            message="Product risk is edited in the Products tab — this view is for quote-level analysis only."
+          />
+        )}
         <QuoteEmptyState
           title="No products yet"
           description="Add a service in the Products tab to see risk analysis."
@@ -40,11 +42,13 @@ export default function QuoteRiskDashboard({ isDarkMode, selectedProducts = [], 
   }
 
   return (
-    <div className="space-y-4" data-testid="quote-risk-dashboard">
-      <WorkspaceAnalysisBanner
-        isDarkMode={isDarkMode}
-        message="Product risk is edited in the Products tab — this view is for quote-level analysis only."
-      />
+    <div className={`space-y-4 ${compact ? 'space-y-3' : ''}`} data-testid="quote-risk-dashboard">
+      {!compact && (
+        <WorkspaceAnalysisBanner
+          isDarkMode={isDarkMode}
+          message="Product risk is edited in the Products tab — this view is for quote-level analysis only."
+        />
+      )}
 
       <div className={`flex flex-wrap items-center gap-4 p-3 rounded-xl border ${card}`}>
         <div>

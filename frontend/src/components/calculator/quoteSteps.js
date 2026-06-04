@@ -2,8 +2,8 @@ import { Briefcase, LayoutTemplate, Target, FileText } from 'lucide-react';
 
 export const DEAL_STEPS = [
   { id: 'frame', label: 'Opportunity', sectionIds: ['project'], icon: Briefcase },
-  { id: 'compose', label: 'Scope', sectionIds: ['products', 'team'], icon: LayoutTemplate },
-  { id: 'economics', label: 'Economics', sectionIds: ['vendors', 'pricing'], icon: Target },
+  { id: 'compose', label: 'Portfolio', sectionIds: ['products'], icon: LayoutTemplate },
+  { id: 'economics', label: 'Quote settings', sectionIds: ['vendors', 'pricing'], icon: Target },
   { id: 'review', label: 'Review', sectionIds: ['review'], icon: FileText },
 ];
 

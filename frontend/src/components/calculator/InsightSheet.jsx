@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { ChevronUp, X } from 'lucide-react';
 import InsightRail from './InsightRail';
 import { formatCurrency } from '@/lib/utils';
@@ -14,9 +13,16 @@ export default function InsightSheet({
   exportPdfSlot,
   onSaveTemplate,
   onGoToScope,
-  variant = 'full',
   readiness,
   productCount = 0,
+  selectedProducts = [],
+  roles = [],
+  standardMonthlyHours = 160,
+  projectInfo,
+  setProjectInfo,
+  paymentTerms = [],
+  setCalcData,
+  onOpenQuoteSettings,
 }) {
   const margin = results?.contribution_margin_percent ?? 0;
   const pillLabel = results
@@ -73,12 +79,19 @@ export default function InsightSheet({
               isDarkMode={isDarkMode}
               sheetPriceFloorWarning={sheetPriceFloorWarning}
               calcData={calcData}
+              setCalcData={setCalcData}
               readiness={readiness}
               productCount={productCount}
+              selectedProducts={selectedProducts}
+              roles={roles}
+              standardMonthlyHours={standardMonthlyHours}
+              projectInfo={projectInfo}
+              setProjectInfo={setProjectInfo}
+              paymentTerms={paymentTerms}
+              onOpenQuoteSettings={onOpenQuoteSettings}
               exportPdfSlot={exportPdfSlot}
               onSaveTemplate={onSaveTemplate}
               onGoToScope={onGoToScope}
-              variant={variant}
               className="rounded-none border-0 shadow-none h-full"
             />
           </div>

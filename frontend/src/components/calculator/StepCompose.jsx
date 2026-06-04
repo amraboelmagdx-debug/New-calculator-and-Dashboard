@@ -1,6 +1,6 @@
 import ScopeWorkspace from './ScopeWorkspace';
 
-/** Scope step: unified workspace (products + team + risk) */
+/** Portfolio step: product command center (analytics on executive rail) */
 export default function StepCompose(props) {
   return <ScopeWorkspace {...props} />;
 }
