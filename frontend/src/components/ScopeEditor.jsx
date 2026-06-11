@@ -300,13 +300,8 @@ export default function ScopeEditor({
                                   className="h-8 text-xs"
                                 />
                               </div>
-                              <div className="col-span-2">
-                                <div className="text-xs font-mono text-slate-500 px-2">{formatCurrency(member.hourly_rate, false)}/hr</div>
-                              </div>
-                              <div className="col-span-3">
-                                <div className="text-xs font-mono font-medium text-slate-700">
-                                  = {formatCurrency(member.hours * member.hourly_rate, false)}
-                                </div>
+                              <div className="col-span-5">
+                                <div className="text-xs font-mono text-slate-500 px-2">{member.hours || 0} hrs</div>
                               </div>
                               <div className="col-span-1">
                                 <Button 

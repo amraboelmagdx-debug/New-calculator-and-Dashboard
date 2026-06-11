@@ -1,6 +1,7 @@
-import { Users } from 'lucide-react';
+import { Users, Building2 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import { buildQuoteTeamAnalytics } from '@/lib/quoteTeamAnalytics';
+import { shortDeptLabel } from '@/lib/productWorkspaceUtils';
 import QuoteEmptyState from './QuoteEmptyState';
 import WorkspaceAnalysisBanner from './WorkspaceAnalysisBanner';
 
@@ -34,8 +35,11 @@ export default function QuoteTeamDashboard({
   compact = false,
 }) {
   const analytics = buildQuoteTeamAnalytics(selectedProducts, results, roles, standardMonthlyHours);
-  const { totalTeamCost, totalHours, roleCount, topRoles, productShares, laborConcentration, productCount } =
-    analytics;
+  const {
+    totalTeamCost, totalHours, roleCount,
+    topRoles, productShares, laborConcentration, productCount,
+    departmentBreakdown = [],
+  } = analytics;
 
   const muted = isDarkMode ? 'text-neutral-500' : 'text-slate-500';
   const card = isDarkMode ? 'border-neutral-800 bg-neutral-950/50' : 'border-slate-200 bg-white';
@@ -109,6 +113,28 @@ export default function QuoteTeamDashboard({
               percent={r.percent}
               isDarkMode={isDarkMode}
             />
+          ))}
+        </div>
+      )}
+
+      {departmentBreakdown.length > 1 && (
+        <div className={`rounded-xl border p-3 space-y-3 ${card}`}>
+          <h4 className={`text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5 ${muted}`}>
+            <Building2 className="w-3.5 h-3.5" />
+            Department breakdown
+          </h4>
+          {departmentBreakdown.map(d => (
+            <div key={d.name} className="space-y-1">
+              <ProgressRow
+                label={shortDeptLabel(d.name)}
+                value={formatCurrency(d.cost, true)}
+                percent={d.percent}
+                isDarkMode={isDarkMode}
+              />
+              <span className={`text-[10px] ${muted}`}>
+                {d.roleCount} role{d.roleCount !== 1 ? 's' : ''} · {Math.round(d.hours)}h
+              </span>
+            </div>
           ))}
         </div>
       )}

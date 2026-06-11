@@ -37,7 +37,7 @@ app = FastAPI(title="Opportunity Pricing Engine")
 api_router = APIRouter(prefix="/api")
 
 # Admin password
-ADMIN_PASSWORD = "Amr123"
+ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'Amr123')
 
 # ==================== MODELS ====================
 
@@ -1300,6 +1300,16 @@ class TeamMemberInput(BaseModel):
     custom_allowance: float = 0
     admin_fee_percent: float = 0
 
+class VendorSubItem(BaseModel):
+    """A single line item inside a group vendor (e.g. Photography inside an Events bundle)."""
+    id: str = ""
+    name: str = ""
+    cost: float = 0
+    quantity: int = 1
+    unit: str = ""
+    markup_percent: float = 15
+    risk_percent: float = 0  # Contingency buffer on top of markup (0 = no risk buffer)
+
 class VendorInput(BaseModel):
     service_id: str = ""
     service_name: str
@@ -1308,6 +1318,9 @@ class VendorInput(BaseModel):
     cost: float = 0  # Total cost (legacy, will be quantity * unit_cost if not provided)
     unit: str = ""  # Unit type (e.g., "per day", "per session")
     markup_percent: float = 15
+    risk_percent: float = 0  # Per-vendor contingency buffer on top of markup (0 = no risk buffer)
+    is_group: bool = False          # When True, cost is derived from sub_items
+    sub_items: List[VendorSubItem] = []  # Line items inside a group vendor
 
 class ProductInput(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -1373,6 +1386,10 @@ class ProductLineMarginInput(BaseModel):
     sheet_min_margin_percent: float = 0
     sheet_min_selling: float = 0
     margin_percent: float = 30
+    # "custom" when the user explicitly set the margin via the slider; "" / "sheet"
+    # otherwise. Drives soft-floor pricing: pristine lines clamp to the floor (O),
+    # actively-priced lines (custom margin or non-default risk) use the raw price.
+    margin_source: str = ""
     # Product-owned workspace (v1): when provided, the line is priced from its
     # own team + manual vendors + per-line risk instead of the sheet package cost.
     team_members: List[TeamMemberInput] = []
@@ -1407,6 +1424,25 @@ class ThemeSettings(BaseModel):
     logo_url: str = ""
     company_name: str = "OPE"
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    # ── Company identity (for exported documents) ──────────────────────────
+    company_name_ar: str = "زان"
+    company_address: str = ""
+    company_phone: str = ""
+    company_email: str = ""
+    company_vat: str = ""
+    company_cr: str = ""
+    # ── Bank details ───────────────────────────────────────────────────────
+    bank_name: str = ""
+    bank_iban: str = ""
+    bank_account: str = ""
+    # ── Document settings ──────────────────────────────────────────────────
+    quotation_validity_days: int = 30
+    default_doc_language: str = "en"
+    # ── Document content templates ─────────────────────────────────────────
+    terms_en: str = ""
+    terms_ar: str = ""
+    contract_body_en: str = ""
+    contract_body_ar: str = ""
 
 class ThemeSettingsUpdate(BaseModel):
     primary_color: str = "#0F172A"
@@ -1416,6 +1452,25 @@ class ThemeSettingsUpdate(BaseModel):
     destructive_color: str = "#EF4444"
     logo_url: str = ""
     company_name: str = "OPE"
+    # ── Company identity ───────────────────────────────────────────────────
+    company_name_ar: str = "زان"
+    company_address: str = ""
+    company_phone: str = ""
+    company_email: str = ""
+    company_vat: str = ""
+    company_cr: str = ""
+    # ── Bank details ───────────────────────────────────────────────────────
+    bank_name: str = ""
+    bank_iban: str = ""
+    bank_account: str = ""
+    # ── Document settings ──────────────────────────────────────────────────
+    quotation_validity_days: int = 30
+    default_doc_language: str = "en"
+    # ── Document content templates ─────────────────────────────────────────
+    terms_en: str = ""
+    terms_ar: str = ""
+    contract_body_en: str = ""
+    contract_body_ar: str = ""
 
 # ==================== ADMIN AUTH ====================
 
@@ -1506,40 +1561,23 @@ async def get_pricing_guidelines():
     guidelines = await db.pricing_guidelines.find({}, {"_id": 0}).to_list(100)
     return guidelines
 
-async def get_applicable_guideline(category: str, deal_size: float):
-    """Get the most applicable pricing guideline"""
-    guidelines = await db.pricing_guidelines.find(
-        {"is_active": True},
-        {"_id": 0}
-    ).to_list(100)
-    
-    # Find best match
-    best_match = None
-    for g in guidelines:
-        if g.get('category') == category or g.get('category') == 'general':
-            if g.get('deal_size_min', 0) <= deal_size <= g.get('deal_size_max', float('inf')):
-                if best_match is None or g.get('category') == category:
-                    best_match = g
-    
-    return best_match
-
 async def get_deal_size_category(selling_price: float) -> str:
     """Determine deal size category based on selling price"""
     ranges = await db.deal_size_ranges.find_one({}, {"_id": 0})
     if not ranges:
-        # Default ranges
+        # Default ranges — aligned with pricing_guidelines (pg-1..pg-4)
         ranges = {
-            "tiny_min": 0, "tiny_max": 200000,
-            "standard_min": 200000, "standard_max": 500000,
-            "big_min": 500000, "big_max": 2000000,
-            "mega_min": 2000000, "mega_max": 999999999
+            "tiny_min": 0, "tiny_max": 50000,
+            "standard_min": 50000, "standard_max": 200000,
+            "big_min": 200000, "big_max": 500000,
+            "mega_min": 500000, "mega_max": 999999999
         }
-    
-    if selling_price < ranges.get('tiny_max', 200000):
+
+    if selling_price < ranges.get('tiny_max', 50000):
         return "tiny"
-    elif selling_price < ranges.get('standard_max', 500000):
+    elif selling_price < ranges.get('standard_max', 200000):
         return "standard"
-    elif selling_price < ranges.get('big_max', 2000000):
+    elif selling_price < ranges.get('big_max', 500000):
         return "big"
     else:
         return "mega"
@@ -1558,109 +1596,6 @@ async def get_incentive_multipliers():
             "referral_multiplier": 0.5
         }
     return multipliers
-
-async def calculate_incentives(selling_price: float, deal_size: str, client_type: str, lead_source: str):
-    """
-    Calculate incentives per role based on rules with Order/Collection phases.
-    Returns a dict with incentives breakdown for sales_rep and sales_manager.
-    """
-    rules = await get_incentive_rules()
-    multipliers = await get_incentive_multipliers()
-    
-    # Get multiplier based on client type and lead source
-    client_multiplier = 1.0
-    if client_type == "existing":
-        client_multiplier *= multipliers.get('existing_customer_multiplier', 0.9)
-    if lead_source == "referral":
-        client_multiplier *= multipliers.get('referral_multiplier', 0.5)
-    
-    result = {
-        "sales_rep": None,
-        "sales_manager": None,
-        "total_incentive": 0,
-        "total_order_incentive": 0,
-        "total_collection_incentive": 0,
-        "total_percent": 0,
-        "client_multiplier": client_multiplier,
-        "client_type": client_type,
-        "lead_source": lead_source,
-        "deal_size": deal_size
-    }
-    
-    for role in ["sales_rep", "sales_manager"]:
-        # Find matching rule
-        rule = None
-        for r in rules:
-            if r.get('deal_size') == deal_size and r.get('role') == role:
-                rule = r
-                break
-        
-        if rule:
-            # Order phase calculation
-            order_percent = rule.get('order_percent', 0) or rule.get('base_percent', 0) or 0
-            order_fixed = rule.get('order_fixed', 0) or 0
-            order_value = (selling_price * (order_percent / 100) * client_multiplier) + order_fixed
-            
-            # Collection phase calculation
-            collection_percent = rule.get('collection_percent', 0) or 0
-            collection_fixed = rule.get('collection_fixed', 0) or 0
-            collection_value = (selling_price * (collection_percent / 100) * client_multiplier) + collection_fixed
-            
-            total_value = order_value + collection_value
-            cap = rule.get('max_cap', 0)
-            
-            # Apply cap if defined
-            if cap > 0 and total_value > cap:
-                capped_value = cap
-                # Proportionally reduce order/collection values
-                ratio = cap / total_value if total_value > 0 else 0
-                order_capped = order_value * ratio
-                collection_capped = collection_value * ratio
-            else:
-                capped_value = total_value
-                order_capped = order_value
-                collection_capped = collection_value
-            
-            result[role] = {
-                "order_percent": order_percent,
-                "order_fixed": order_fixed,
-                "order_value": round(order_value, 2),
-                "order_capped": round(order_capped, 2),
-                "collection_percent": collection_percent,
-                "collection_fixed": collection_fixed,
-                "collection_value": round(collection_value, 2),
-                "collection_capped": round(collection_capped, 2),
-                "total_value": round(total_value, 2),
-                "capped_value": round(capped_value, 2),
-                "cap": cap,
-                "cap_applied": cap > 0 and total_value > cap
-            }
-            result["total_incentive"] += capped_value
-            result["total_order_incentive"] += order_capped
-            result["total_collection_incentive"] += collection_capped
-        else:
-            # No rule found, use 0
-            result[role] = {
-                "order_percent": 0,
-                "order_fixed": 0,
-                "order_value": 0,
-                "order_capped": 0,
-                "collection_percent": 0,
-                "collection_fixed": 0,
-                "collection_value": 0,
-                "collection_capped": 0,
-                "total_value": 0,
-                "capped_value": 0,
-                "cap": 0,
-                "cap_applied": False
-            }
-    
-    result["total_incentive"] = round(result["total_incentive"], 2)
-    result["total_order_incentive"] = round(result["total_order_incentive"], 2)
-    result["total_collection_incentive"] = round(result["total_collection_incentive"], 2)
-    result["total_percent"] = round((result["total_incentive"] / selling_price * 100) if selling_price > 0 else 0, 4)
-    
-    return result
 
 # ==================== CALCULATION ENGINE ====================
 
@@ -1715,15 +1650,33 @@ async def compute_internal_labor_cost(team_members, hr_config, std_monthly_hours
 
 
 def compute_vendor_cost(vendors):
-    """Compute (cost, revenue_with_markup) for a set of vendor lines."""
+    """Compute (cost, revenue_with_markup) for a set of vendor lines.
+
+    Handles both simple vendors and group vendors (with sub_items).
+    For group vendors, cost and revenue are derived from the sub_items list.
+    Per-vendor risk_percent is applied as a contingency buffer on top of markup.
+    """
     cost = 0.0
     revenue = 0.0
     for v in vendors:
-        qty = getattr(v, 'quantity', 1) or 1
-        unit_cost = getattr(v, 'unit_cost', 0) or v.cost or 0
-        total = unit_cost * qty
-        cost += total
-        revenue += total * (1 + (v.markup_percent or 0) / 100)
+        if getattr(v, 'is_group', False) and getattr(v, 'sub_items', None):
+            # Group vendor: aggregate from sub_items
+            for item in v.sub_items:
+                qty = (item.quantity or 1)
+                item_cost = (item.cost or 0) * qty
+                cost += item_cost
+                marked_up = item_cost * (1 + (item.markup_percent or 0) / 100)
+                risk_mult = 1 + (getattr(item, 'risk_percent', 0) or 0) / 100
+                revenue += marked_up * risk_mult
+        else:
+            # Simple vendor (original behaviour)
+            qty = getattr(v, 'quantity', 1) or 1
+            unit_cost = getattr(v, 'unit_cost', 0) or v.cost or 0
+            total = unit_cost * qty
+            cost += total
+            marked_up = total * (1 + (v.markup_percent or 0) / 100)
+            risk_mult = 1 + (getattr(v, 'risk_percent', 0) or 0) / 100
+            revenue += marked_up * risk_mult
     return cost, revenue
 
 
@@ -1772,17 +1725,23 @@ async def calculate_simple(data: SimpleCalculationInput):
     product_lines = getattr(data, "product_lines", None) or []
     product_cogs = 0.0
     product_selling = 0.0
+    product_internal_base = 0.0  # sum of per-line internal selling (no risk); global internal risk stacks on this
+    product_vendor_base = 0.0    # sum of per-line vendor revenue (no global risk); global vendor risk stacks on this
     product_lines_breakdown = []
+
+    def _raw_selling_from_margin(cost: float, margin_pct: float) -> float:
+        """Margin-based selling price WITHOUT the floor clamp."""
+        if cost <= 0:
+            return 0.0
+        m = min(99.99, max(0.0, margin_pct)) / 100.0
+        if m >= 1:
+            return cost * 2
+        return cost / (1 - m) if (1 - m) > 0 else cost * 2
 
     def _line_selling_from_margin(cost: float, margin_pct: float, floor: float) -> float:
         if cost <= 0:
             return max(0.0, floor)
-        m = min(99.99, max(0.0, margin_pct)) / 100.0
-        if m >= 1:
-            selling = cost * 2
-        else:
-            selling = cost / (1 - m) if (1 - m) > 0 else cost * 2
-        return max(selling, floor)
+        return max(_raw_selling_from_margin(cost, margin_pct), floor)
 
     if margin_mode == "granular" and product_lines:
         for line in product_lines:
@@ -1800,11 +1759,24 @@ async def calculate_simple(data: SimpleCalculationInput):
                     line_team_members, hr_config, std_monthly_hours
                 )
                 line_overhead = line_hours * overhead_rate
-                line_vendor_cost, _line_vendor_rev = compute_vendor_cost(line_vendors)
-                base_cost = line_team_cost + line_overhead + line_vendor_cost
+                line_vendor_cost, line_vendor_rev = compute_vendor_cost(line_vendors)
+                internal_cost = line_team_cost + line_overhead  # margin applies only to labor+overhead
+                base_cost = internal_cost + line_vendor_cost    # full COGS for reporting
                 line_risk_mult = await calculate_risk_multiplier(line.risk) if getattr(line, "risk", None) else 1.0
-                risk_adjusted_cost = base_cost * line_risk_mult
-                line_sell = _line_selling_from_margin(risk_adjusted_cost, margin_pct, floor)
+                # Margin (no risk) on internal labor+overhead; vendor revenue is additive.
+                internal_sell_no_risk = _raw_selling_from_margin(internal_cost, margin_pct)
+                base_no_risk = internal_sell_no_risk + line_vendor_rev
+                # Floor (O): only a DELIBERATE custom margin may price a line below it.
+                # App risk is an ADDITIVE premium on top of the floor-protected base — it only ever
+                # raises the price and never drops below the floor or triggers an approval flag.
+                custom_margin = (getattr(line, "margin_source", "") or "") == "custom"
+                below_floor = base_no_risk < floor - 0.01
+                base = base_no_risk if custom_margin else max(base_no_risk, floor)
+                needs_approval = bool(custom_margin and below_floor)
+                service_premium = internal_sell_no_risk * (line_risk_mult - 1.0)
+                line_sell = base + service_premium
+                product_internal_base += internal_sell_no_risk  # global internal risk stacks on this
+                product_vendor_base += line_vendor_rev           # global vendor risk stacks on this
                 product_cogs += base_cost
                 product_selling += line_sell
                 achieved = ((line_sell - base_cost) / line_sell * 100) if line_sell > 0 else 0
@@ -1818,7 +1790,8 @@ async def calculate_simple(data: SimpleCalculationInput):
                     "team_cost": round(line_team_cost, 2),
                     "overhead_cost": round(line_overhead, 2),
                     "vendor_cost": round(line_vendor_cost, 2),
-                    "internal_cost": round(line_team_cost + line_overhead, 2),
+                    "vendor_revenue": round(line_vendor_rev, 2),
+                    "internal_cost": round(internal_cost, 2),
                     "cost": round(base_cost, 2),
                     "risk_multiplier": round(line_risk_mult, 3),
                     "hours": round(line_hours, 2),
@@ -1827,6 +1800,8 @@ async def calculate_simple(data: SimpleCalculationInput):
                     "sheet_min_selling": round(floor, 2),
                     "selling": round(line_sell, 2),
                     "margin_achieved": round(achieved, 2),
+                    "below_floor": below_floor,
+                    "needs_approval": needs_approval,
                 })
             else:
                 # Legacy granular line: price from the sheet package cost (unchanged behavior).
@@ -1837,7 +1812,14 @@ async def calculate_simple(data: SimpleCalculationInput):
                     "total_cost": float(getattr(line, "total_cost", 0) or line.cost or 0),
                 }
                 cost, exec_mode, cost_basis, cost_fallback = resolve_product_line_cost(seg, qty)
-                line_sell = _line_selling_from_margin(cost, margin_pct, floor)
+                base_no_risk = _raw_selling_from_margin(cost, margin_pct)
+                # Floor (O): only a deliberate custom margin may price below it. Legacy lines carry
+                # no per-line risk; the global Quote-Controls risk stacks on them at the quote level.
+                custom_margin = (getattr(line, "margin_source", "") or "") == "custom"
+                below_floor = base_no_risk < floor - 0.01
+                line_sell = base_no_risk if custom_margin else max(base_no_risk, floor)
+                needs_approval = bool(custom_margin and below_floor)
+                product_internal_base += base_no_risk  # global Quote-Controls risk stacks on this
                 product_cogs += cost
                 product_selling += line_sell
                 achieved = ((line_sell - cost) / line_sell * 100) if line_sell > 0 else 0
@@ -1855,6 +1837,8 @@ async def calculate_simple(data: SimpleCalculationInput):
                     "sheet_min_selling": round(floor, 2),
                     "selling": round(line_sell, 2),
                     "margin_achieved": round(achieved, 2),
+                    "below_floor": below_floor,
+                    "needs_approval": needs_approval,
                 })
         cogs += product_cogs
     
@@ -1915,6 +1899,9 @@ async def calculate_simple(data: SimpleCalculationInput):
     # Formula: Selling_Price_Final = COGS / (1 - Target_Margin% - Total_Incentive_%)
 
     margin_breakdown = None
+    # Set true when a pricing divisor (1 - margin - incentive) is non-positive,
+    # forcing an arbitrary fallback multiplier instead of a real price.
+    pricing_divisor_invalid = False
 
     if margin_mode == "granular":
         internal_margin = data.internal_margin_percent / 100
@@ -1927,6 +1914,8 @@ async def calculate_simple(data: SimpleCalculationInput):
         if divisor > 0 and internal_base_cost > 0:
             internal_selling = internal_base_cost / divisor
         else:
+            if internal_base_cost > 0 and divisor <= 0:
+                pricing_divisor_invalid = True
             internal_selling = 0.0
 
         has_markup = any(v.markup_percent > 0 for v in data.vendors)
@@ -1936,6 +1925,7 @@ async def calculate_simple(data: SimpleCalculationInput):
             if (1 - vendor_margin) > 0:
                 vendor_selling = vendor_cost / (1 - vendor_margin)
             else:
+                pricing_divisor_invalid = True
                 vendor_selling = vendor_cost * 1.5
         else:
             vendor_selling = 0.0
@@ -1944,7 +1934,14 @@ async def calculate_simple(data: SimpleCalculationInput):
             internal_selling *= internal_risk_mult
             vendor_selling *= vendor_risk_mult
 
-        total_selling_price = product_selling + internal_selling + vendor_selling
+        # Global Quote-Controls risk: ADDITIVE premiums on top of product lines.
+        # internal_risk_mult applies to the sum of per-line internal selling (no double-count with
+        # per-line service risk, which is already baked into product_selling).
+        # vendor_risk_mult applies to the sum of per-line vendor revenue (same additive logic).
+        global_product_premium = product_internal_base * (internal_risk_mult - 1.0)
+        global_vendor_premium  = product_vendor_base   * (vendor_risk_mult   - 1.0)
+
+        total_selling_price = product_selling + internal_selling + vendor_selling + global_product_premium + global_vendor_premium
 
         internal_margin_achieved = (
             ((internal_selling - internal_base_cost) / internal_selling * 100) if internal_selling > 0 else 0
@@ -1957,6 +1954,12 @@ async def calculate_simple(data: SimpleCalculationInput):
             "mode": "granular",
             "products_selling": round(product_selling, 2),
             "products_cost": round(product_cogs, 2),
+            "products_internal_base": round(product_internal_base, 2),
+            "products_vendor_base": round(product_vendor_base, 2),
+            "global_risk_multiplier": round(internal_risk_mult, 3),
+            "global_risk_premium": round(global_product_premium, 2),
+            "global_vendor_risk_multiplier": round(vendor_risk_mult, 3),
+            "global_vendor_risk_premium": round(global_vendor_premium, 2),
             "products": product_lines_breakdown,
             "internal": {
                 "cost": round(internal_base_cost, 2),
@@ -1984,8 +1987,10 @@ async def calculate_simple(data: SimpleCalculationInput):
         if divisor > 0:
             internal_selling = internal_base_cost / divisor
         else:
+            if internal_base_cost > 0:
+                pricing_divisor_invalid = True
             internal_selling = internal_base_cost * 2
-        
+
         # Vendor selling price (if no markup applied, use vendor margin)
         has_markup = any(v.markup_percent > 0 for v in data.vendors)
         if has_markup:
@@ -1994,6 +1999,8 @@ async def calculate_simple(data: SimpleCalculationInput):
             if (1 - vendor_margin) > 0:
                 vendor_selling = vendor_cost / (1 - vendor_margin)
             else:
+                if vendor_cost > 0:
+                    pricing_divisor_invalid = True
                 vendor_selling = vendor_cost * 1.5
         
         # Apply risk buffer to price
@@ -2016,15 +2023,19 @@ async def calculate_simple(data: SimpleCalculationInput):
         if divisor > 0:
             internal_selling = internal_base_cost / divisor
         else:
+            if internal_base_cost > 0:
+                pricing_divisor_invalid = True
             internal_selling = internal_base_cost * 2
-        
+
         total_selling_price = internal_selling + vendor_revenue
-        
+
         if risk_impact_mode == 'buffer':
             avg_risk = (internal_risk_mult + vendor_risk_mult) / 2
             total_selling_price *= avg_risk
-        
-        internal_margin_achieved = data.target_margin_percent
+
+        internal_margin_achieved = (
+            ((internal_selling - internal_base_cost) / internal_selling * 100) if internal_selling > 0 else 0
+        )
         vendor_margin_achieved = (vendor_markup_revenue / vendor_revenue * 100) if vendor_revenue > 0 else 0
     
     # ==================== CALCULATE ACTUAL INCENTIVE VALUES ====================
@@ -2056,6 +2067,17 @@ async def calculate_simple(data: SimpleCalculationInput):
     # ==================== WARNINGS ====================
     warnings = []
 
+    if pricing_divisor_invalid:
+        warnings.append({
+            "type": "pricing_divisor_invalid",
+            "message": (
+                "Target margin + incentive ≥ 100% — the selling price could not be "
+                "computed normally and used a fallback multiplier. Lower the target "
+                "margin or incentive percentages."
+            ),
+            "severity": "error",
+        })
+
     for member in data.team_members:
         ctx = getattr(member, "labor_charge_context", None) or ""
         if ctx == EXECUTION_HYBRID and member.calc_mode != "hours":
@@ -2068,8 +2090,13 @@ async def calculate_simple(data: SimpleCalculationInput):
                 "severity": "warning",
             })
     
-    # Margin warnings
-    guidelines = await db.pricing_guidelines.find_one({"category": "general", "is_active": True}, {"_id": 0})
+    # Margin warnings — judge against the guideline for THIS deal size, not
+    # whichever "general" doc happens to be first.
+    guidelines = await db.pricing_guidelines.find_one(
+        {"category": "general", "deal_size": deal_size, "is_active": True}, {"_id": 0}
+    ) or await db.pricing_guidelines.find_one(
+        {"category": "general", "is_active": True}, {"_id": 0}
+    )
     if guidelines:
         if contribution_margin_percent < guidelines.get('min_margin', 15):
             warnings.append({
@@ -2115,20 +2142,43 @@ async def calculate_simple(data: SimpleCalculationInput):
             margin_pct = float(line.margin_percent or 0)
             min_margin = float(line.sheet_min_margin_percent or 0)
             floor = float(line.sheet_min_selling or 0)
-            line_sell = _line_selling_from_margin(cost, margin_pct, floor)
+            # Floor (O): only a deliberate custom margin may price below it. App risk is additive
+            # (it raises the price) so it never triggers a below-floor approval.
+            custom_margin = (getattr(line, "margin_source", "") or "") == "custom"
+            raw_sell = _raw_selling_from_margin(cost, margin_pct)
+            line_sell = raw_sell if custom_margin else max(raw_sell, floor)
             if min_margin > 0 and margin_pct < min_margin:
                 warnings.append({
                     "type": "product_below_sheet_margin",
-                    "message": f"{line.product_name} ({line.segment}): margin {margin_pct:.1f}% below sheet minimum {min_margin:.1f}%",
+                    "message": f"{line.product_name} ({line.segment}): margin {margin_pct:.1f}% below sheet minimum {min_margin:.1f}% — needs approval",
                     "severity": "warning",
                 })
-            if floor > 0 and line_sell < floor - 0.01:
+            if floor > 0 and custom_margin and line_sell < floor - 0.01:
                 warnings.append({
                     "type": "product_below_floor",
-                    "message": f"{line.product_name} ({line.segment}): price below sheet floor {floor:,.0f}",
-                    "severity": "error",
+                    "message": f"{line.product_name} ({line.segment}): price below base min selling {floor:,.0f} — needs approval",
+                    "severity": "warning",
                 })
     
+    # Aggregate product-level costs so the COGS breakdown shows correct totals
+    # when team/vendors are assigned per-product rather than globally.
+    # Two line shapes exist:
+    #   - product_owned: explicit team_cost / vendor_cost / overhead_cost
+    #   - legacy/catalog: a single bundled package `cost` (internal production cost)
+    # For legacy lines the bundled cost (minus any vendor/overhead) is internal
+    # labor, so labor + vendor + overhead always reconciles to product COGS.
+    _prod_vendor   = sum(p.get("vendor_cost",   0) for p in product_lines_breakdown)
+    _prod_overhead = sum(p.get("overhead_cost", 0) for p in product_lines_breakdown)
+    _prod_labor    = 0.0
+    for p in product_lines_breakdown:
+        if "team_cost" in p:
+            _prod_labor += p.get("team_cost", 0)
+        else:
+            _prod_labor += max(
+                0.0,
+                p.get("cost", 0) - p.get("vendor_cost", 0) - p.get("overhead_cost", 0),
+            )
+
     return {
         "internal_labor_cost": round(internal_labor_cost, 2),
         "vendor_cost": round(vendor_cost, 2),
@@ -2136,6 +2186,10 @@ async def calculate_simple(data: SimpleCalculationInput):
         "vendor_markup_revenue": round(vendor_markup_revenue, 2),
         "overhead_cost": round(overhead_cost, 2),
         "total_hours": round(total_hours, 2),
+        # Aggregated totals (global + all product-scoped) — used by COGS breakdown
+        "total_labor_cost":    round(internal_labor_cost + _prod_labor,    2),
+        "total_vendor_cost":   round(vendor_cost         + _prod_vendor,   2),
+        "total_overhead_cost": round(overhead_cost       + _prod_overhead, 2),
         "cogs": round(cogs, 2),
         "selling_price": round(total_selling_price, 2),
         # Incentive breakdown
@@ -2532,6 +2586,61 @@ async def delete_vendor_service(service_id: str, _: bool = Depends(verify_admin)
     result = await db.vendor_services.delete_one({"id": service_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Service not found")
+    return {"status": "deleted"}
+
+# ---------- VENDOR GROUP TEMPLATES ----------
+
+class VendorGroupTemplateModel(BaseModel):
+    id: str = Field(default_factory=lambda: f"vgt-{uuid.uuid4().hex[:12]}")
+    name: str
+    description: str = ""
+    vendors: List[Dict] = []   # Flexible JSON — stores full vendor + sub_items structure
+    created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+
+class VendorGroupTemplateCreate(BaseModel):
+    name: str
+    description: str = ""
+    vendors: List[Dict] = []
+
+@api_router.get("/vendor-group-templates", response_model=List[Dict])
+async def list_vendor_group_templates():
+    templates = await db.vendor_group_templates.find({}, {"_id": 0}).to_list(1000)
+    return templates
+
+@api_router.post("/vendor-group-templates", response_model=Dict)
+async def create_vendor_group_template(
+    payload: VendorGroupTemplateCreate,
+    _: bool = Depends(verify_admin),
+):
+    obj = VendorGroupTemplateModel(**payload.model_dump())
+    doc = obj.model_dump()
+    await db.vendor_group_templates.insert_one(doc)
+    return serialize_doc(doc)
+
+@api_router.put("/vendor-group-templates/{template_id}", response_model=Dict)
+async def update_vendor_group_template(
+    template_id: str,
+    payload: VendorGroupTemplateCreate,
+    _: bool = Depends(verify_admin),
+):
+    update_data = {**payload.model_dump(), "updated_at": datetime.utcnow().isoformat()}
+    result = await db.vendor_group_templates.update_one(
+        {"id": template_id}, {"$set": update_data}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Template not found")
+    updated = await db.vendor_group_templates.find_one({"id": template_id}, {"_id": 0})
+    return serialize_doc(updated)
+
+@api_router.delete("/vendor-group-templates/{template_id}")
+async def delete_vendor_group_template(
+    template_id: str,
+    _: bool = Depends(verify_admin),
+):
+    result = await db.vendor_group_templates.delete_one({"id": template_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Template not found")
     return {"status": "deleted"}
 
 # ---------- PAYMENT TERMS ----------
@@ -3017,8 +3126,15 @@ async def delete_opportunity(opp_id: str):
 # ---------- SEED DATA ----------
 @api_router.post("/seed-data")
 async def seed_database(_: bool = Depends(verify_admin)):
-    """Seed database with sample data"""
-    
+    """Seed database with sample data (admin-triggered full reset)"""
+    return await perform_seed()
+
+async def perform_seed():
+    """Populate reference/config collections with sample data.
+
+    Clears and re-inserts the seeded collections (roles are sourced from Google
+    Sheets, not seeded). User opportunities are never touched.
+    """
     # Clear existing data (roles are sourced from Google Sheets, not seeded)
     await db.product_templates.delete_many({})
     await db.scope_templates.delete_many({})
@@ -3171,17 +3287,17 @@ async def seed_database(_: bool = Depends(verify_admin)):
     }
     await db.incentive_multipliers.insert_one(incentive_multipliers)
     
-    # Deal Size Ranges
+    # Deal Size Ranges — aligned with pricing_guidelines (pg-1..pg-4)
     await db.deal_size_ranges.delete_many({})
     deal_size_ranges = {
         "id": "deal_size_ranges",
         "tiny_min": 0,
-        "tiny_max": 200000,
-        "standard_min": 200000,
-        "standard_max": 500000,
-        "big_min": 500000,
-        "big_max": 2000000,
-        "mega_min": 2000000,
+        "tiny_max": 50000,
+        "standard_min": 50000,
+        "standard_max": 200000,
+        "big_min": 200000,
+        "big_max": 500000,
+        "mega_min": 500000,
         "mega_max": 999999999,
         "updated_at": datetime.now(timezone.utc).isoformat()
     }
@@ -3206,6 +3322,19 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+@app.on_event("startup")
+async def seed_if_empty():
+    """Seed reference data once on a fresh DB so pricing never breaks on first run."""
+    try:
+        has_rules = await db.incentive_rules.find_one({})
+        has_guidelines = await db.pricing_guidelines.find_one({})
+        if not has_rules or not has_guidelines:
+            logger.info("Pricing reference data missing — running idempotent seed.")
+            await perform_seed()
+            logger.info("Idempotent seed complete.")
+    except Exception as e:
+        logger.error(f"Startup seed check failed: {e}")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

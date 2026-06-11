@@ -4,7 +4,8 @@ import {
   Users, Package, Layers, Truck, CreditCard, Gauge, Percent, 
   AlertTriangle, Palette, Database, LogOut, ChevronRight, Save,
   Plus, Pencil, Trash2, Check, X, Settings2, FileSpreadsheet, RefreshCw,
-  Target, ShieldAlert, DollarSign, CloudDownload, Filter, ArrowUpDown, Clock
+  Target, ShieldAlert, DollarSign, CloudDownload, Filter, ArrowUpDown, Clock, Eye,
+  FileText, Building2, Landmark, FileSignature
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -122,6 +123,7 @@ export default function Admin() {
     { path: '/admin/sales-incentives', label: 'Sales Incentives (Legacy)', icon: Percent },
     { path: '/admin/risk-multipliers', label: 'Risk Multipliers', icon: AlertTriangle },
     { path: '/admin/theme', label: 'Theme Settings', icon: Palette },
+    { path: '/admin/documents', label: 'Documents & Export', icon: FileText },
     { path: '/admin/data', label: 'Seed Data', icon: Database },
   ];
 
@@ -194,6 +196,7 @@ export default function Admin() {
           <Route path="/sales-incentives" element={<SalesIncentivesManager />} />
           <Route path="/risk-multipliers" element={<RiskMultipliersManager />} />
           <Route path="/theme" element={<ThemeManager />} />
+          <Route path="/documents" element={<DocumentsManager />} />
           <Route path="/data" element={<DataManager />} />
         </Routes>
       </main>
@@ -982,6 +985,7 @@ function ProductTemplatesManager() {
 
 function ScopeTemplatesManager() {
   const [templates, setTemplates] = useState([]);
+  const [previewTemplate, setPreviewTemplate] = useState(null);
 
   useEffect(() => {
     getScopeTemplates().then(setTemplates).catch(() => toast.error('Failed to load'));
@@ -990,8 +994,8 @@ function ScopeTemplatesManager() {
   return (
     <div data-testid="scope-templates-manager">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900 ">Scope Templates</h1>
-        <p className="text-slate-600">Pre-configured scope packages</p>
+        <h1 className="text-2xl font-bold text-slate-900">Scope Templates</h1>
+        <p className="text-slate-600">Pre-configured scope packages created from the Calculator</p>
       </div>
       <Card>
         <Table>
@@ -999,20 +1003,158 @@ function ScopeTemplatesManager() {
             <TableRow>
               <TableHead>Name</TableHead>
               <TableHead>Type</TableHead>
-              <TableHead>Products</TableHead>
+              <TableHead>Services</TableHead>
+              <TableHead>Team Roles</TableHead>
+              <TableHead>Vendors</TableHead>
+              <TableHead>Margin</TableHead>
+              <TableHead className="w-16"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {templates.map(t => (
-              <TableRow key={t.id}>
-                <TableCell className="font-medium">{t.name}</TableCell>
-                <TableCell className="capitalize">{t.scope_type}</TableCell>
-                <TableCell>{t.default_products?.length || 0} products</TableCell>
+            {templates.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center text-slate-400 py-10 text-sm">
+                  No templates yet. Save a template from the Calculator to get started.
+                </TableCell>
               </TableRow>
-            ))}
+            )}
+            {templates.map(t => {
+              const serviceCount = (t.default_pricing_products || []).filter(p => !p.vendor_only).length;
+              const roleCount = (t.default_roles || []).length;
+              const vendorCount = (t.default_vendors || []).length;
+              const marginLabel = t.margin_mode === 'split'
+                ? `Split ${t.internal_margin_percent ?? '—'}% / ${t.vendor_margin_percent ?? '—'}%`
+                : `Unified ${t.target_margin_percent ?? '—'}%`;
+              return (
+                <TableRow key={t.id}>
+                  <TableCell className="font-medium">{t.name}</TableCell>
+                  <TableCell className="capitalize text-slate-500">{t.scope_type || 'standard'}</TableCell>
+                  <TableCell>
+                    <Badge variant="secondary">{serviceCount} service{serviceCount !== 1 ? 's' : ''}</Badge>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="secondary">{roleCount} role{roleCount !== 1 ? 's' : ''}</Badge>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="secondary">{vendorCount} vendor{vendorCount !== 1 ? 's' : ''}</Badge>
+                  </TableCell>
+                  <TableCell className="text-slate-500 text-xs">{marginLabel}</TableCell>
+                  <TableCell>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setPreviewTemplate(t)}
+                      title="Preview template contents"
+                    >
+                      <Eye className="w-4 h-4" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       </Card>
+
+      {/* Template Preview Dialog */}
+      <Dialog open={!!previewTemplate} onOpenChange={open => !open && setPreviewTemplate(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="w-4 h-4" />
+              {previewTemplate?.name}
+            </DialogTitle>
+            <DialogDescription>
+              Template contents — read only. Edit via the Calculator's "Save as template".
+            </DialogDescription>
+          </DialogHeader>
+
+          {previewTemplate && (
+            <div className="space-y-4 text-sm">
+              {/* Services */}
+              {(previewTemplate.default_pricing_products || []).filter(p => !p.vendor_only).length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Services</p>
+                  <ul className="space-y-1">
+                    {(previewTemplate.default_pricing_products || [])
+                      .filter(p => !p.vendor_only)
+                      .map((p, i) => (
+                        <li key={i} className="flex items-center justify-between px-2 py-1.5 rounded bg-slate-50">
+                          <span className="font-medium text-slate-800">{p.product_name}</span>
+                          {p.size && (
+                            <Badge variant="outline" className="text-[10px]">
+                              {String(p.size).toUpperCase()}
+                            </Badge>
+                          )}
+                        </li>
+                      ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Team Roles */}
+              {(previewTemplate.default_roles || []).length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Team Roles</p>
+                  <ul className="space-y-1">
+                    {(previewTemplate.default_roles || []).map((r, i) => (
+                      <li key={i} className="flex items-center justify-between px-2 py-1.5 rounded bg-slate-50">
+                        <span className="text-slate-800">{r.role_name || r.role_id}</span>
+                        {r.default_hours > 0 && (
+                          <span className="text-xs text-slate-400">{r.default_hours}h</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Vendors */}
+              {(previewTemplate.default_vendors || []).length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Vendors</p>
+                  <ul className="space-y-1">
+                    {(previewTemplate.default_vendors || []).map((v, i) => (
+                      <li key={i} className="flex items-center justify-between px-2 py-1.5 rounded bg-slate-50">
+                        <span className="text-slate-800">{v.service_name}</span>
+                        {v.default_markup != null && (
+                          <span className="text-xs text-slate-400">{v.default_markup}% markup</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Margin Settings */}
+              <div className="px-2 py-2 rounded bg-slate-50">
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Margin Settings</p>
+                <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-600">
+                  <span>Mode: <strong>{previewTemplate.margin_mode || 'unified'}</strong></span>
+                  {previewTemplate.target_margin_percent != null && (
+                    <span>Target: <strong>{previewTemplate.target_margin_percent}%</strong></span>
+                  )}
+                  {previewTemplate.internal_margin_percent != null && (
+                    <span>Internal: <strong>{previewTemplate.internal_margin_percent}%</strong></span>
+                  )}
+                  {previewTemplate.vendor_margin_percent != null && (
+                    <span>Vendor: <strong>{previewTemplate.vendor_margin_percent}%</strong></span>
+                  )}
+                </div>
+              </div>
+
+              {/* Empty state */}
+              {(previewTemplate.default_pricing_products || []).length === 0 &&
+               (previewTemplate.default_roles || []).length === 0 &&
+               (previewTemplate.default_vendors || []).length === 0 && (
+                <p className="text-center text-slate-400 py-4">
+                  This template has no stored content. Re-save it from the Calculator.
+                </p>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1377,6 +1519,214 @@ function RiskMultipliersManager() {
     </div>
   );
 }
+
+// ─── Documents & Export Manager ──────────────────────────────────────────────
+
+function DocumentsManager() {
+  const defaultForm = {
+    company_name: 'ZAN',
+    company_name_ar: 'زان',
+    company_address: '',
+    company_phone: '',
+    company_email: '',
+    company_vat: '',
+    company_cr: '',
+    bank_name: '',
+    bank_iban: '',
+    bank_account: '',
+    quotation_validity_days: 30,
+    default_doc_language: 'en',
+    terms_en: '',
+    terms_ar: '',
+    contract_body_en: '',
+    contract_body_ar: '',
+  };
+
+  const [formData, setFormData] = useState(defaultForm);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    getThemeSettings().then(data => {
+      setFormData({
+        company_name:             data.company_name             || 'ZAN',
+        company_name_ar:          data.company_name_ar          || 'زان',
+        company_address:          data.company_address          || '',
+        company_phone:            data.company_phone            || '',
+        company_email:            data.company_email            || '',
+        company_vat:              data.company_vat              || '',
+        company_cr:               data.company_cr               || '',
+        bank_name:                data.bank_name                || '',
+        bank_iban:                data.bank_iban                || '',
+        bank_account:             data.bank_account             || '',
+        quotation_validity_days:  data.quotation_validity_days  ?? 30,
+        default_doc_language:     data.default_doc_language     || 'en',
+        terms_en:                 data.terms_en                 || '',
+        terms_ar:                 data.terms_ar                 || '',
+        contract_body_en:         data.contract_body_en         || '',
+        contract_body_ar:         data.contract_body_ar         || '',
+      });
+    }).catch(() => toast.error('Failed to load document settings'));
+  }, []);
+
+  const set = (key, val) => setFormData(prev => ({ ...prev, [key]: val }));
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      // Merge with full theme settings (PUT replaces all fields)
+      const current = await getThemeSettings();
+      await updateThemeSettings({ ...current, ...formData });
+      toast.success('Document settings saved');
+    } catch {
+      toast.error('Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const Section = ({ title, icon: Icon, children }) => (
+    <Card className="mb-6">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Icon className="w-4 h-4 text-indigo-600" />
+          {title}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>{children}</CardContent>
+    </Card>
+  );
+
+  const Field = ({ label, children, hint }) => (
+    <div className="space-y-1.5">
+      <Label className="text-sm font-medium">{label}</Label>
+      {children}
+      {hint && <p className="text-xs text-slate-500">{hint}</p>}
+    </div>
+  );
+
+  return (
+    <div data-testid="documents-manager">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-slate-900">Documents & Export</h1>
+        <p className="text-slate-600 mt-1">Control company info, bank details, and document templates used in all exported files</p>
+      </div>
+
+      <Section title="Company Identity" icon={Building2}>
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Company Name (EN)">
+            <Input value={formData.company_name} onChange={e => set('company_name', e.target.value)} placeholder="ZAN" />
+          </Field>
+          <Field label="اسم الشركة (AR)">
+            <Input dir="rtl" value={formData.company_name_ar} onChange={e => set('company_name_ar', e.target.value)} placeholder="زان" />
+          </Field>
+          <Field label="Address" hint="Appears on quotations and contracts">
+            <textarea
+              className="w-full min-h-[72px] rounded-md border border-input bg-background px-3 py-2 text-sm resize-y"
+              value={formData.company_address} onChange={e => set('company_address', e.target.value)}
+              placeholder="Riyadh, Saudi Arabia"
+            />
+          </Field>
+          <div className="space-y-4">
+            <Field label="Phone">
+              <Input value={formData.company_phone} onChange={e => set('company_phone', e.target.value)} placeholder="+966 XX XXX XXXX" />
+            </Field>
+            <Field label="Email">
+              <Input type="email" value={formData.company_email} onChange={e => set('company_email', e.target.value)} placeholder="info@zan.com" />
+            </Field>
+          </div>
+          <Field label="VAT Number">
+            <Input value={formData.company_vat} onChange={e => set('company_vat', e.target.value)} placeholder="3XXXXXXXXXX" />
+          </Field>
+          <Field label="CR Number">
+            <Input value={formData.company_cr} onChange={e => set('company_cr', e.target.value)} placeholder="1XXXXXXXXXX" />
+          </Field>
+        </div>
+      </Section>
+
+      <Section title="Bank Details" icon={Landmark}>
+        <div className="grid grid-cols-3 gap-4">
+          <Field label="Bank Name">
+            <Input value={formData.bank_name} onChange={e => set('bank_name', e.target.value)} placeholder="Al Rajhi Bank" />
+          </Field>
+          <Field label="IBAN">
+            <Input value={formData.bank_iban} onChange={e => set('bank_iban', e.target.value)} placeholder="SA00 0000 0000 0000 0000 0000" />
+          </Field>
+          <Field label="Account Number">
+            <Input value={formData.bank_account} onChange={e => set('bank_account', e.target.value)} placeholder="000000000000000" />
+          </Field>
+        </div>
+      </Section>
+
+      <Section title="Document Settings" icon={Settings2}>
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Quotation Validity (days)" hint="How long a quote is valid after issue date">
+            <Input
+              type="number" min="1" max="365"
+              value={formData.quotation_validity_days}
+              onChange={e => set('quotation_validity_days', Number(e.target.value) || 30)}
+            />
+          </Field>
+          <Field label="Default Language">
+            <Select value={formData.default_doc_language} onValueChange={v => set('default_doc_language', v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="en">English</SelectItem>
+                <SelectItem value="ar">العربية</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+        </div>
+      </Section>
+
+      <Section title="Document Templates" icon={FileSignature}>
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 gap-6">
+            <Field label="Terms & Conditions (EN)" hint="Appears at the bottom of quotations and contracts">
+              <textarea
+                className="w-full min-h-[140px] rounded-md border border-input bg-background px-3 py-2 text-sm resize-y"
+                value={formData.terms_en} onChange={e => set('terms_en', e.target.value)}
+                placeholder="1. All prices are in SAR and exclusive of VAT.&#10;2. Payment is due within 30 days of invoice date.&#10;3. ZAN reserves the right to adjust scope if brief changes significantly."
+              />
+            </Field>
+            <Field label="الشروط والأحكام (AR)">
+              <textarea
+                dir="rtl"
+                className="w-full min-h-[140px] rounded-md border border-input bg-background px-3 py-2 text-sm resize-y"
+                value={formData.terms_ar} onChange={e => set('terms_ar', e.target.value)}
+                placeholder="١. جميع الأسعار بالريال السعودي وغير شاملة لضريبة القيمة المضافة.&#10;٢. يستحق الدفع خلال ٣٠ يوماً من تاريخ الفاتورة."
+              />
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-6">
+            <Field label="Contract Body (EN)" hint="Main body text for service agreements. Use [CLIENT_NAME], [PROJECT_NAME], [TOTAL_AMOUNT] as placeholders.">
+              <textarea
+                className="w-full min-h-[200px] rounded-md border border-input bg-background px-3 py-2 text-sm resize-y font-mono text-xs"
+                value={formData.contract_body_en} onChange={e => set('contract_body_en', e.target.value)}
+                placeholder="This Service Agreement is entered into between ZAN (the Agency) and [CLIENT_NAME] (the Client)...&#10;&#10;1. SCOPE OF SERVICES&#10;The Agency agrees to provide [PROJECT_NAME] as detailed in the attached Scope of Work.&#10;&#10;2. FEES&#10;The Client agrees to pay [TOTAL_AMOUNT] according to the payment schedule..."
+              />
+            </Field>
+            <Field label="نص العقد (AR)">
+              <textarea
+                dir="rtl"
+                className="w-full min-h-[200px] rounded-md border border-input bg-background px-3 py-2 text-sm resize-y font-mono text-xs"
+                value={formData.contract_body_ar} onChange={e => set('contract_body_ar', e.target.value)}
+                placeholder="هذه الاتفاقية مبرمة بين زان (الوكالة) و[CLIENT_NAME] (العميل)..."
+              />
+            </Field>
+          </div>
+        </div>
+      </Section>
+
+      <div className="flex justify-end mt-2 mb-8">
+        <Button onClick={handleSave} disabled={saving} className="min-w-[140px]">
+          {saving ? 'Saving...' : 'Save Document Settings'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Theme Manager ────────────────────────────────────────────────────────────
 
 function ThemeManager() {
   const [theme, setTheme] = useState(null);

@@ -6,6 +6,7 @@ export default function InsightSheet({
   open,
   onOpenChange,
   results,
+  previewSelling,
   calculating,
   isDarkMode,
   sheetPriceFloorWarning,
@@ -78,6 +79,7 @@ export default function InsightSheet({
           <div className="h-[calc(70vh-2rem)] overflow-hidden">
             <InsightRail
               results={results}
+              previewSelling={previewSelling}
               calculating={calculating}
               isDarkMode={isDarkMode}
               sheetPriceFloorWarning={sheetPriceFloorWarning}

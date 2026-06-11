@@ -1,9 +1,18 @@
+import { ShieldAlert, ArrowRight } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { formatCurrency } from '@/lib/utils';
 import { computeRiskSellingImpact } from '@/lib/productWorkspaceUtils';
 
 const RISK_LEVELS = ['none', 'low', 'medium', 'high'];
+const RISK_MULT = { none: 1.0, low: 1.05, medium: 1.15, high: 1.3 };
+const FACTORS = ['complexity', 'rush', 'execution'];
+const LEVEL_TONE = {
+  none: 'text-neutral-400',
+  low: 'text-emerald-400',
+  medium: 'text-amber-400',
+  high: 'text-rose-400',
+};
 
 function RiskEditor({ risk, isDarkMode, onSetRisk }) {
   const mode = risk.risk_mode || 'default';
@@ -71,45 +80,81 @@ function RiskEditor({ risk, isDarkMode, onSetRisk }) {
 export default function RiskTabPanel({ risk, line, item, isDarkMode, onSetRisk }) {
   const mult = Number(line?.risk_multiplier) || 1;
   const impact = computeRiskSellingImpact(line, item?.margin_percent);
+  const adjusted = Number(line?.selling) || 0;
+  const base = adjusted > 0 ? adjusted - impact : 0;
+  const hasRisk = mult > 1 && impact > 0;
   const muted = isDarkMode ? 'text-neutral-500' : 'text-slate-500';
   const border = isDarkMode ? 'border-neutral-800' : 'border-slate-200';
+  const card = isDarkMode ? 'bg-neutral-900/40 border-neutral-700/60' : 'bg-slate-50 border-slate-200';
+  const isCustom = (risk.risk_mode || 'default') === 'custom';
 
-  const chip = (label, value) => (
-    <span
-      className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs border capitalize ${
-        isDarkMode ? 'border-neutral-700 bg-neutral-900/50 text-neutral-300' : 'border-slate-200 bg-white text-slate-600'
-      }`}
-    >
-      <span className={muted}>{label}</span>
-      <span className="font-medium">{value || 'none'}</span>
-    </span>
+  // Financial chain cell: label + SAR value
+  const chainCell = (label, value, tone) => (
+    <div className="flex flex-col items-center gap-0.5 min-w-0">
+      <span className={`text-[9px] font-semibold uppercase tracking-wider ${muted}`}>{label}</span>
+      <span className={`text-sm sm:text-base font-bold font-mono tabular-nums leading-tight ${tone}`}>{value}</span>
+    </div>
   );
 
   return (
     <div className="pt-3 space-y-4" data-testid="risk-tab-panel">
-      <div className={`rounded-lg border p-4 space-y-3 ${border} ${isDarkMode ? 'bg-neutral-900/30' : 'bg-white'}`}>
-        <div className="flex flex-wrap gap-2">
-          {chip('Complexity', risk.complexity)}
-          {chip('Rush', risk.rush)}
-          {chip('Execution', risk.execution)}
+      {/* ── Financial impact panel ── */}
+      <div className={`rounded-xl border p-4 space-y-3.5 ${card}`}>
+        <div className="flex items-center justify-between gap-2">
+          <span className={`inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider ${
+            hasRisk ? (isDarkMode ? 'text-amber-400' : 'text-amber-700') : muted
+          }`}>
+            <ShieldAlert className="w-3.5 h-3.5" />
+            Risk impact
+          </span>
+          <span className={`text-2xl font-extrabold tabular-nums ${
+            mult > 1.2 ? 'text-rose-400' : mult > 1 ? 'text-amber-400' : isDarkMode ? 'text-neutral-300' : 'text-slate-700'
+          }`}>
+            {mult.toFixed(2)}x
+          </span>
         </div>
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <p className={`text-[10px] font-medium uppercase tracking-wider ${muted}`}>Risk multiplier</p>
-            <p className={`text-2xl font-bold tabular-nums ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-              {mult.toFixed(2)}x
-            </p>
+
+        {/* Base → Premium → Adjusted chain */}
+        {adjusted > 0 ? (
+          <div className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2.5 ${
+            isDarkMode ? 'bg-neutral-950/50 border-neutral-800' : 'bg-white border-slate-200'
+          }`}>
+            {chainCell('Base price', formatCurrency(base, false), isDarkMode ? 'text-neutral-300' : 'text-slate-700')}
+            <ArrowRight className={`w-3.5 h-3.5 shrink-0 ${muted}`} />
+            {chainCell(
+              'Risk premium',
+              hasRisk ? `+${formatCurrency(impact, false)}` : '—',
+              hasRisk ? (isDarkMode ? 'text-amber-400' : 'text-amber-600') : muted
+            )}
+            <ArrowRight className={`w-3.5 h-3.5 shrink-0 ${muted}`} />
+            {chainCell('Adjusted price', formatCurrency(adjusted, false), isDarkMode ? 'text-emerald-400' : 'text-emerald-600')}
           </div>
-          {impact > 0 && (
-            <div className="text-right">
-              <p className={`text-[10px] font-medium uppercase tracking-wider ${muted}`}>Impact on selling price</p>
-              <p className={`text-lg font-semibold tabular-nums ${isDarkMode ? 'text-amber-400' : 'text-amber-700'}`}>
-                + {formatCurrency(impact, false)}
-              </p>
-            </div>
-          )}
-        </div>
+        ) : (
+          <p className={`text-xs ${muted}`}>Add a team to this service to see the risk premium in SAR.</p>
+        )}
+
+        {/* Per-factor contribution */}
+        {!isCustom && (
+          <div className="space-y-1.5">
+            {FACTORS.map(f => {
+              const level = risk[f] || 'none';
+              const lm = RISK_MULT[level] || 1;
+              return (
+                <div key={f} className="flex items-center justify-between text-xs">
+                  <span className={`capitalize ${muted}`}>{f}</span>
+                  <span className="flex items-center gap-2">
+                    <span className={`font-semibold capitalize ${LEVEL_TONE[level]}`}>{level}</span>
+                    <span className={`font-mono tabular-nums text-[11px] w-12 text-right ${lm > 1 ? (isDarkMode ? 'text-neutral-300' : 'text-slate-600') : muted}`}>
+                      ×{lm.toFixed(2)}
+                    </span>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
+
       <RiskEditor risk={risk} isDarkMode={isDarkMode} onSetRisk={onSetRisk} />
     </div>
   );

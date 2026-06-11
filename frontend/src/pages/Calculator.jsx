@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -17,22 +17,27 @@ import {
   LayoutTemplate, Calculator as CalcIcon, Download, Sun, Moon, Save, BarChart3, Pencil
 } from 'lucide-react';
 
-import { 
-  getRoles, 
-  getVendorServices, 
-  getProductTemplates, 
+import {
+  getRoles,
+  getVendorServices,
+  getVendorGroupTemplates,
+  saveVendorGroupTemplate,
+  deleteVendorGroupTemplate,
+  getProductTemplates,
   getScopeTemplates,
   createScopeTemplate,
   updateScopeTemplate,
   deleteScopeTemplate,
   getPaymentTerms,
   getRiskMultipliers,
-  calculateSimple, 
+  calculateSimple,
   setAdminPassword,
   getThemeSettings,
   getHRConfig,
   fetchProductsPricing,
   lookupOpportunityById,
+  quickCreateVendorService,
+  deleteVendorService,
 } from '@/lib/api';
 import {
   enrichScopeItemsWithCatalog,
@@ -41,11 +46,13 @@ import {
   normalizeTierKeyOrDefault,
   resolveCatalogProduct,
   resolveSegmentPayload,
+  resolveTierForProduct,
   getSegmentPayload as getCatalogSegmentPayload,
 } from '@/lib/opportunityScope';
 
 import VendorRow from '@/components/VendorRow';
 import ExportPDF from '@/components/ExportPDF';
+import ExportCenter from '@/components/ExportCenter';
 import QuoteHealthStrip from '@/components/calculator/QuoteHealthStrip';
 import InsightRail from '@/components/calculator/InsightRail';
 import InsightSheet from '@/components/calculator/InsightSheet';
@@ -57,6 +64,7 @@ import StepFrame from '@/components/calculator/StepFrame';
 import OpportunityScopeConfirmDialog from '@/components/calculator/OpportunityScopeConfirmDialog';
 import StepCompose from '@/components/calculator/StepCompose';
 import ResourcesWorkspace from '@/components/calculator/ResourcesWorkspace';
+import AddonsWorkspace from '@/components/calculator/AddonsWorkspace';
 import StepReview from '@/components/calculator/StepReview';
 import { DEAL_STEPS, dealStepToPrimarySection, sectionIdToDealStep } from '@/components/calculator/quoteSteps';
 import { useQuoteWorkflow } from '@/hooks/useQuoteCalculator';
@@ -71,6 +79,7 @@ import {
   shouldAutoSyncTeamFromSegment,
   normalizeExecutionMode,
   EXECUTION_HYBRID,
+  sellingFromCostAndMargin,
 } from '@/lib/marginEngine';
 import { buildSheetTeamMembers } from '@/lib/roleMatching';
 import { collectPreferredVendors } from '@/lib/vendorRegistry';
@@ -122,6 +131,8 @@ function applyScopeEntriesToProducts(prev, entries) {
 
   return { next, addedRows, mergedRows };
 }
+
+const ADMIN_PASSWORD = process.env.REACT_APP_ADMIN_PASSWORD || '';
 
 export default function Calculator() {
   const navigate = useNavigate();
@@ -186,6 +197,8 @@ export default function Calculator() {
   });
   
   const [results, setResults] = useState(null);
+  const [previewSelling, setPreviewSelling] = useState(null);
+  const belowFloorToastRef = useRef(false); // de-dupe the below-floor approval toast across recalcs
   const [activeDealStep, setActiveDealStep] = useState('frame');
   const [expandAllSections, setExpandAllSections] = useState(false);
   const [mobileInsightOpen, setMobileInsightOpen] = useState(false);
@@ -198,7 +211,22 @@ export default function Calculator() {
     [projectInfo, selectedProducts, calcData, results]
   );
   const { readiness, stepCompletion } = useQuoteWorkflow(quoteCtx);
-  
+
+  // Aggregate team + vendors from all products for export
+  // (product-scoped team/vendors live on selectedProducts[], not on global calcData)
+  const exportData = useMemo(() => {
+    const productTeam = (selectedProducts || []).flatMap(p =>
+      (p.team_members || []).map(tm => ({ ...tm, _product: p.product_name }))
+    );
+    const productVendors = (selectedProducts || []).flatMap(p =>
+      (p.vendors || []).map(v => ({ ...v, _product: p.product_name }))
+    );
+    const allTeam = [...(calcData.team_members || []), ...productTeam];
+    const allVendors = [...(calcData.vendors || []), ...productVendors];
+    if (allTeam.length === 0 && allVendors.length === 0) return calcData;
+    return { ...calcData, team_members: allTeam, vendors: allVendors };
+  }, [selectedProducts, calcData]);
+
   // Save Template Dialog State
   const [saveTemplateDialogOpen, setSaveTemplateDialogOpen] = useState(false);
   const [templateDialogMode, setTemplateDialogMode] = useState('create'); // 'create' | 'edit'
@@ -208,6 +236,8 @@ export default function Calculator() {
   const [newTemplateName, setNewTemplateName] = useState('');
   const [newTemplateDescription, setNewTemplateDescription] = useState('');
   const [savingTemplate, setSavingTemplate] = useState(false);
+  const [preferredVendors, setPreferredVendors] = useState([]);
+  const [vendorGroupTemplates, setVendorGroupTemplates] = useState([]);
 
   const hasTemplateSaveContent =
     calcData.team_members.length > 0 ||
@@ -252,6 +282,15 @@ export default function Calculator() {
           cost: Number(v.cost) || 0,
           quantity: Number(v.quantity) || 1,
           markup_percent: Number(v.markup_percent) || 0,
+          is_group: !!v.is_group,
+          sub_items: (v.sub_items || []).map(si => ({
+            id: si.id,
+            name: si.name ?? '',
+            cost: Number(si.cost) || 0,
+            quantity: Number(si.quantity) || 1,
+            unit: si.unit ?? '',
+            markup_percent: Number(si.markup_percent) || 0,
+          })),
           ...(v.risk ? { risk: v.risk } : {}),
         })),
         risk: p.risk || null,
@@ -292,7 +331,7 @@ export default function Calculator() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [rolesResult, vendorsData, scopesData, termsData, themeData, hrData] = await Promise.all([
+      const [rolesResult, vendorsData, scopesData, termsData, themeData, hrData, vendorGroupTplData] = await Promise.all([
         getRoles(true),
         getVendorServices(),
         getScopeTemplates(),
@@ -303,6 +342,7 @@ export default function Calculator() {
           work_days_per_week: 5,
           hours_per_work_day: 8,
         })),
+        getVendorGroupTemplates().catch(() => []),
       ]);
 
       const rolesList = Array.isArray(rolesResult) ? rolesResult : rolesResult.roles;
@@ -311,6 +351,7 @@ export default function Calculator() {
         toast.warning(rolesResult.warning || 'Roles data may be stale — refresh from Admin when available.');
       }
       setVendorServices(vendorsData);
+      setVendorGroupTemplates(Array.isArray(vendorGroupTplData) ? vendorGroupTplData : []);
       setScopeTemplates(scopesData);
       setPaymentTerms(termsData);
       setThemeSettings(themeData);
@@ -457,10 +498,49 @@ export default function Calculator() {
     };
   }, [findCatalogProduct, roles, standardMonthlyHours]);
 
+  // Add an add-on as a child product line under a parent service. An add-on is a
+  // full priced line (own team / tier / risk / margin) tagged with parent_id so the
+  // UI can nest it and analytics/exports can group it. It is inserted immediately
+  // after its parent so the portfolio order stays readable.
+  const handleAddAddon = useCallback((parentLineId, addonName, tier) => {
+    const product = findCatalogProduct(addonName);
+    const resolvedTier = tier || resolveTierForProduct(product, 'standard');
+    const { members } = buildProductTeam(addonName, resolvedTier, 1) || { members: [] };
+    const addonRow = {
+      id: `pp-addon-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      product_name: addonName,
+      size: resolvedTier,
+      quantity: 1,
+      team_members: members,
+      team_source: 'sheet',
+      team_edited: false,
+      team_qty_basis: 1,
+      vendors: [],
+      risk: { complexity: 'none', rush: 'none', execution: 'none', custom_multiplier: 0, risk_mode: 'default' },
+      margin_percent: null,
+      margin_source: null,
+      is_standalone: false,
+      is_addon: true,
+      parent_id: parentLineId || null,
+    };
+    setSelectedProducts(prev => {
+      if (!parentLineId) {
+        // Unlinked / standalone — append to end
+        return [...prev, addonRow];
+      }
+      const idx = prev.findIndex(p => p.id === parentLineId);
+      if (idx < 0) return [...prev, addonRow];
+      // Insert after the parent and any add-ons it already has, so siblings stay grouped.
+      let insertAt = idx + 1;
+      while (insertAt < prev.length && prev[insertAt].parent_id === parentLineId) insertAt += 1;
+      return [...prev.slice(0, insertAt), addonRow, ...prev.slice(insertAt)];
+    });
+  }, [findCatalogProduct, buildProductTeam]);
+
   const validProductCount = useMemo(
     () =>
       selectedProducts.filter(
-        p => !p.vendor_only && p.product_name && p.size && (Number(p.quantity) || 0) > 0
+        p => !p.vendor_only && !p.is_addon && p.product_name && p.size && (Number(p.quantity) || 0) > 0
       ).length,
     [selectedProducts]
   );
@@ -542,19 +622,29 @@ export default function Calculator() {
       }
       
       setResults(result);
+      setPreviewSelling(null); // clear local preview — real result is now in
 
       const sheetFloor = getSheetMinimumTotal();
+      // Only a deliberate margin reduction can price below the floor now (risk is additive).
+      const approvalLines = (result.margin_breakdown?.products || []).filter(p => p.needs_approval);
       if (sheetFloor > 0 && result.selling_price < sheetFloor) {
         setSheetPriceFloorWarning({
           selling: result.selling_price,
           floor: sheetFloor,
           gap: sheetFloor - result.selling_price,
         });
-        toast.warning(
-          `Calculated price (${formatCurrency(result.selling_price)}) is below sheet minimum (${formatCurrency(sheetFloor)})`
-        );
+        // Toast once on entering the below-floor state — the header badge + Review approvals
+        // section keep it visible afterwards, so we don't re-toast on every recalc.
+        if (approvalLines.length > 0 && !belowFloorToastRef.current) {
+          const names = approvalLines.map(p => p.product_name).filter(Boolean).join('، ');
+          toast.warning(
+            `${approvalLines.length} ${approvalLines.length === 1 ? 'service is' : 'services are'} priced below the floor — needs approval${names ? `: ${names}` : ''}`
+          );
+        }
+        belowFloorToastRef.current = true;
       } else {
         setSheetPriceFloorWarning(null);
+        belowFloorToastRef.current = false;
       }
     } catch (error) {
       console.error('Calculation error:', error);
@@ -564,6 +654,30 @@ export default function Calculator() {
       setCalculating(false);
     }
   }, [calcData, projectInfo.payment_term_id, paymentTerms, selectedProducts, productsPricingCatalog]);
+
+  // Instant local preview when a product's margin slider moves (before API responds)
+  const handleMarginPreview = useCallback((productId, newMargin) => {
+    if (!results) return;
+    const lines = results.margin_breakdown?.products || [];
+    const targetLine = lines.find(l => l.id === productId);
+    if (!targetLine) return;
+    // Additive risk model: margin applies to internal (labor+overhead) only; vendor revenue is
+    // additive; service risk is a premium on top; the margin slider = custom margin (no floor clamp).
+    const riskMult = Number(targetLine.risk_multiplier) || 1;
+    const globalMult = Number(results.margin_breakdown?.global_risk_multiplier) || 1;
+    const vendorRev = Number(targetLine.vendor_revenue) || 0;
+    const internalCost = targetLine.internal_cost != null
+      ? Number(targetLine.internal_cost)
+      : Math.max(0, (Number(targetLine.cost) || 0) - (Number(targetLine.vendor_cost) || 0));
+    const newInternalSellNoRisk = sellingFromCostAndMargin(internalCost, newMargin);
+    const oldInternalSellNoRisk = sellingFromCostAndMargin(internalCost, Number(targetLine.margin_percent) || 0);
+    const newProductSelling = newInternalSellNoRisk + vendorRev + newInternalSellNoRisk * (riskMult - 1);
+    const oldProductSelling = Number(targetLine.selling) || 0;
+    // Global Quote-Controls risk premium scales with each line's internal selling.
+    const globalDelta = (newInternalSellNoRisk - oldInternalSellNoRisk) * (globalMult - 1);
+    const currentTotal = Number(results.selling_price) || 0;
+    setPreviewSelling(currentTotal - oldProductSelling + newProductSelling + globalDelta);
+  }, [results]);
 
   // Auto-calculate on data change
   useEffect(() => {
@@ -697,14 +811,10 @@ export default function Calculator() {
 
         newTeamMembers = resolvedProducts.flatMap(product => 
           (product.default_roles || []).map(roleRef => {
-            // Try to find a matching role
-            let role = roleMapping[roleRef.role_id];
-            
-            // If no mapping, try first available role in similar category
-            if (!role && roles.length > 0) {
-              role = roles[Math.floor(Math.random() * Math.min(5, roles.length))];
-            }
-            
+            // Match the legacy role id to a live role by name. If nothing
+            // matches, omit the line rather than guessing — a silently
+            // mis-assigned role would corrupt the quote's pricing.
+            const role = roleMapping[roleRef.role_id];
             if (!role) return null;
             
             return {
@@ -763,6 +873,11 @@ export default function Calculator() {
         use_split_margins: template.use_split_margins ?? prev.use_split_margins,
       }));
 
+      // Surface preferred vendors so ResourcesWorkspace can suggest them
+      if (template.preferred_vendors?.length) {
+        setPreferredVendors(template.preferred_vendors);
+      }
+
       const parts = [];
       if (pricingProducts.length > 0) parts.push(`${pricingProducts.length} منتج`);
       if (newTeamMembers.length > 0) parts.push(`${newTeamMembers.length} وظيفة`);
@@ -770,6 +885,58 @@ export default function Calculator() {
     } catch (error) {
       console.error('Error loading template:', error);
       toast.error('فشل تحميل القالب');
+    }
+  };
+
+  // ─── Vendor Group Template handlers ──────────────────────────────────────
+  const handleSaveVendorTemplate = async (payload) => {
+    try {
+      const saved = await saveVendorGroupTemplate(payload);
+      setVendorGroupTemplates(prev => [...prev, saved]);
+      toast.success(`Vendor template "${payload.name}" saved`);
+    } catch (error) {
+      console.error('Error saving vendor template:', error);
+      toast.error('Failed to save vendor template');
+      throw error;
+    }
+  };
+
+  const handleDeleteVendorTemplate = async (id) => {
+    try {
+      await deleteVendorGroupTemplate(id);
+      setVendorGroupTemplates(prev => prev.filter(t => t.id !== id));
+      toast.success('Vendor template deleted');
+    } catch (error) {
+      console.error('Error deleting vendor template:', error);
+      toast.error('Failed to delete vendor template');
+    }
+  };
+
+  const handleQuickCreateVendorService = async (name) => {
+    try {
+      const created = await quickCreateVendorService({ name });
+      // Refresh vendor services list so the new service appears in presets
+      const refreshed = await getVendorServices();
+      setVendorServices(Array.isArray(refreshed) ? refreshed : []);
+      toast.success(`Vendor service "${name}" created`);
+      return created;
+    } catch (error) {
+      console.error('Error creating vendor service:', error);
+      toast.error('Failed to create vendor service');
+      throw error;
+    }
+  };
+
+  const handleDeleteVendorService = async (id, name) => {
+    try {
+      setAdminPassword(ADMIN_PASSWORD);
+      await deleteVendorService(id);
+      const refreshed = await getVendorServices();
+      setVendorServices(Array.isArray(refreshed) ? refreshed : []);
+      toast.success(`Removed "${name || 'vendor'}" from catalog`);
+    } catch (error) {
+      console.error('Error deleting vendor service:', error);
+      toast.error('Failed to remove vendor from catalog');
     }
   };
 
@@ -786,7 +953,7 @@ export default function Calculator() {
 
     setSavingTemplate(true);
     try {
-      setAdminPassword('Amr123');
+      setAdminPassword(ADMIN_PASSWORD);
       const templateData = buildTemplatePayload();
       const isEdit = templateDialogMode === 'edit' && activeTemplateId;
 
@@ -818,7 +985,7 @@ export default function Calculator() {
     const template = scopeTemplates.find(t => t.id === activeTemplateId);
     setDeletingTemplate(true);
     try {
-      setAdminPassword('Amr123');
+      setAdminPassword(ADMIN_PASSWORD);
       await deleteScopeTemplate(activeTemplateId);
       const updatedTemplates = await getScopeTemplates();
       setScopeTemplates(updatedTemplates);
@@ -1106,23 +1273,17 @@ export default function Calculator() {
       <header className={`sticky top-0 z-50 px-6 py-4 ${isDarkMode ? 'glass-header' : 'bg-white border-b border-slate-200 shadow-sm'}`} data-testid="header">
         <div className="max-w-[1600px] mx-auto flex items-center justify-between">
           <div className="flex items-center gap-4">
-            {themeSettings.logo_url ? (
-              <img 
-                src={themeSettings.logo_url} 
-                alt="Logo" 
-                className="w-10 h-10 rounded-lg object-contain"
-                onError={(e) => e.target.style.display = 'none'}
-              />
-            ) : (
-              <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${isDarkMode ? 'bg-white' : 'bg-neutral-900'}`}>
-                <span className={`font-bold text-sm  ${isDarkMode ? 'text-neutral-900' : 'text-white'}`}>ZAN</span>
-              </div>
-            )}
+            <img
+              src={themeSettings.logo_url || '/icons/Icon.png'}
+              alt="ZAN Logo"
+              className="w-10 h-10 rounded-xl object-cover"
+              onError={(e) => { e.target.src = '/icons/Icon.png'; }}
+            />
             <div>
-              <h1 className={`text-lg font-bold  ${isDarkMode ? 'text-white' : 'text-neutral-900'}`}>
-                {themeSettings.company_name || 'ZAN'}
+              <h1 className={`text-lg font-bold whitespace-nowrap ${isDarkMode ? 'text-white' : 'text-neutral-900'}`}>
+                ZAN Agency
               </h1>
-              <p className={`text-xs ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>Pricing Command Center</p>
+              <p className={`text-xs whitespace-nowrap ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>Pricing Command Center</p>
             </div>
           </div>
           
@@ -1138,12 +1299,13 @@ export default function Calculator() {
               {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </Button>
             
-            <ExportPDF 
-              data={calcData} 
-              results={results} 
+            <ExportPDF
+              data={exportData}
+              results={results}
               projectInfo={projectInfo}
               themeSettings={themeSettings}
               isDarkMode={isDarkMode}
+              selectedProducts={selectedProducts}
             />
             <Button 
               variant="ghost" 
@@ -1171,6 +1333,7 @@ export default function Calculator() {
 
       <QuoteHealthStrip
         results={results}
+        previewSelling={previewSelling}
         calculating={calculating}
         readiness={readiness}
         isDarkMode={isDarkMode}
@@ -1217,6 +1380,11 @@ export default function Calculator() {
                 productsPricingSyncedAt={productsPricingSyncedAt}
                 productsPricingStale={productsPricingStale}
                 rolesCount={roles.length}
+                isLoading={productsPricingLoading}
+                onRefresh={async () => {
+                  await loadProductsPricingCatalog(true);
+                  await refreshRoles(true);
+                }}
               />
             )}
             <div className={`flex items-center gap-2 ${activeDealStep === 'compose' ? 'ml-auto' : ''}`}>
@@ -1292,6 +1460,7 @@ export default function Calculator() {
                 vendorServices,
                 scopeTemplates,
                 onAddTemplateProducts: addScopeTemplateProducts,
+                onMarginPreview: handleMarginPreview,
               }}
             />
           )}
@@ -1301,6 +1470,30 @@ export default function Calculator() {
               selectedProducts={selectedProducts}
               setSelectedProducts={setSelectedProducts}
               vendorServices={vendorServices}
+              preferredVendors={preferredVendors}
+              vendorGroupTemplates={vendorGroupTemplates}
+              onSaveVendorTemplate={handleSaveVendorTemplate}
+              onDeleteVendorTemplate={handleDeleteVendorTemplate}
+              onQuickCreateVendorService={handleQuickCreateVendorService}
+              onDeleteVendorService={handleDeleteVendorService}
+            />
+          )}
+          {isSectionVisible('addons') && (
+            <AddonsWorkspace
+              isDarkMode={isDarkMode}
+              selectedProducts={selectedProducts}
+              setSelectedProducts={setSelectedProducts}
+              onAddAddon={handleAddAddon}
+              filteredProductsCatalog={filteredProductsCatalog}
+              findCatalogProduct={findCatalogProduct}
+              getSegmentPayload={getSegmentPayload}
+              roles={roles}
+              calcData={calcData}
+              results={results}
+              standardMonthlyHours={standardMonthlyHours}
+              buildProductTeam={buildProductTeam}
+              refreshRoles={refreshRoles}
+              onMarginPreview={handleMarginPreview}
             />
           )}
           {isSectionVisible('review') && (
@@ -1308,16 +1501,21 @@ export default function Calculator() {
               isDarkMode={isDarkMode}
               stepCompletion={stepCompletion}
               results={results}
+              selectedProducts={selectedProducts}
+              calcData={calcData}
               onGoToScope={() => goToDealStep('compose')}
               onSaveTemplate={openCreateTemplateDialog}
               hasTemplateSaveContent={hasTemplateSaveContent}
               exportPdfSlot={
-                <ExportPDF
-                  data={calcData}
-                  results={results}
+                <ExportCenter
                   projectInfo={projectInfo}
+                  selectedProducts={selectedProducts}
+                  results={results}
                   themeSettings={themeSettings}
+                  paymentTerms={paymentTerms}
                   isDarkMode={isDarkMode}
+                  findCatalogProduct={findCatalogProduct}
+                  getSegmentPayload={getSegmentPayload}
                 />
               }
             />
@@ -1328,6 +1526,7 @@ export default function Calculator() {
           <InsightRail
             className="h-full"
             results={results}
+            previewSelling={previewSelling}
             calculating={calculating}
             isDarkMode={isDarkMode}
             sheetPriceFloorWarning={sheetPriceFloorWarning}
@@ -1341,6 +1540,7 @@ export default function Calculator() {
             projectInfo={projectInfo}
             setProjectInfo={setProjectInfo}
             paymentTerms={paymentTerms}
+            setPaymentTerms={setPaymentTerms}
             onOpenQuoteSettings={() => goToDealStep('economics')}
             setSelectedProducts={setSelectedProducts}
             findCatalogProduct={findCatalogProduct}
@@ -1349,11 +1549,12 @@ export default function Calculator() {
             onSaveTemplate={openCreateTemplateDialog}
             exportPdfSlot={
               <ExportPDF
-                data={calcData}
+                data={exportData}
                 results={results}
                 projectInfo={projectInfo}
                 themeSettings={themeSettings}
                 isDarkMode={isDarkMode}
+                selectedProducts={selectedProducts}
               />
             }
           />
@@ -1365,6 +1566,7 @@ export default function Calculator() {
         open={mobileInsightOpen}
         onOpenChange={setMobileInsightOpen}
         results={results}
+        previewSelling={previewSelling}
         calculating={calculating}
         isDarkMode={isDarkMode}
         sheetPriceFloorWarning={sheetPriceFloorWarning}

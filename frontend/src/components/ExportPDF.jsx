@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { formatCurrency } from '@/lib/utils';
 
-export default function ExportPDF({ data, results, projectInfo, themeSettings, isDarkMode = true }) {
+export default function ExportPDF({ data, results, projectInfo, themeSettings, isDarkMode = true, selectedProducts = [] }) {
   const [exporting, setExporting] = useState(false);
 
   const generatePDF = async () => {
@@ -25,21 +25,43 @@ export default function ExportPDF({ data, results, projectInfo, themeSettings, i
       // Calculate totals
       const laborTotal = results?.labor_cost || 0;
       const vendorTotal = results?.vendor_cost || 0;
-      const totalRevenue = results?.total_revenue || 0;
+      const totalSellingPrice = results?.total_revenue || results?.selling_price || 0;
+
+      // Build scope of work rows from selectedProducts
+      const scopeRows = (selectedProducts || [])
+        .filter(p => p.product_name && !p.vendor_only)
+        .map(p => {
+          const teamCost = (p.team_members || []).reduce((s, tm) => {
+            const hrs = Number(tm.hours) || 0;
+            const rate = Number(tm.hourly_rate) || 0;
+            const qty = Number(tm.quantity) || 1;
+            return s + hrs * rate * qty;
+          }, 0);
+          const vendorClientPrice = (p.vendors || []).reduce((s, v) => {
+            const tc = (Number(v.cost) || 0) * (Number(v.quantity) || 1);
+            return s + tc * (1 + (Number(v.markup_percent) || 0) / 100);
+          }, 0);
+          const size = p.size ? String(p.size).toUpperCase() : '';
+          const qty = p.quantity || 1;
+          return `
+            <tr>
+              <td>${p.product_name || 'Service'}${size ? ` · ${size}` : ''}</td>
+              <td class="center">${qty}</td>
+              <td class="right">${teamCost > 0 ? formatCurrency(teamCost, false) : '—'}</td>
+              <td class="right">${vendorClientPrice > 0 ? formatCurrency(vendorClientPrice, false) : '—'}</td>
+            </tr>
+          `;
+        }).join('') || '';
       
       // Build team rows
       const teamRows = data?.team_members?.map(tm => {
         const qty = tm.quantity || 1;
         const hours = tm.hours || 0;
-        const rate = tm.hourly_rate || 0;
-        const total = hours * rate * qty;
         return `
           <tr>
             <td>${tm.role_name || 'Role'}</td>
             <td class="center">${qty}</td>
             <td class="center">${hours}</td>
-            <td class="right">${formatCurrency(rate, false)}</td>
-            <td class="right bold">${formatCurrency(total, false)}</td>
           </tr>
         `;
       }).join('') || '';
@@ -288,6 +310,26 @@ export default function ExportPDF({ data, results, projectInfo, themeSettings, i
               </div>
             </header>
             
+            <!-- Scope of Work -->
+            ${scopeRows ? `
+              <section class="section">
+                <h2 class="section-title">Scope of Work</h2>
+                <table>
+                  <thead>
+                    <tr>
+                      <th style="width:45%">Service</th>
+                      <th class="center" style="width:10%">Qty</th>
+                      <th class="right" style="width:22%">Team Cost</th>
+                      <th class="right" style="width:23%">Vendor Cost</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${scopeRows}
+                  </tbody>
+                </table>
+              </section>
+            ` : ''}
+
             <!-- Internal Team -->
             ${teamRows ? `
               <section class="section">
@@ -295,18 +337,16 @@ export default function ExportPDF({ data, results, projectInfo, themeSettings, i
                 <table>
                   <thead>
                     <tr>
-                      <th style="width:40%">Role</th>
-                      <th class="center" style="width:10%">Qty</th>
-                      <th class="center" style="width:12%">Hours</th>
-                      <th class="right" style="width:18%">Rate/hr</th>
-                      <th class="right" style="width:20%">Amount</th>
+                      <th style="width:60%">Role</th>
+                      <th class="center" style="width:20%">Qty</th>
+                      <th class="center" style="width:20%">Hours</th>
                     </tr>
                   </thead>
                   <tbody>
                     ${teamRows}
                     <tr class="subtotal-row">
-                      <td colspan="4" class="right">Subtotal</td>
-                      <td class="right bold">SAR ${formatCurrency(laborTotal, false)}</td>
+                      <td colspan="2" class="right">Total Hours</td>
+                      <td class="center bold">${(data?.team_members || []).reduce((s, tm) => s + (Number(tm.hours) || 0) * (Number(tm.quantity) || 1), 0).toFixed(0)} hrs</td>
                     </tr>
                   </tbody>
                 </table>
@@ -352,8 +392,8 @@ export default function ExportPDF({ data, results, projectInfo, themeSettings, i
                   <span class="summary-value">SAR ${formatCurrency(vendorTotal, false)}</span>
                 </div>
                 <div class="summary-row">
-                  <span class="summary-label">Total Investment</span>
-                  <span class="summary-value">SAR ${formatCurrency(totalRevenue, false)}</span>
+                  <span class="summary-label">Total Client Investment</span>
+                  <span class="summary-value">SAR ${formatCurrency(totalSellingPrice, false)}</span>
                 </div>
               </div>
             </div>

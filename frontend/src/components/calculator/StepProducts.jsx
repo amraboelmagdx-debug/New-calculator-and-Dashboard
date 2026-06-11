@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Plus, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
+import { Plus, RefreshCw } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import ProductWorkspaceCard from './ProductWorkspaceCard';
@@ -10,10 +10,6 @@ import { resolveTierForProduct } from '@/lib/opportunityScope';
 import {
   getPortfolioCardUi,
   syncPortfolioUiForIds,
-  isPortfolioFullyCollapsed,
-  isPortfolioFullyExpandedSummary,
-  collapseCardUi,
-  expandCardUiSummary,
   closePanel,
 } from '@/lib/portfolioCardUi';
 
@@ -40,12 +36,15 @@ export default function StepProducts({
   refreshRoles,
   scopeTemplates = [],
   onAddTemplateProducts,
+  onMarginPreview,
 }) {
   const catalogReloadAttempted = useRef(false);
   const [addOpen, setAddOpen] = useState(false);
   const [recentServices, setRecentServices] = useState(() => getRecentServices());
   const [portfolioUi, setPortfolioUi] = useState({});
-  const visibleProducts = selectedProducts.filter(p => !p.vendor_only);
+  // Add-ons are nested under their parent service in the Resources step — they
+  // are not shown as top-level portfolio cards here.
+  const visibleProducts = selectedProducts.filter(p => !p.vendor_only && !p.is_addon);
   const visibleIdsKey = visibleProducts
     .map(p => p.id)
     .sort()
@@ -80,9 +79,10 @@ export default function StepProducts({
 
   const appendRow = row => setSelectedProducts(prev => [...prev.filter(p => !isBlankRow(p)), row]);
 
-  const addFromCatalog = serviceName => {
+  const addFromCatalog = (serviceName, selectedTier) => {
     const product = findCatalogProduct?.(serviceName);
-    const tier = resolveTierForProduct(product, 'standard');
+    // Use the tier chosen in the dialog; fall back to catalog default if not provided
+    const tier = selectedTier || resolveTierForProduct(product, 'standard');
     const { members } = buildProductTeam?.(serviceName, tier, 1) || { members: [] };
     appendRow(
       newRow({
@@ -110,41 +110,21 @@ export default function StepProducts({
   };
 
   const handleRemoveItem = id => {
-    setSelectedProducts(prev => prev.filter(p => p.id !== id));
+    // Removing a parent service also removes any add-ons attached to it.
+    setSelectedProducts(prev => prev.filter(p => p.id !== id && p.parent_id !== id));
   };
 
   const productCount = visibleProducts.filter(p => p.is_standalone || p.product_name).length;
-  const allCollapsed = productCount > 0 && isPortfolioFullyCollapsed(portfolioUi, visibleProducts);
-  const allExpandedSummary =
-    productCount > 0 && isPortfolioFullyExpandedSummary(portfolioUi, visibleProducts);
 
-  const collapseAll = () => {
-    setPortfolioUi(prev => {
-      const next = { ...prev };
-      visibleProducts.forEach(p => {
-        next[p.id] = collapseCardUi();
-      });
-      return next;
-    });
-  };
-
-  const expandAll = () => {
-    setPortfolioUi(prev => {
-      const next = { ...prev };
-      visibleProducts.forEach(p => {
-        next[p.id] = expandCardUiSummary();
-      });
-      return next;
-    });
-  };
-
+  // The chevron toggles the detail drawer. Opening defaults to the Team panel;
+  // clicking again (any panel open) collapses the drawer.
   const toggleCardOpen = id => {
     setPortfolioUi(prev => {
       const cur = getPortfolioCardUi(prev, id);
-      if (!cur.isOpen) {
-        return { ...prev, [id]: { ...cur, isOpen: true } };
+      if (cur.panel) {
+        return { ...prev, [id]: closePanel(cur) };
       }
-      return { ...prev, [id]: collapseCardUi() };
+      return { ...prev, [id]: { ...cur, panel: 'team' } };
     });
   };
 
@@ -152,12 +132,11 @@ export default function StepProducts({
     setPortfolioUi(prev => {
       const cur = getPortfolioCardUi(prev, id);
       if (panel == null) {
-        return { ...prev, [id]: closePanel({ ...cur, isOpen: true }) };
+        return { ...prev, [id]: closePanel(cur) };
       }
       return {
         ...prev,
         [id]: {
-          isOpen: true,
           panel,
           teamEditorsOpen: panel === 'team' ? cur.teamEditorsOpen : false,
         },
@@ -183,52 +162,38 @@ export default function StepProducts({
         <span className={`text-xs ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>
           {productCount} service{productCount === 1 ? '' : 's'}
         </span>
-        {productCount > 0 && (
-          <div className="flex items-center gap-0.5">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={allExpandedSummary}
-              onClick={expandAll}
-              className={`h-7 px-2 text-[11px] ${
-                isDarkMode ? 'text-neutral-400 hover:text-neutral-200' : 'text-slate-500 hover:text-slate-800'
-              }`}
-              title="Show full metrics on every service (no Team/Risk panels)"
-              data-testid="portfolio-expand-all"
-            >
-              <ChevronsUpDown className="w-3.5 h-3.5 mr-1" />
-              Expand rows
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={allCollapsed}
-              onClick={collapseAll}
-              className={`h-7 px-2 text-[11px] ${
-                isDarkMode ? 'text-neutral-400 hover:text-neutral-200' : 'text-slate-500 hover:text-slate-800'
-              }`}
-              title="Collapse every service row and close all panels"
-              data-testid="portfolio-collapse-all"
-            >
-              <ChevronsDownUp className="w-3.5 h-3.5 mr-1" />
-              Collapse rows
-            </Button>
-          </div>
-        )}
       </div>
-      <Button
-        size="sm"
-        onClick={() => setAddOpen(true)}
-        className={`h-8 text-xs px-3 font-semibold ${
-          isDarkMode ? 'bg-indigo-500 text-white hover:bg-indigo-400' : 'bg-indigo-600 text-white hover:bg-indigo-700'
-        }`}
-        data-testid="add-service-btn"
-      >
-        <Plus className="w-3.5 h-3.5 mr-1" />
-        Add service
-      </Button>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={async () => {
+            if (loadProductsPricingCatalog) await loadProductsPricingCatalog(true);
+            if (refreshRoles) await refreshRoles(true);
+          }}
+          disabled={productsPricingLoading}
+          title="Refresh catalog & roles from Google Sheets"
+          className={`h-8 gap-1.5 text-xs px-3 ${
+            isDarkMode
+              ? 'border-neutral-700 text-neutral-300 hover:border-indigo-500/50 hover:text-indigo-300 disabled:opacity-40'
+              : 'border-slate-300 text-slate-600 hover:border-indigo-400 hover:text-indigo-600 disabled:opacity-40'
+          }`}
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${productsPricingLoading ? 'animate-spin' : ''}`} />
+          <span>Refresh</span>
+        </Button>
+        <Button
+          size="sm"
+          onClick={() => setAddOpen(true)}
+          className={`h-8 text-xs px-3 font-semibold ${
+            isDarkMode ? 'bg-indigo-500 text-white hover:bg-indigo-400' : 'bg-indigo-600 text-white hover:bg-indigo-700'
+          }`}
+          data-testid="add-service-btn"
+        >
+          <Plus className="w-3.5 h-3.5 mr-1" />
+          Add service
+        </Button>
+      </div>
     </div>
   );
 
@@ -262,12 +227,12 @@ export default function StepProducts({
               standardMonthlyHours={standardMonthlyHours}
               buildProductTeam={buildProductTeam}
               refreshRoles={refreshRoles}
-              isOpen={ui.isOpen}
               openSection={ui.panel}
               teamEditorsOpen={ui.teamEditorsOpen}
               onToggleCardOpen={() => toggleCardOpen(item.id)}
               onOpenSectionChange={panel => setCardPanel(item.id, panel)}
               onTeamEditorsOpenChange={open => setTeamEditorsOpen(item.id, open)}
+              onMarginPreview={onMarginPreview}
             />
           );
         })

@@ -222,12 +222,6 @@ code {
     box-shadow: none;
 }
 
-.product-portfolio-row--compact {
-    min-height: 0;
-    max-height: 88px;
-    overflow: hidden;
-}
-
 .products-command-strip {
     max-height: 40px;
     line-height: 1.25;

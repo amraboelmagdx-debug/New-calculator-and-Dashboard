@@ -5,6 +5,7 @@ import ExecutiveQuoteRail from './ExecutiveQuoteRail';
  */
 export default function InsightRail({
   results,
+  previewSelling,
   calculating,
   isDarkMode,
   sheetPriceFloorWarning,
@@ -21,6 +22,7 @@ export default function InsightRail({
   projectInfo,
   setProjectInfo,
   paymentTerms = [],
+  setPaymentTerms,
   setCalcData,
   onOpenQuoteSettings,
   setSelectedProducts,
@@ -31,6 +33,7 @@ export default function InsightRail({
   return (
     <ExecutiveQuoteRail
       results={results}
+      previewSelling={previewSelling}
       calculating={calculating}
       isDarkMode={isDarkMode}
       sheetPriceFloorWarning={sheetPriceFloorWarning}
@@ -47,6 +50,7 @@ export default function InsightRail({
       projectInfo={projectInfo}
       setProjectInfo={setProjectInfo}
       paymentTerms={paymentTerms}
+      setPaymentTerms={setPaymentTerms}
       setCalcData={setCalcData}
       onOpenQuoteSettings={onOpenQuoteSettings}
       setSelectedProducts={setSelectedProducts}

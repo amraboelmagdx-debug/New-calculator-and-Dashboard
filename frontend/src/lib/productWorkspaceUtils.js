@@ -77,16 +77,17 @@ export function percentOf(part, whole) {
 }
 
 export function computeRiskSellingImpact(line, marginPercent) {
-  const baseCost = Number(line?.cost) || 0;
   const mult = Number(line?.risk_multiplier) || 1;
   const margin = marginPercent ?? line?.margin_percent ?? 30;
-  if (baseCost <= 0 || mult <= 1) return 0;
-  const floor = Number(line?.sheet_min_selling) || 0;
-  const withoutRisk = sellingFromCostAndMargin(baseCost, margin);
-  const withRisk = sellingFromCostAndMargin(baseCost * mult, margin);
-  const sellWithout = Math.max(withoutRisk, floor);
-  const sellWith = Math.max(withRisk, floor);
-  return Math.max(0, sellWith - sellWithout);
+  if (mult <= 1) return 0;
+  // Risk is an ADDITIVE premium on top of the floor-protected price, applied to the internal
+  // (labor+overhead) selling only — vendor revenue carries its own risk. Mirrors the backend.
+  const internalCost = line?.internal_cost != null
+    ? Number(line.internal_cost)
+    : Math.max(0, (Number(line?.cost) || 0) - (Number(line?.vendor_cost) || 0));
+  if (internalCost <= 0) return 0;
+  const internalSellNoRisk = sellingFromCostAndMargin(internalCost, margin);
+  return Math.max(0, internalSellNoRisk * (mult - 1));
 }
 
 export function deriveLineValidation(line, item) {
@@ -135,4 +136,36 @@ export function healthScoreTone(score, isDarkMode) {
   if (score >= 80) return isDarkMode ? 'text-emerald-400' : 'text-emerald-600';
   if (score >= 60) return isDarkMode ? 'text-amber-400' : 'text-amber-600';
   return isDarkMode ? 'text-rose-400' : 'text-rose-600';
+}
+
+// ─── Department grouping helpers ──────────────────────────────────────────────
+
+/**
+ * Extract the English (or short) portion of a bilingual dept name.
+ * "إدارة الحسابات - Accounts Management" → "Accounts Management"
+ */
+export function shortDeptLabel(name) {
+  const s = (name || '').trim();
+  if (!s || s === 'Other') return s || 'Other';
+  if (s.includes(' - ')) return s.split(' - ').pop().trim();
+  return s;
+}
+
+/**
+ * Group team members by department (looked up from roles array).
+ * Returns: [{ dept, members: [{member, originalIndex}], totalHours, totalCost }]
+ * Sorted by totalCost descending. Members with no matching role go to "Other".
+ */
+export function groupMembersByDept(members = [], roles = [], standardMonthlyHours = 160) {
+  const deptMap = new Map();
+  members.forEach((member, index) => {
+    const role = roles.find(r => r.id === member.role_id);
+    const dept = (role?.department || '').trim() || 'Other';
+    if (!deptMap.has(dept)) deptMap.set(dept, { dept, members: [], totalHours: 0, totalCost: 0 });
+    const group = deptMap.get(dept);
+    group.members.push({ member, originalIndex: index });
+    group.totalHours += (Number(member.hours) || 0) * (Number(member.quantity) || 1);
+    group.totalCost += computeMemberCost(member, roles, 20, standardMonthlyHours);
+  });
+  return [...deptMap.values()].sort((a, b) => b.totalCost - a.totalCost);
 }

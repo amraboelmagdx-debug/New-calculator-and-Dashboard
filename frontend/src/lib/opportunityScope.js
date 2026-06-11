@@ -129,6 +129,40 @@ function productDisplayName(product) {
   return product?.product_name || product?.service_name || '';
 }
 
+// ─── Add-on detection (data-driven from the sheet) ───────────────────────────
+// Add-ons are ordinary catalog rows whose service name carries an "add on" /
+// "add-on" token. They share their parent service's family (= category), and
+// have the same tier/team/cost shape as any service. Detection lives here so any
+// new "… - Add on" row from the sheet is handled automatically (nothing hardcoded).
+
+const ADDON_NAME_RE = /\badd[\s-]?on\b/i;
+
+/** True when a catalog product is an add-on (by its service/product name). */
+export function isAddonProduct(product) {
+  if (!product) return false;
+  const name = productDisplayName(product);
+  return ADDON_NAME_RE.test(String(name || ''));
+}
+
+/** Public accessor for a product's family/category. */
+export function getProductFamily(product) {
+  return productFamily(product);
+}
+
+/** All add-on catalog rows belonging to a given family/category. */
+export function listAddonsForFamily(catalog = [], family) {
+  const fam = String(family || '').trim();
+  return (catalog || []).filter(p => isAddonProduct(p) && getProductFamily(p) === fam);
+}
+
+/** Partition a catalog into { services, addons }. */
+export function splitCatalogServicesAndAddons(catalog = []) {
+  const services = [];
+  const addons = [];
+  (catalog || []).forEach(p => (isAddonProduct(p) ? addons : services).push(p));
+  return { services, addons };
+}
+
 /** Resolve a catalog row by service name with exact, normalized, and fuzzy matching. */
 export function resolveCatalogProduct(catalog = [], name, options = {}) {
   const { familyHint } = options;

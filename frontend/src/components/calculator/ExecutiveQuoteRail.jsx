@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { AlertTriangle, ChevronDown, Save, Settings2 } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronRight, Save, Settings2 } from 'lucide-react';
 import DashboardMetricAmount from './DashboardMetricAmount';
 import QuoteEmptyState from './QuoteEmptyState';
 import IntelligenceAlerts from './IntelligenceAlerts';
@@ -22,6 +22,7 @@ const RAIL_TABS = [
 
 export default function ExecutiveQuoteRail({
   results,
+  previewSelling,
   calculating,
   isDarkMode,
   sheetPriceFloorWarning,
@@ -38,6 +39,7 @@ export default function ExecutiveQuoteRail({
   projectInfo,
   setProjectInfo,
   paymentTerms = [],
+  setPaymentTerms,
   setCalcData,
   onOpenQuoteSettings,
   setSelectedProducts,
@@ -55,7 +57,7 @@ export default function ExecutiveQuoteRail({
     margin >= 30 ? 'text-emerald-500' : margin >= 20 ? 'text-amber-500' : 'text-rose-500';
 
   const tabBtn = id =>
-    `flex-1 min-w-0 py-1.5 px-1 text-[11px] rounded-md transition-colors font-medium ${
+    `flex-1 min-w-0 py-2 px-1 text-xs rounded-md transition-colors font-medium ${
       activeTab === id
         ? isDarkMode
           ? 'bg-neutral-800 text-white'
@@ -74,12 +76,12 @@ export default function ExecutiveQuoteRail({
         data-testid="executive-quote-rail"
         data-variant="executive"
       >
-        <p className={`text-[10px] font-semibold uppercase tracking-wider mb-2 ${isDarkMode ? 'text-neutral-600' : 'text-slate-400'}`}>
+        <p className={`text-[11px] font-semibold uppercase tracking-wider mb-3 ${isDarkMode ? 'text-neutral-500' : 'text-slate-400'}`}>
           Executive quote
         </p>
 
         <div
-          className={`flex gap-0.5 p-0.5 rounded-lg mb-3 ${isDarkMode ? 'bg-neutral-950' : 'bg-slate-100'}`}
+          className={`flex gap-0.5 p-0.5 rounded-lg mb-4 ${isDarkMode ? 'bg-neutral-950' : 'bg-slate-100'}`}
           role="tablist"
         >
           {RAIL_TABS.map(tab => (
@@ -110,6 +112,7 @@ export default function ExecutiveQuoteRail({
             <div className="space-y-3">
               <QuoteHealthCenter
                 results={results}
+                previewSelling={previewSelling}
                 calculating={calculating}
                 isDarkMode={isDarkMode}
                 sheetPriceFloorWarning={sheetPriceFloorWarning}
@@ -120,7 +123,7 @@ export default function ExecutiveQuoteRail({
               {results?.margin_breakdown?.mode === 'granular' && (
                 <Collapsible open={marginStackOpen} onOpenChange={setMarginStackOpen}>
                   <CollapsibleTrigger
-                    className={`flex w-full items-center justify-between py-2 text-xs font-medium ${
+                    className={`flex w-full items-center justify-between py-2.5 text-[13px] font-medium ${
                       isDarkMode ? 'text-neutral-300' : 'text-slate-700'
                     }`}
                   >
@@ -161,6 +164,7 @@ export default function ExecutiveQuoteRail({
               isDarkMode={isDarkMode}
               selectedProducts={selectedProducts}
               results={results}
+              calcData={calcData}
               compact
             />
           ) : activeTab === 'margin' ? (
@@ -173,111 +177,13 @@ export default function ExecutiveQuoteRail({
               getSegmentPayload={getSegmentPayload}
             />
           ) : (
-            <div className="space-y-3">
-              <div>
-                <p className={`text-xs mb-1 ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>Selling price</p>
-                {calculating ? (
-                  <div className={`h-8 w-full rounded animate-pulse ${isDarkMode ? 'bg-neutral-800' : 'bg-slate-200'}`} />
-                ) : (
-                  <DashboardMetricAmount
-                    value={results?.selling_price || 0}
-                    size="lg"
-                    className={isDarkMode ? 'text-white' : 'text-slate-900'}
-                  />
-                )}
-              </div>
-              <div className="flex items-center justify-between">
-                <span className={`text-xs ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`}>Contribution margin</span>
-                <span className={`text-sm font-bold font-mono ${marginColor}`}>{margin.toFixed(1)}%</span>
-              </div>
-              <IntelligenceAlerts
-                results={results}
-                sheetPriceFloorWarning={sheetPriceFloorWarning}
-                calcData={calcData}
-                isDarkMode={isDarkMode}
-                maxAlerts={2}
-              />
-              <Collapsible open={cogsOpen} onOpenChange={setCogsOpen}>
-                <CollapsibleTrigger
-                  className={`flex w-full items-center justify-between py-2 text-xs font-medium ${
-                    isDarkMode ? 'text-neutral-300' : 'text-slate-700'
-                  }`}
-                >
-                  Cost breakdown
-                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${cogsOpen ? 'rotate-180' : ''}`} />
-                </CollapsibleTrigger>
-                <CollapsibleContent className="space-y-1.5 pt-1">
-                  <RailRow label="Internal labor" value={formatCurrency(results?.internal_labor_cost || 0)} isDarkMode={isDarkMode} />
-                  <RailRow label="Vendor cost" value={formatCurrency(results?.vendor_cost || 0)} isDarkMode={isDarkMode} />
-                  <RailRow label="Overhead" value={formatCurrency(results?.overhead_cost || 0)} isDarkMode={isDarkMode} />
-                  <RailRow label="Total COGS" value={formatCurrency(results?.cogs || 0)} isDarkMode={isDarkMode} bold />
-                </CollapsibleContent>
-              </Collapsible>
-              <Collapsible open={deductionsOpen} onOpenChange={setDeductionsOpen}>
-                <CollapsibleTrigger
-                  className={`flex w-full items-center justify-between py-2 text-xs font-medium ${
-                    isDarkMode ? 'text-neutral-300' : 'text-slate-700'
-                  }`}
-                >
-                  Deductions
-                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${deductionsOpen ? 'rotate-180' : ''}`} />
-                </CollapsibleTrigger>
-                <CollapsibleContent className="space-y-1.5 pt-1">
-                  {results?.incentive_breakdown ? (
-                    <>
-                      <RailRow
-                        label="Sales rep"
-                        value={`-${formatCurrency(results.incentive_breakdown.sales_rep.capped_value)}`}
-                        isDarkMode={isDarkMode}
-                        negative
-                      />
-                      <RailRow
-                        label="Sales manager"
-                        value={`-${formatCurrency(results.incentive_breakdown.sales_manager.capped_value)}`}
-                        isDarkMode={isDarkMode}
-                        negative
-                      />
-                    </>
-                  ) : (
-                    <RailRow
-                      label="Sales incentive"
-                      value={`-${formatCurrency(results?.sales_incentive || 0)}`}
-                      isDarkMode={isDarkMode}
-                      negative
-                    />
-                  )}
-                  {results?.financing_cost > 0 && (
-                    <RailRow
-                      label="Financing"
-                      value={`-${formatCurrency(results.financing_cost)}`}
-                      isDarkMode={isDarkMode}
-                      negative
-                    />
-                  )}
-                </CollapsibleContent>
-              </Collapsible>
-              {results?.warnings?.length > 0 && (
-                <div className="space-y-2">
-                  {results.warnings.slice(0, 2).map((warning, idx) => (
-                    <div
-                      key={idx}
-                      className={`p-2 rounded-lg text-xs flex items-start gap-2 ${
-                        warning.severity === 'error'
-                          ? isDarkMode
-                            ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
-                            : 'bg-rose-50 text-rose-700 border border-rose-200'
-                          : isDarkMode
-                            ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
-                            : 'bg-amber-50 text-amber-700 border border-amber-200'
-                      }`}
-                    >
-                      <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                      <span className="line-clamp-3">{warning.message}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <CogsDashboard
+              results={results}
+              calculating={calculating}
+              isDarkMode={isDarkMode}
+              sheetPriceFloorWarning={sheetPriceFloorWarning}
+              calcData={calcData}
+            />
           )}
         </div>
 
@@ -293,7 +199,6 @@ export default function ExecutiveQuoteRail({
               Quote controls
             </Button>
           )}
-          {exportPdfSlot}
           {onSaveTemplate && (
             <Button
               variant="outline"
@@ -317,6 +222,7 @@ export default function ExecutiveQuoteRail({
           projectInfo={projectInfo}
           setProjectInfo={setProjectInfo}
           paymentTerms={paymentTerms}
+          setPaymentTerms={setPaymentTerms}
           onOpenQuoteSettings={onOpenQuoteSettings}
           selectedProducts={selectedProducts}
           setSelectedProducts={setSelectedProducts}
@@ -329,10 +235,239 @@ export default function ExecutiveQuoteRail({
   );
 }
 
+function CogsDashboard({ results, calculating, isDarkMode, sheetPriceFloorWarning, calcData }) {
+  const [serviceExpanded, setServiceExpanded] = useState(false);
+  const [deductionsOpen, setDeductionsOpen] = useState(false);
+
+  const selling   = results?.selling_price || 0;
+  const labor     = results?.total_labor_cost    ?? results?.internal_labor_cost ?? 0;
+  const vendor    = results?.total_vendor_cost   ?? results?.vendor_cost         ?? 0;
+  const overhead  = results?.total_overhead_cost ?? results?.overhead_cost       ?? 0;
+  const cogs      = results?.cogs || 0;
+  const margin    = results?.contribution_margin_percent ?? 0;
+  const marginColor = margin >= 30 ? 'text-emerald-500' : margin >= 20 ? 'text-amber-500' : 'text-rose-500';
+  const profit    = selling - cogs;
+
+  const salesRep  = results?.incentive_breakdown?.sales_rep?.capped_value  || results?.sales_incentive || 0;
+  const salesMgr  = results?.incentive_breakdown?.sales_manager?.capped_value || 0;
+  const totalDeductions = salesRep + salesMgr + (results?.financing_cost || 0);
+
+  const products  = results?.margin_breakdown?.products || [];
+
+  // Composition bar segments
+  const safe = selling > 0 ? selling : 1;
+  const segments = [
+    { label: 'Labor',    pct: (labor   / safe) * 100, color: 'bg-indigo-500'  },
+    { label: 'Vendor',   pct: (vendor  / safe) * 100, color: 'bg-amber-500'   },
+    { label: 'Overhead', pct: (overhead/ safe) * 100, color: 'bg-violet-500'  },
+    { label: 'Deduct.',  pct: (totalDeductions / safe) * 100, color: 'bg-rose-500' },
+    { label: 'Profit',   pct: Math.max(0, (profit - totalDeductions) / safe * 100), color: 'bg-emerald-500' },
+  ].filter(s => s.pct > 0.1);
+
+  const card  = isDarkMode ? 'bg-neutral-800/60 border-neutral-700' : 'bg-slate-50 border-slate-200';
+  const muted = isDarkMode ? 'text-neutral-500' : 'text-slate-400';
+  const text  = isDarkMode ? 'text-neutral-200' : 'text-slate-700';
+  const divider = isDarkMode ? 'border-neutral-800' : 'border-slate-100';
+
+  if (!results && !calculating) return null;
+
+  return (
+    <div className="space-y-3">
+      {/* Selling + margin header */}
+      <div className={`rounded-xl border p-3 ${card}`}>
+        <div className="flex items-end justify-between gap-2">
+          <div>
+            <p className={`text-[10px] uppercase tracking-wider mb-0.5 ${muted}`}>Selling price</p>
+            {calculating ? (
+              <div className={`h-6 w-32 rounded animate-pulse ${isDarkMode ? 'bg-neutral-700' : 'bg-slate-200'}`} />
+            ) : (
+              <DashboardMetricAmount value={selling} size="lg" className={isDarkMode ? 'text-white' : 'text-slate-900'} />
+            )}
+          </div>
+          <div className="text-right">
+            <p className={`text-[10px] uppercase tracking-wider mb-0.5 ${muted}`}>Contribution</p>
+            <span className={`text-lg font-bold font-mono tabular-nums ${marginColor}`}>{margin.toFixed(1)}%</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Composition bar */}
+      {!calculating && selling > 0 && (
+        <div className={`rounded-xl border p-3 space-y-2 ${card}`}>
+          <p className={`text-[10px] uppercase tracking-wider ${muted}`}>Cost composition</p>
+          <div className="flex h-3 rounded-full overflow-hidden gap-px">
+            {segments.map(s => (
+              <div key={s.label} className={`${s.color} opacity-80`} style={{ width: `${s.pct}%` }} title={`${s.label} ${s.pct.toFixed(1)}%`} />
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-x-3 gap-y-1">
+            {segments.map(s => (
+              <div key={s.label} className="flex items-center gap-1">
+                <span className={`w-2 h-2 rounded-full shrink-0 ${s.color}`} />
+                <span className={`text-[10px] ${muted}`}>{s.label}</span>
+                <span className={`text-[10px] font-mono font-semibold ${text}`}>{s.pct.toFixed(0)}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Cost breakdown */}
+      <div className={`rounded-xl border divide-y ${card} ${divider}`}>
+        <CostRow label="Internal labor" value={labor}   pct={labor   / safe * 100} color="bg-indigo-500" isDarkMode={isDarkMode} calculating={calculating} />
+        <CostRow label="Vendor cost"    value={vendor}  pct={vendor  / safe * 100} color="bg-amber-500"  isDarkMode={isDarkMode} calculating={calculating} />
+        <CostRow label="Overhead"       value={overhead}pct={overhead/ safe * 100} color="bg-violet-500" isDarkMode={isDarkMode} calculating={calculating} />
+        {/* Total COGS row */}
+        <div className={`flex items-center justify-between px-3 py-2.5 ${isDarkMode ? 'bg-neutral-900/60' : 'bg-slate-100/80'}`}>
+          <span className={`text-[12px] font-semibold ${text}`}>Total COGS</span>
+          <span className={`font-mono font-bold text-[13px] tabular-nums ${text}`}>{formatCurrency(cogs)}</span>
+        </div>
+      </div>
+
+      {/* Per-service breakdown */}
+      {products.length > 0 && (
+        <div className={`rounded-xl border overflow-hidden ${card}`}>
+          <button
+            type="button"
+            onClick={() => setServiceExpanded(v => !v)}
+            className={`w-full flex items-center justify-between px-3 py-2.5 text-[12px] font-medium transition-colors ${
+              isDarkMode ? 'hover:bg-neutral-800' : 'hover:bg-slate-100'
+            } ${text}`}
+          >
+            <span>Per-service breakdown</span>
+            <div className="flex items-center gap-1">
+              <span className={`text-[10px] font-mono ${muted}`}>{products.length} services</span>
+              {serviceExpanded
+                ? <ChevronDown className="w-3.5 h-3.5" />
+                : <ChevronRight className="w-3.5 h-3.5" />}
+            </div>
+          </button>
+          {serviceExpanded && (
+            <div className={`border-t divide-y ${divider}`}>
+              {products.map(p => {
+                const pSell = p.selling || 0;
+                const pVendor = p.vendor_cost || 0;
+                const pOverhead = p.overhead_cost || 0;
+                // product_owned lines carry team_cost; legacy/catalog lines only
+                // have a bundled `cost` — treat that as internal labor (production).
+                const pLabor = p.team_cost != null
+                  ? p.team_cost
+                  : Math.max(0, (p.cost || 0) - pVendor - pOverhead);
+                const pCost = pLabor + pVendor + pOverhead;
+                const pMargin = pSell > 0 ? ((pSell - pCost) / pSell * 100) : 0;
+                const pMarginColor = pMargin >= 30 ? 'text-emerald-500' : pMargin >= 20 ? 'text-amber-500' : 'text-rose-500';
+                return (
+                  <div key={p.id} className="px-3 py-2.5 space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={`text-[11px] font-semibold truncate ${text}`}>
+                        {p.product_name || p.name}
+                        {p.segment && <span className={`ml-1.5 text-[9px] uppercase tracking-wider font-normal ${muted}`}>{p.segment}</span>}
+                      </span>
+                      <span className={`font-mono text-[11px] font-bold tabular-nums shrink-0 ${pMarginColor}`}>
+                        {pMargin.toFixed(0)}%
+                      </span>
+                    </div>
+                    <div className={`grid grid-cols-3 gap-1 text-[10px] ${muted}`}>
+                      <div>
+                        <span>Labor</span>
+                        <p className={`font-mono font-semibold ${text}`}>{formatCurrency(pLabor)}</p>
+                      </div>
+                      <div>
+                        <span>Vendor</span>
+                        <p className={`font-mono font-semibold ${text}`}>{formatCurrency(pVendor)}</p>
+                      </div>
+                      <div>
+                        <span>Sell</span>
+                        <p className={`font-mono font-semibold ${text}`}>{formatCurrency(pSell)}</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Deductions */}
+      {totalDeductions > 0 && (
+        <Collapsible open={deductionsOpen} onOpenChange={setDeductionsOpen}>
+          <CollapsibleTrigger className={`flex w-full items-center justify-between py-2 text-[12px] font-medium ${text}`}>
+            <span>Deductions</span>
+            <div className="flex items-center gap-1.5">
+              <span className={`font-mono text-[11px] text-rose-500`}>-{formatCurrency(totalDeductions)}</span>
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${deductionsOpen ? 'rotate-180' : ''}`} />
+            </div>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="space-y-1.5">
+            {salesRep > 0 && <RailRow label="Sales rep"     value={`-${formatCurrency(salesRep)}`} isDarkMode={isDarkMode} negative />}
+            {salesMgr > 0 && <RailRow label="Sales manager" value={`-${formatCurrency(salesMgr)}`} isDarkMode={isDarkMode} negative />}
+            {(results?.financing_cost || 0) > 0 && (
+              <RailRow label="Financing" value={`-${formatCurrency(results.financing_cost)}`} isDarkMode={isDarkMode} negative />
+            )}
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+
+      {/* Net profit */}
+      {!calculating && selling > 0 && (
+        <div className={`rounded-xl border p-3 flex items-center justify-between ${
+          isDarkMode ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-emerald-50 border-emerald-200'
+        }`}>
+          <span className={`text-[12px] font-medium ${isDarkMode ? 'text-emerald-400' : 'text-emerald-700'}`}>Net profit</span>
+          <span className={`font-mono font-bold text-[13px] tabular-nums ${isDarkMode ? 'text-emerald-400' : 'text-emerald-700'}`}>
+            {formatCurrency(Math.max(0, profit - totalDeductions))}
+          </span>
+        </div>
+      )}
+
+      {/* Warnings */}
+      {results?.warnings?.length > 0 && (
+        <div className="space-y-1.5">
+          {results.warnings.slice(0, 2).map((w, i) => (
+            <div key={i} className={`p-2.5 rounded-lg text-[12px] flex items-start gap-2 ${
+              w.severity === 'error'
+                ? isDarkMode ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30' : 'bg-rose-50 text-rose-700 border border-rose-200'
+                : isDarkMode ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' : 'bg-amber-50 text-amber-700 border border-amber-200'
+            }`}>
+              <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+              <span>{w.message}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CostRow({ label, value, pct, color, isDarkMode, calculating }) {
+  const muted = isDarkMode ? 'text-neutral-500' : 'text-slate-400';
+  const text  = isDarkMode ? 'text-neutral-200' : 'text-slate-700';
+  return (
+    <div className="px-3 py-2.5 space-y-1.5">
+      <div className="flex items-center justify-between">
+        <span className={`text-[12px] ${text}`}>{label}</span>
+        <div className="flex items-center gap-2">
+          <span className={`text-[10px] font-mono ${muted}`}>{pct.toFixed(1)}%</span>
+          {calculating
+            ? <div className={`h-4 w-20 rounded animate-pulse ${isDarkMode ? 'bg-neutral-700' : 'bg-slate-200'}`} />
+            : <span className={`font-mono font-semibold text-[13px] tabular-nums ${text}`}>{formatCurrency(value)}</span>
+          }
+        </div>
+      </div>
+      {!calculating && pct > 0 && (
+        <div className={`h-1 rounded-full overflow-hidden ${isDarkMode ? 'bg-neutral-800' : 'bg-slate-100'}`}>
+          <div className={`h-full rounded-full ${color} opacity-70`} style={{ width: `${Math.min(100, pct)}%` }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RailRow({ label, value, isDarkMode, bold, negative }) {
   return (
-    <div className="flex justify-between gap-2 text-xs min-w-0">
-      <span className={`shrink-0 ${bold ? 'font-medium' : ''} ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`}>
+    <div className="flex justify-between gap-2 text-[13px] min-w-0">
+      <span className={`shrink-0 ${bold ? 'font-semibold' : ''} ${isDarkMode ? 'text-neutral-400' : 'text-slate-600'}`}>
         {label}
       </span>
       <span

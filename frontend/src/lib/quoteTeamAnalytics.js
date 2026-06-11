@@ -9,6 +9,8 @@ export function buildQuoteTeamAnalytics(selectedProducts = [], results, roles = 
   let totalHours = 0;
   const roleCosts = new Map();
   const productShares = [];
+  // Department-level aggregation
+  const deptData = new Map(); // dept → { cost, hours, roleIds: Set }
 
   for (const item of products) {
     const line = lineById.get(item.id);
@@ -27,6 +29,16 @@ export function buildQuoteTeamAnalytics(selectedProducts = [], results, roles = 
       if (cost <= 0) continue;
       const label = shortRoleLabel(m.role_name || roles.find(r => r.id === m.role_id)?.name);
       roleCosts.set(label, (roleCosts.get(label) || 0) + cost);
+
+      // Department accumulation
+      const role = roles.find(r => r.id === m.role_id);
+      const dept = (role?.department || '').trim() || 'Other';
+      const memberHours = (Number(m.hours) || 0) * (Number(m.quantity) || 1);
+      if (!deptData.has(dept)) deptData.set(dept, { cost: 0, hours: 0, roleIds: new Set() });
+      const d = deptData.get(dept);
+      d.cost += cost;
+      d.hours += memberHours;
+      d.roleIds.add(m.role_id || m.role_name);
     }
 
     productShares.push({
@@ -59,6 +71,17 @@ export function buildQuoteTeamAnalytics(selectedProducts = [], results, roles = 
 
   const uniqueRoles = roleCosts.size;
 
+  const departmentBreakdown = [...deptData.entries()]
+    .map(([name, d]) => ({
+      name,
+      cost: d.cost,
+      hours: Math.round(d.hours * 10) / 10,
+      roleCount: d.roleIds.size,
+      percent: percentOf(d.cost, totalTeamCost) ?? 0,
+    }))
+    .filter(d => d.cost > 0)
+    .sort((a, b) => b.cost - a.cost);
+
   return {
     totalTeamCost,
     totalHours: Math.round(totalHours * 10) / 10,
@@ -67,5 +90,6 @@ export function buildQuoteTeamAnalytics(selectedProducts = [], results, roles = 
     productShares: sharesWithPct,
     laborConcentration,
     productCount: products.length,
+    departmentBreakdown,
   };
 }

@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["start"],
+      "cwd": "D:\\Claude Applications\\Calculator and Dashboard\\frontend",
+      "env": {
+        "PORT": "3005",
+        "CI": "true"
+      },
+      "port": 3005,
+      "autoPort": false
+    }
+  ]
+}

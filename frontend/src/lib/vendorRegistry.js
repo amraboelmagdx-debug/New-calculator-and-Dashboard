@@ -78,12 +78,75 @@ export function presetToLineVendor(preset, overrides = {}) {
     service_name: base.name || overrides.service_name || '',
     cost: Number(overrides.cost ?? base.default_cost ?? 0) || 0,
     quantity: Number(overrides.quantity ?? 1) || 1,
+    unit: overrides.unit || '',
     markup_percent: Number(overrides.markup_percent ?? base.default_markup_percent ?? DEFAULT_MARKUP) || 0,
+    risk_percent: Number(overrides.risk_percent ?? 0) || 0,
     ...(overrides.risk || base.default_risk_profile
       ? { risk: overrides.risk || base.default_risk_profile }
       : {}),
   };
 }
+
+// ─── Group vendor helpers ──────────────────────────────────────────────────
+
+/**
+ * Create a new group vendor (has sub_items, no top-level cost).
+ * A group vendor collects multiple line items (e.g. an Events bundle).
+ */
+export function createGroupVendor(overrides = {}) {
+  return {
+    id: overrides.id || `vg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    service_id: '',
+    preset_id: null,
+    service_name: overrides.service_name || '',
+    is_group: true,
+    markup_percent: Number(overrides.markup_percent ?? DEFAULT_MARKUP) || DEFAULT_MARKUP,
+    risk_percent: Number(overrides.risk_percent ?? 0) || 0,
+    cost: 0,
+    quantity: 1,
+    unit: '',
+    sub_items: overrides.sub_items || [],
+  };
+}
+
+/** Create a blank sub-item for a group vendor. */
+export function createSubItem(overrides = {}) {
+  return {
+    id: `si-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    name: overrides.name || '',
+    cost: Number(overrides.cost ?? 0) || 0,
+    quantity: Number(overrides.quantity ?? 1) || 1,
+    unit: overrides.unit || '',
+    markup_percent: Number(overrides.markup_percent ?? DEFAULT_MARKUP) || DEFAULT_MARKUP,
+    risk_percent: Number(overrides.risk_percent ?? 0) || 0,
+  };
+}
+
+/**
+ * Compute { cost, revenue } totals for any vendor (simple or group).
+ * Mirrors compute_vendor_cost in the backend.
+ * Per-vendor risk_percent is applied as a contingency buffer on top of markup.
+ */
+export function vendorTotals(v) {
+  if (v.is_group && v.sub_items?.length > 0) {
+    let cost = 0;
+    let revenue = 0;
+    for (const item of v.sub_items) {
+      const c = (Number(item.cost) || 0) * (Number(item.quantity) || 1);
+      cost += c;
+      const markedUp = c * (1 + (Number(item.markup_percent) || 0) / 100);
+      const riskMult = 1 + (Number(item.risk_percent) || 0) / 100;
+      revenue += markedUp * riskMult;
+    }
+    return { cost, revenue };
+  }
+  const cost = (Number(v.cost) || 0) * (Number(v.quantity) || 1);
+  const markedUp = cost * (1 + (Number(v.markup_percent) || 0) / 100);
+  const riskMult = 1 + (Number(v.risk_percent) || 0) / 100;
+  return { cost, revenue: markedUp * riskMult };
+}
+
+// ─── Preferred vendors ────────────────────────────────────────────────────
 
 /** Derive distinct presets actually used across product lines (for template `preferred_vendors`). */
 export function collectPreferredVendors(selectedProducts = []) {

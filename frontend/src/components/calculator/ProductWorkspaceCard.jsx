@@ -29,12 +29,12 @@ export default function ProductWorkspaceCard({
   standardMonthlyHours,
   buildProductTeam,
   refreshRoles,
-  isOpen = false,
   openSection = null,
   teamEditorsOpen = false,
   onToggleCardOpen,
   onOpenSectionChange,
   onTeamEditorsOpenChange,
+  onMarginPreview,
 }) {
   const [isEditing, setIsEditing] = useState(!item.product_name);
 
@@ -142,6 +142,7 @@ export default function ProductWorkspaceCard({
   const setMargin = val => {
     onChangeItem(item.id, 'margin_percent', val);
     onChangeItem(item.id, 'margin_source', 'custom');
+    onMarginPreview?.(item.id, val);
   };
 
   const selectService = value => {
@@ -233,7 +234,7 @@ export default function ProductWorkspaceCard({
               </SelectContent>
             </Select>
           </div>
-          <div className="w-[100px]">
+          <div className="w-[124px]">
             <Select value={item.size} onValueChange={changeSegment}>
               <SelectTrigger className={`h-9 ${isDarkMode ? 'bg-neutral-900 border-neutral-700 text-white' : 'bg-white border-slate-300'}`}>
                 <SelectValue />
@@ -288,16 +289,16 @@ export default function ProductWorkspaceCard({
     riskLabel: riskMultLabel ? `Risk · ${riskMultLabel}` : riskActive ? 'Risk •' : 'Risk',
   };
 
-  const showPanel = !isEditing && isOpen && openSection;
+  const showPanel = !isEditing && !!openSection;
 
   return (
     <div
       id={`product-${item.id}`}
       className={`product-portfolio-row rounded-lg border transition-all ${cardBorder} ${
         showPanel ? 'product-portfolio-row--expanded' : ''
-      } ${!isOpen ? 'product-portfolio-row--compact' : ''}`}
+      }`}
       data-testid="product-workspace-card"
-      aria-expanded={isOpen || !!openSection}
+      aria-expanded={!!openSection}
     >
       {isEditing ? (
         editControls
@@ -318,11 +319,10 @@ export default function ProductWorkspaceCard({
               onRemove={onRemove}
               showInsights={hasDetail}
               riskActive={riskActive}
-              isOpen={isOpen}
               onToggleCardOpen={onToggleCardOpen}
             />
           </div>
-          {isOpen && openSection && (
+          {openSection && (
             <div className="px-3 pb-0">
               <ProductControlTabs
                 activeTab={openSection}
@@ -359,7 +359,7 @@ export default function ProductWorkspaceCard({
           {openSection === 'team' && (
             <TeamTabPanel
               expanded={teamEditorsOpen}
-              onExpand={() => onTeamEditorsOpenChange?.(true)}
+              onExpand={() => onTeamEditorsOpenChange?.(!teamEditorsOpen)}
               teamMembers={teamMembers}
               teamHours={teamHours}
               line={line}
@@ -390,6 +390,7 @@ export default function ProductWorkspaceCard({
               line={line}
               isDarkMode={isDarkMode}
               onSetMargin={setMargin}
+              onMarginPreview={onMarginPreview ? val => onMarginPreview(item.id, val) : undefined}
             />
           )}
           {openSection === 'insights' && hasDetail && (

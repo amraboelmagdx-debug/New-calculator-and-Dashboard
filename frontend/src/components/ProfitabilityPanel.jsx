@@ -292,7 +292,6 @@ export default function ProfitabilityPanel({ results, mode, calculating }) {
 
         {/* Info footer */}
         <div className="text-xs text-slate-400 pt-2 border-t border-slate-100">
-          <p>Overhead Rate: {formatCurrency(results.overhead_rate, false)}/hr</p>
           <p>Total Hours: {results.total_hours?.toFixed(1) || 0} hrs</p>
         </div>
         

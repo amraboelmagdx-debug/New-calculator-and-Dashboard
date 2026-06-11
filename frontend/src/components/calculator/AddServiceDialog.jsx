@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Plus, Search, Briefcase, LayoutTemplate, History, Layers, Clock } from 'lucide-react';
+import { Plus, Search, Briefcase, LayoutTemplate, History, Clock } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -11,13 +11,25 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { getCatalogTierKeys, isAddonProduct } from '@/lib/opportunityScope';
 
 const PATHS = [
-  { id: 'catalog', label: 'From Catalog', icon: LayoutTemplate },
-  { id: 'template', label: 'From Template', icon: History },
-  { id: 'standalone', label: 'Standalone', icon: Briefcase },
-  { id: 'blueprint', label: 'Blueprint', icon: Layers, disabled: true },
+  { id: 'catalog',    label: 'From Catalog',  icon: LayoutTemplate },
+  { id: 'template',   label: 'From Template', icon: History },
+  { id: 'standalone', label: 'Standalone',    icon: Briefcase },
 ];
+
+/** Uppercase display label for a tier key */
+const TIER_LABELS = {
+  tiny:     'TINY',
+  standard: 'STANDARD',
+  big:      'BIG',
+  mega:     'MEGA',
+};
+
+function tierLabel(key) {
+  return TIER_LABELS[key?.toLowerCase()] || key?.toUpperCase() || '';
+}
 
 function catalogServiceName(product) {
   return product.service_name || product.product_name || '';
@@ -43,15 +55,21 @@ export default function AddServiceDialog({
 }) {
   const [path, setPath] = useState('catalog');
   const [search, setSearch] = useState('');
+  // Per-service selected tier: { [serviceName]: tierKey }
+  const [selectedTiers, setSelectedTiers] = useState({});
 
   const catalogResults = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return (filteredProductsCatalog || []).filter(p => {
-      if (!term) return true;
-      const name = catalogServiceName(p).toLowerCase();
-      const fam = catalogServiceFamily(p).toLowerCase();
-      return name.includes(term) || fam.includes(term);
-    });
+    // Add-ons are attached to a parent service in the Resources step, not picked
+    // as standalone top-level lines here — so they are excluded from this catalog.
+    return (filteredProductsCatalog || [])
+      .filter(p => !isAddonProduct(p))
+      .filter(p => {
+        if (!term) return true;
+        const name = catalogServiceName(p).toLowerCase();
+        const fam = catalogServiceFamily(p).toLowerCase();
+        return name.includes(term) || fam.includes(term);
+      });
   }, [filteredProductsCatalog, search]);
 
   const recentMatches = useMemo(() => {
@@ -62,9 +80,24 @@ export default function AddServiceDialog({
       .slice(0, 5);
   }, [recentServices, filteredProductsCatalog]);
 
-  const handlePick = name => {
-    onSelectCatalog?.(name);
+  /** Resolve which tier to use when adding a service */
+  const getActiveTier = (product) => {
+    const name = catalogServiceName(product);
+    const tiers = getCatalogTierKeys(product);
+    return selectedTiers[name] || tiers[0] || 'standard';
+  };
+
+  const handlePick = (product) => {
+    const name = catalogServiceName(product);
+    const tier = getActiveTier(product);
+    onSelectCatalog?.(name, tier);
     onOpenChange(false);
+  };
+
+  const handleTierSelect = (e, product, tier) => {
+    e.stopPropagation();
+    const name = catalogServiceName(product);
+    setSelectedTiers(prev => ({ ...prev, [name]: tier }));
   };
 
   const handleStandalone = () => {
@@ -78,8 +111,8 @@ export default function AddServiceDialog({
   };
 
   const panelBorder = isDarkMode ? 'border-neutral-800' : 'border-slate-200';
-  const rowHover = isDarkMode ? 'hover:bg-neutral-800/70' : 'hover:bg-slate-50';
-  const muted = isDarkMode ? 'text-neutral-500' : 'text-slate-500';
+  const rowHover   = isDarkMode ? 'hover:bg-neutral-800/50' : 'hover:bg-slate-50';
+  const muted      = isDarkMode ? 'text-neutral-500' : 'text-slate-500';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -94,8 +127,9 @@ export default function AddServiceDialog({
           </DialogDescription>
         </DialogHeader>
 
+        {/* ── Tab bar ─────────────────────────────────────────────────────── */}
         <div className={`flex gap-1 p-0.5 rounded-lg ${isDarkMode ? 'bg-neutral-950' : 'bg-slate-100'}`} role="tablist">
-          {PATHS.map(({ id, label, icon: Icon, disabled }) => {
+          {PATHS.map(({ id, label, icon: Icon }) => {
             const active = path === id;
             return (
               <button
@@ -103,35 +137,29 @@ export default function AddServiceDialog({
                 type="button"
                 role="tab"
                 aria-selected={active}
-                disabled={disabled}
-                onClick={() => !disabled && setPath(id)}
+                onClick={() => setPath(id)}
                 className={`flex-1 inline-flex items-center justify-center gap-1.5 py-1.5 px-2 text-xs font-medium rounded-md transition-colors ${
-                  disabled
-                    ? `${muted} opacity-60 cursor-not-allowed`
-                    : active
-                      ? isDarkMode
-                        ? 'bg-neutral-800 text-white'
-                        : 'bg-white text-slate-900 shadow-sm'
-                      : isDarkMode
-                        ? 'text-neutral-400 hover:text-neutral-200'
-                        : 'text-slate-500 hover:text-slate-800'
+                  active
+                    ? isDarkMode
+                      ? 'bg-neutral-800 text-white'
+                      : 'bg-white text-slate-900 shadow-sm'
+                    : isDarkMode
+                      ? 'text-neutral-400 hover:text-neutral-200'
+                      : 'text-slate-500 hover:text-slate-800'
                 }`}
                 data-testid={`add-service-path-${id}`}
               >
                 <Icon className="w-3.5 h-3.5" />
                 {label}
-                {disabled && (
-                  <Badge className={`ml-1 text-[9px] px-1 py-0 ${isDarkMode ? 'bg-neutral-800 text-neutral-500' : 'bg-slate-200 text-slate-500'}`}>
-                    Soon
-                  </Badge>
-                )}
               </button>
             );
           })}
         </div>
 
+        {/* ── Catalog tab ──────────────────────────────────────────────────── */}
         {path === 'catalog' && (
           <div className="space-y-3">
+            {/* Filter bar */}
             <div className="flex items-center gap-2">
               <Select value={selectedSection} onValueChange={setSelectedSection}>
                 <SelectTrigger className={`h-9 w-[170px] text-sm ${isDarkMode ? 'bg-neutral-950 border-neutral-700 text-neutral-200' : 'bg-white border-slate-300'}`}>
@@ -157,6 +185,7 @@ export default function AddServiceDialog({
               </div>
             </div>
 
+            {/* Recently used chips */}
             {recentMatches.length > 0 && !search.trim() && (
               <div>
                 <p className={`text-[10px] font-semibold uppercase tracking-wider mb-1.5 flex items-center gap-1 ${muted}`}>
@@ -169,7 +198,7 @@ export default function AddServiceDialog({
                       <button
                         key={`recent-${name}`}
                         type="button"
-                        onClick={() => handlePick(name)}
+                        onClick={() => handlePick(p)}
                         className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
                           isDarkMode
                             ? 'border-neutral-700 text-neutral-200 hover:bg-neutral-800'
@@ -184,26 +213,74 @@ export default function AddServiceDialog({
               </div>
             )}
 
+            {/* Service list */}
             <div className={`rounded-lg border max-h-[40vh] overflow-y-auto ${panelBorder}`}>
               {catalogResults.length === 0 ? (
                 <p className={`text-sm text-center py-10 ${muted}`}>No matching services.</p>
               ) : (
                 catalogResults.map(p => {
                   const name = catalogServiceName(p);
-                  const fam = catalogServiceFamily(p);
+                  const fam  = catalogServiceFamily(p);
+                  const tiers = getCatalogTierKeys(p);
+                  const activeTier = selectedTiers[name] || tiers[0] || 'standard';
+                  const multiTier  = tiers.length > 1;
+
                   return (
-                    <button
+                    <div
                       key={`${fam}-${name}`}
-                      type="button"
-                      onClick={() => handlePick(name)}
-                      className={`flex items-center justify-between w-full px-3 py-2.5 text-left border-b last:border-b-0 transition-colors ${panelBorder} ${rowHover}`}
+                      className={`flex items-center gap-2 px-3 py-2.5 border-b last:border-b-0 transition-colors cursor-pointer ${panelBorder} ${rowHover}`}
+                      onClick={() => handlePick(p)}
                     >
-                      <div className="min-w-0">
-                        <p className={`text-sm font-medium truncate ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{name}</p>
+                      {/* Service info */}
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-sm font-medium leading-snug ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                          {name}
+                        </p>
                         <p className={`text-[11px] ${muted}`}>{fam}</p>
                       </div>
-                      <Plus className={`w-4 h-4 shrink-0 ${muted}`} />
-                    </button>
+
+                      {/* Tier pills — only when multiple tiers available */}
+                      {multiTier && (
+                        <div
+                          className="flex items-center gap-1 shrink-0"
+                          onClick={e => e.stopPropagation()}
+                        >
+                          {tiers.map(t => {
+                            const isActive = t === activeTier;
+                            return (
+                              <button
+                                key={t}
+                                type="button"
+                                title={`Add as ${tierLabel(t)}`}
+                                onClick={e => handleTierSelect(e, p, t)}
+                                className={`h-5 px-2 text-[9px] font-semibold rounded-full border transition-all ${
+                                  isActive
+                                    ? isDarkMode
+                                      ? 'bg-indigo-500/25 border-indigo-500/60 text-indigo-300'
+                                      : 'bg-indigo-100 border-indigo-300 text-indigo-700'
+                                    : isDarkMode
+                                      ? 'border-neutral-700 text-neutral-500 hover:border-neutral-500 hover:text-neutral-300'
+                                      : 'border-slate-200 text-slate-400 hover:border-slate-400 hover:text-slate-600'
+                                }`}
+                              >
+                                {tierLabel(t)}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Add icon */}
+                      <div
+                        className={`w-6 h-6 rounded-full shrink-0 flex items-center justify-center transition-colors ${
+                          isDarkMode
+                            ? 'bg-neutral-800 hover:bg-indigo-600 text-neutral-400 hover:text-white'
+                            : 'bg-slate-100 hover:bg-indigo-600 text-slate-500 hover:text-white'
+                        }`}
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </div>
+                    </div>
                   );
                 })
               )}
@@ -211,6 +288,7 @@ export default function AddServiceDialog({
           </div>
         )}
 
+        {/* ── Template tab ─────────────────────────────────────────────────── */}
         {path === 'template' && (
           <div className={`rounded-lg border max-h-[44vh] overflow-y-auto ${panelBorder}`}>
             {(scopeTemplates || []).length === 0 ? (
@@ -242,6 +320,7 @@ export default function AddServiceDialog({
           </div>
         )}
 
+        {/* ── Standalone tab ───────────────────────────────────────────────── */}
         {path === 'standalone' && (
           <div className={`rounded-lg border p-6 text-center ${panelBorder}`}>
             <Briefcase className={`w-10 h-10 mx-auto mb-3 ${muted}`} />
@@ -253,16 +332,6 @@ export default function AddServiceDialog({
               <Plus className="w-4 h-4 mr-1.5" />
               Create standalone service
             </Button>
-          </div>
-        )}
-
-        {path === 'blueprint' && (
-          <div className={`rounded-lg border p-6 text-center ${panelBorder}`}>
-            <Layers className={`w-10 h-10 mx-auto mb-3 ${muted}`} />
-            <p className={`text-sm mb-1 ${isDarkMode ? 'text-neutral-200' : 'text-slate-800'}`}>Service Blueprints</p>
-            <p className={`text-xs ${muted}`}>
-              Reusable bundles of team, vendors, risk, and margin. Coming in a future release.
-            </p>
           </div>
         )}
       </DialogContent>

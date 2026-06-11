@@ -286,13 +286,7 @@ export default function TeamMemberRow({
         </>
       ) : isUtilizationMode ? (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1fr_88px_88px_auto] gap-3 items-start">
-            <FieldCell label="Monthly Cost" darkMode={darkMode}>
-              <ReadonlyValue
-                value={formatCurrency(selectedRole?.total_monthly_cost || selectedRole?.monthly_salary || 0, false)}
-                darkMode={darkMode}
-              />
-            </FieldCell>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[120px_120px_auto] gap-3 items-start">
             <FieldCell label="Utilization %" darkMode={darkMode}>
               <Input
                 type="number"
@@ -319,12 +313,11 @@ export default function TeamMemberRow({
           </div>
           <MetaStrip darkMode={darkMode}>
             <span>
-              ≈ {mirroredHours} hours / {standardMonthlyHours}h month
+              ≈ {mirroredHours}h / {standardMonthlyHours}h month
             </span>
             <span className={darkMode ? 'text-neutral-600' : 'text-slate-300'}>·</span>
             <span>
-              {formatCurrency(selectedRole?.total_monthly_cost || 0, false)} × {member.utilization_percent || 0}% ×{' '}
-              {member.duration_months || 1}m
+              {member.utilization_percent || 0}% × {member.duration_months || 1} mo
             </span>
           </MetaStrip>
         </>
@@ -352,9 +345,6 @@ export default function TeamMemberRow({
                 data-testid={`hours-input-${index}`}
               />
             </FieldCell>
-            <FieldCell label="Hourly Rate" darkMode={darkMode}>
-              <ReadonlyValue value={`${formatCurrency(member.hourly_rate || 0, false)} / hr`} darkMode={darkMode} />
-            </FieldCell>
             <div className="flex justify-end sm:justify-end">
               <TotalCostPanel cost={cost} darkMode={darkMode} />
             </div>
@@ -365,7 +355,7 @@ export default function TeamMemberRow({
             </span>
             <span className={darkMode ? 'text-neutral-600' : 'text-slate-300'}>·</span>
             <span>
-              {member.quantity || 1} × {member.hours || 0} hrs × {formatCurrency(member.hourly_rate || 0, false)}
+              {member.quantity || 1} × {member.hours || 0} hrs
             </span>
             {hybridBillableHours != null && (
               <>

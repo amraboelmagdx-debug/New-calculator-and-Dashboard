@@ -6,18 +6,20 @@ import { formatCurrency } from '@/lib/utils';
 
 export default function QuoteHealthStrip({
   results,
+  previewSelling,
   calculating,
   readiness,
   isDarkMode,
   sheetPriceFloorWarning,
   variant = 'full',
 }) {
+  const displayPrice = previewSelling ?? results?.selling_price ?? 0;
   const [pricePulse, setPricePulse] = useState(false);
-  const prevPrice = useRef(results?.selling_price ?? 0);
+  const prevPrice = useRef(displayPrice);
   const compact = variant === 'compact';
 
   useEffect(() => {
-    const next = results?.selling_price ?? 0;
+    const next = displayPrice;
     if (next > 0 && next !== prevPrice.current) {
       prevPrice.current = next;
       setPricePulse(true);
@@ -26,7 +28,7 @@ export default function QuoteHealthStrip({
     }
     prevPrice.current = next;
     return undefined;
-  }, [results?.selling_price]);
+  }, [displayPrice]);
 
   const margin = results?.contribution_margin_percent ?? 0;
   const marginColor =
@@ -50,8 +52,8 @@ export default function QuoteHealthStrip({
               {calculating ? (
                 <span className={`h-5 w-24 rounded animate-pulse inline-block ${isDarkMode ? 'bg-neutral-800' : 'bg-slate-200'}`} />
               ) : (
-                <span className={`font-bold font-mono tabular-nums ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                  {formatCurrency(results?.selling_price || 0)}
+                <span className={`font-bold font-mono tabular-nums transition-all duration-100 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                  {formatCurrency(displayPrice)}
                 </span>
               )}
             </div>
@@ -97,13 +99,13 @@ export default function QuoteHealthStrip({
             <p className={`text-xs font-medium ${isDarkMode ? 'text-neutral-500' : 'text-slate-500'}`}>
               Selling price
             </p>
-            {calculating ? (
+            {calculating && previewSelling == null ? (
               <div className={`h-8 w-36 mt-1 rounded animate-pulse ${isDarkMode ? 'bg-neutral-800' : 'bg-slate-200'}`} />
             ) : (
               <DashboardMetricAmount
-                value={results?.selling_price || 0}
+                value={displayPrice}
                 size="hero"
-                className={isDarkMode ? 'text-white' : 'text-slate-900'}
+                className={`transition-all duration-100 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
               />
             )}
           </div>

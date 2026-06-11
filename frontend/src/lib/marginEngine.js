@@ -39,6 +39,13 @@ export function resolveDefaultMarginPercent(item, segment, calcData) {
   return Number(calcData?.target_margin_percent) || 30;
 }
 
+/** Only a deliberate custom margin may price a line below the catalog floor (O).
+ *  App risk is an additive premium (handled by the API) that never drops below O,
+ *  so the floor decision depends on custom margin alone. Mirrors the backend. */
+export function isLineCustomPriced(item) {
+  return item?.margin_source === 'custom';
+}
+
 export function buildProductLineFromSelection(item, segment, calcData) {
   const qty = Math.max(1, Number(item.quantity) || 1);
   const { cost, executionMode, costBasis, usedFallback } = resolveProductLineCost(segment, qty);
@@ -46,7 +53,11 @@ export function buildProductLineFromSelection(item, segment, calcData) {
   const sheetMinSelling = (Number(segment?.base_minimum_selling_price) || 0) * qty;
   const marginPercent = resolveDefaultMarginPercent(item, segment, calcData);
   const rawSelling = sellingFromCostAndMargin(cost, marginPercent);
-  const lineSelling = Math.max(rawSelling, sheetMinSelling);
+  // Floor: only a custom margin may dip below O. Risk premium is added by the API on top of
+  // this floor-protected base, so the local (no-risk) estimate stays floor-protected.
+  const customMargin = isLineCustomPriced(item);
+  const lineSelling = customMargin ? rawSelling : Math.max(rawSelling, sheetMinSelling);
+  const belowFloor = rawSelling < sheetMinSelling - 0.01;
 
   return {
     id: item.id,
@@ -61,7 +72,10 @@ export function buildProductLineFromSelection(item, segment, calcData) {
     sheet_min_margin_percent: sheetMinMargin,
     sheet_min_selling: Math.round(sheetMinSelling * 100) / 100,
     margin_percent: marginPercent,
+    margin_source: item.margin_source || '',
     line_selling: Math.round(lineSelling * 100) / 100,
+    below_floor: belowFloor,
+    needs_approval: customMargin && belowFloor,
     service_family: segment?.service_family,
     direct_cost_per_unit: Number(segment?.direct_cost_per_unit) || 0,
     oh_cost_value: Number(segment?.oh_cost_value) || 0,
@@ -118,6 +132,7 @@ export function buildProductLinesForApi(lines) {
     sheet_min_margin_percent: l.sheet_min_margin_percent,
     sheet_min_selling: l.sheet_min_selling,
     margin_percent: l.margin_percent,
+    margin_source: l.margin_source || '',
   }));
 }
 
@@ -144,7 +159,7 @@ function sanitizeTeamMemberForApi(m) {
 }
 
 function sanitizeVendorForApi(v) {
-  return {
+  const base = {
     service_id: v.service_id || '',
     service_name: v.service_name || '',
     quantity: Number(v.quantity) || 1,
@@ -152,7 +167,21 @@ function sanitizeVendorForApi(v) {
     cost: Number(v.cost) || 0,
     unit: v.unit || '',
     markup_percent: Number(v.markup_percent) || 0,
+    risk_percent: Number(v.risk_percent) || 0,
+    is_group: Boolean(v.is_group),
+    sub_items: v.is_group && Array.isArray(v.sub_items)
+      ? v.sub_items.map(si => ({
+          id: si.id || '',
+          name: si.name || '',
+          cost: Number(si.cost) || 0,
+          quantity: Number(si.quantity) || 1,
+          unit: si.unit || '',
+          markup_percent: Number(si.markup_percent) || 0,
+          risk_percent: Number(si.risk_percent) || 0,
+        }))
+      : [],
   };
+  return base;
 }
 
 /**
@@ -182,6 +211,7 @@ export function buildProductOwnedLinesForApi(selectedProducts, findCatalogProduc
         sheet_min_margin_percent: sheetMinMargin,
         sheet_min_selling: Math.round(sheetMinSelling * 100) / 100,
         margin_percent: marginPercent,
+        margin_source: item.margin_source || '',
         team_members: (item.team_members || []).map(sanitizeTeamMemberForApi),
         vendors: (item.vendors || []).map(sanitizeVendorForApi),
         risk: item.risk

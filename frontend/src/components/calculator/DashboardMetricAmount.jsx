@@ -40,13 +40,18 @@ export default function DashboardMetricAmount({ value, className = '', size = 'd
   }, [value, animate]);
 
   const formatted = formatCurrency(displayValue);
+  const heroSizeClass = len => {
+    if (len > 18) return 'text-xl';
+    if (len > 14) return 'text-2xl';
+    return 'text-2xl sm:text-3xl';
+  };
   const sizeClass =
     size === 'hero'
-      ? 'text-2xl sm:text-3xl'
+      ? heroSizeClass(String(formatted || '').length)
       : metricAmountSizeClass(formatted);
   return (
     <p
-      className={`font-bold font-mono tabular-nums leading-tight break-words min-w-0 ${sizeClass} ${className}`}
+      className={`font-bold font-mono tabular-nums leading-tight whitespace-nowrap min-w-0 ${sizeClass} ${className}`}
       title={formatCurrency(value)}
     >
       {formatted}

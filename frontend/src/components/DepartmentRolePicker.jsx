@@ -95,14 +95,11 @@ export default function DepartmentRolePicker({ roles, selectedMembers, onAddMemb
           <h4 className={`font-semibold text-sm leading-tight mb-2 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
             {role.name}
           </h4>
-          <div className="flex items-center justify-end gap-3 text-xs">
-            <span className={`font-mono px-2 py-0.5 rounded ${isDarkMode ? 'bg-neutral-700 text-neutral-300' : 'bg-slate-100 text-slate-600'}`}>
-              {formatCurrency(role.hourly_rate || 0, false)}/hr
-            </span>
-            <span className={`font-mono px-2 py-0.5 rounded ${isDarkMode ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-50 text-emerald-700'}`}>
-              {formatCurrency(role.total_monthly_cost || role.monthly_salary || 0, false)}/mo
-            </span>
-          </div>
+          {role.department && (
+            <p className={`text-[11px] mt-0.5 ${isDarkMode ? 'text-neutral-500' : 'text-slate-400'}`}>
+              {role.department}
+            </p>
+          )}
         </div>
       </div>
     );

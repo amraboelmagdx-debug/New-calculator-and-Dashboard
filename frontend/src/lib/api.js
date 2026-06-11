@@ -132,6 +132,27 @@ export const deleteVendorService = async (id) => {
   return response.data;
 };
 
+// ==================== VENDOR GROUP TEMPLATES ====================
+export const getVendorGroupTemplates = async () => {
+  const response = await apiClient.get('/vendor-group-templates');
+  return response.data;
+};
+
+export const saveVendorGroupTemplate = async (payload) => {
+  const response = await apiClient.post('/vendor-group-templates', payload, adminConfig());
+  return response.data;
+};
+
+export const updateVendorGroupTemplate = async (id, payload) => {
+  const response = await apiClient.put(`/vendor-group-templates/${id}`, payload, adminConfig());
+  return response.data;
+};
+
+export const deleteVendorGroupTemplate = async (id) => {
+  const response = await apiClient.delete(`/vendor-group-templates/${id}`, adminConfig());
+  return response.data;
+};
+
 // ==================== PAYMENT TERMS ====================
 export const getPaymentTerms = async () => {
   const response = await apiClient.get('/payment-terms');
@@ -290,21 +311,6 @@ export const getOpportunities = async () => {
 
 export const getOpportunity = async (id) => {
   const response = await apiClient.get(`/opportunities/${id}`);
-  return response.data;
-};
-
-export const createOpportunity = async (opportunity) => {
-  const response = await apiClient.post('/opportunities', opportunity);
-  return response.data;
-};
-
-export const updateOpportunity = async (id, opportunity) => {
-  const response = await apiClient.put(`/opportunities/${id}`, opportunity);
-  return response.data;
-};
-
-export const deleteOpportunity = async (id) => {
-  const response = await apiClient.delete(`/opportunities/${id}`);
   return response.data;
 };
 
